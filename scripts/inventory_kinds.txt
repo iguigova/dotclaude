@@ -1,0 +1,9 @@
+# The kinds of thing we author and control, one per line, listed only here:
+# skill_inventory.py inventories them and journal.sh accepts them as the exits a
+# note can take.
+skill
+command
+script
+rules
+settings
+memory

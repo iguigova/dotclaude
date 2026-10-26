@@ -1,0 +1,92 @@
+{
+  "env": {
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "true"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(~/.claude/scripts/confluence-attach.sh *)",
+      "Bash(~/.claude/scripts/confluence-children.sh *)",
+      "Bash(~/.claude/scripts/confluence-comment.sh *)",
+      "Bash(~/.claude/scripts/confluence-create.sh *)",
+      "Bash(~/.claude/scripts/confluence-move.sh *)",
+      "Bash(~/.claude/scripts/confluence-page.sh *)",
+      "Bash(~/.claude/scripts/confluence-safe-update.sh *)",
+      "Bash(~/.claude/scripts/confluence-search.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-bot-comments.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-bot-fetch.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-bot-score.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-diff-index.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-fetch.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-file.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-grep.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-guidelines.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-head-dir.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-local-tree.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-name-session.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-prior-review.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-security.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-start.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-structure.sh *)",
+      "Bash(~/.claude/scripts/gh-pr-workdir.sh *)",
+      "Bash(~/.claude/scripts/gh_pr_ref.py *)",
+      "Bash(~/.claude/scripts/jira-attach.sh *)",
+      "Bash(~/.claude/scripts/jira-comment.sh *)",
+      "Bash(~/.claude/scripts/jira-description.sh *)",
+      "Bash(~/.claude/scripts/jira-issue.sh *)",
+      "Bash(~/.claude/scripts/jira-link.sh *)",
+      "Bash(~/.claude/scripts/jira-remaining.sh *)",
+      "Bash(~/.claude/scripts/jira-search.sh *)",
+      "Bash(~/.claude/scripts/jira-transition.sh *)",
+      "Bash(~/.claude/scripts/jira-worklog.sh *)",
+      "Bash(~/.claude/scripts/journal_queue.sh *)",
+      "Bash(~/.claude/scripts/storage-well-formed.sh *)",
+      "Bash(~/.claude/scripts/tooling_commit.sh *)",
+      "Read(~/.claude/**)"
+    ],
+    "defaultMode": "default"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+  "enabledPlugins": {
+    "gopls-lsp@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "slack@claude-plugins-official": false
+  },
+  "disableClaudeAiConnectors": true,
+  "autoUpdatesChannel": "latest",
+  "tui": "fullscreen",
+  "theme": "auto",
+  "verbose": true,
+  "autoCompactEnabled": false,
+  "agentPushNotifEnabled": true,
+  "useAutoModeDuringPlan": false,
+  "feedbackDrafts": "off",
+  "hooks": {
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/session_end_notes.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/session_end_sweep.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/session_start_notes.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

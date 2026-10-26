@@ -55,6 +55,24 @@ export MEMORY_FILE
 
 MEM_DIR="$(dirname "$MEMORY_FILE")"
 
+# --- Running a verify -------------------------------------------------------
+# Every verify runs in one environment, the one cron gives the nightly check:
+# HOME, the system PATH from /etc/environment, and nothing else of the caller's.
+# A fact the writer admits from a session is then a fact the night can check,
+# and a tool found only on a session's PATH is refused at the write.
+MEM_VERIFY_PATH=$(sed -n 's/^PATH="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/environment 2>/dev/null)
+MEM_VERIFY_PATH=${MEM_VERIFY_PATH:-/usr/local/bin:/usr/bin:/bin}
+
+# mem_verify CMD — exit status of CMD run once from the project root in that
+# environment. Without pipefail: a verify is written as `git show … | grep -q …`,
+# whose verdict is grep's, and grep -q exiting on its first match kills the
+# producer with SIGPIPE, which pipefail would report as the claim being false.
+mem_verify() {
+  ( cd "$MEM_PROJECT_ROOT" \
+    && env -i HOME="$HOME" LOGNAME="${LOGNAME:-$(id -un)}" PATH="$MEM_VERIFY_PATH" LANG=C.UTF-8 \
+         bash -c "$1" ) >/dev/null 2>&1
+}
+
 # Both constants below are read by the scripts that source this file
 # (memory_lint.sh), never here, which a linter cannot see across a `source`.
 # shellcheck disable=SC2034
@@ -202,12 +220,19 @@ FACT
   check 'mem_project_folder' "$HOME/.claude/projects/-a-b-c-d" "$(mem_project_folder /a/b.c_d)"
   check 'mem_find_root from a subdirectory' "$fx/proj" "$(mem_find_root "$fx/proj/sub/deeper")"
   check 'mem_find_root with no folder' "$fx/none" "$(mem_find_root "$fx/none")"
+  export MEM_LEAK=x
+  mem_verify 'test -z "${MEM_LEAK:-}"'; check 'mem_verify passes none of the caller environment' 0 "$?"
+  mem_verify "test \"\$PATH\" = '$MEM_VERIFY_PATH' && test \"\$PWD\" = '$MEM_PROJECT_ROOT'"
+  check 'mem_verify runs on the declared PATH from the project root' 0 "$?"
+  mem_verify 'exit 75'; check 'mem_verify returns the exit status' 75 "$?"
+  mem_verify 'yes | head -1 | grep -q y'; check 'mem_verify runs without pipefail' 0 "$?"
   if [[ "$st" -eq 0 ]]; then
     echo "memory_lib self-test: PASS (mem_field reads top-level and metadata keys" \
       "and undoes both quote styles, mem_block_fields names | and >- values," \
       "mem_facts skips the index, mem_tokens lowercases and drops short and stop" \
       "words, mem_stores lists facts, both CLAUDE.md, skills and commands," \
-      "mem_find_root walks up to the folder the harness keeps)"
+      "mem_find_root walks up to the folder the harness keeps, mem_verify runs" \
+      "on the declared environment alone)"
     exit 0
   fi
   echo "memory_lib self-test: FAIL" >&2

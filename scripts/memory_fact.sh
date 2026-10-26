@@ -5,12 +5,15 @@
 # Usage:
 #   memory_fact.sh write <name> <pointer hook>   # the whole fact file on stdin
 #   memory_fact.sh remove <name>                 # prints the removed fact to stdout
+#   memory_fact.sh verify <name>                 # runs its verify:, exits as it did
 #   memory_fact.sh --self-test
 #
 # `write` creates or replaces, and creates the store for a project's first fact;
 # the pointer keeps its position when one exists, and lands at the end when it
-# does not. `remove` prints what it deleted, because a
-# fact's text survives nowhere else once the file is gone.
+# does not. `remove` prints what it deleted, because a fact's text survives
+# nowhere else once the file is gone. `verify` runs a fact's check as the writer
+# and memory_check.sh do (memory_lib.sh, mem_verify), so its exit status is the
+# night's verdict.
 #
 # Every call ends in memory_lint.sh. A call the lint rejects is rolled back whole,
 # so a rejected write leaves the store exactly as it found it and the caller sees
@@ -58,11 +61,10 @@ mf_write() {  # NAME HOOK  (fact file on stdin)
 
   # A fact is admitted because its check passes now, not because it has one.
   # Anything but 0 refuses, 75 included: a claim nobody could confirm is an item
-  # still open, not a fact. Run without pipefail, as memory_check.sh does, since
-  # a verify is a pipeline whose verdict is the reader's.
+  # still open, not a fact.
   local vrc vcmd
   vcmd=$(mem_field "$tmp" verify)
-  ( set +o pipefail; cd "$MEM_PROJECT_ROOT" && eval "$vcmd" ) >/dev/null 2>&1
+  mem_verify "$vcmd"
   vrc=$?
   # The command is quoted back because the fault may be the frontmatter's
   # reading of it rather than the claim itself.
@@ -117,6 +119,14 @@ mf_remove() {  # NAME
   fi
   rm -f "$idx_bak" "$file_bak"
   echo "fact removed → $name" >&2
+}
+
+mf_verify() {  # NAME
+  local file="$MEM_DIR/$1.md" rc
+  [[ -f "$file" ]] || die "no fact named $1"
+  mem_verify "$(mem_field "$file" verify)"; rc=$?
+  echo "verify: $1 exited $rc"
+  return "$rc"
 }
 
 # ---------------------------------------------------------------- self-test
@@ -187,6 +197,10 @@ self_test() {
     eval '[[ ! -e "$d/new.md" && $(grep -c "^- \[" "$d/MEMORY.md") -eq 1 ]]'
   check "removing what is not there is refused" \
     eval '! run remove nothing >/dev/null 2>&1'
+  check "verify runs a fact's check and exits as it did" \
+    eval '[[ "$(run verify keep)" == "verify: keep exited 0" ]]'
+  check "verifying what is not there is refused" \
+    eval '! run verify nothing >/dev/null 2>&1'
 
   # mem_field reads one scalar: the document's own field or metadata's, with
   # each quoting style's escaping undone and an unquoted one left alone.
@@ -229,5 +243,7 @@ case "${1:-}" in
           mf_write "$2" "$3" ;;
   remove) [[ $# -eq 2 ]] || die "usage: memory_fact.sh remove <name>"
           mf_remove "$2" ;;
-  *) echo "usage: memory_fact.sh write <name> <hook> | remove <name> | --self-test" >&2; exit 2 ;;
+  verify) [[ $# -eq 2 ]] || die "usage: memory_fact.sh verify <name>"
+          mf_verify "$2" ;;
+  *) echo "usage: memory_fact.sh write <name> <hook> | remove <name> | verify <name> | --self-test" >&2; exit 2 ;;
 esac

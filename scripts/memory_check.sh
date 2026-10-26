@@ -25,8 +25,9 @@
 #
 # A run that deletes writes what it deleted to <project>/.claude/memory_check.last
 # and the project's journal, the only places the text survives. A run of --all
-# writes ~/.claude/memory_check.last when it skipped a store, a store's run
-# failed or its own fixtures did, and removes it when none did.
+# writes ~/.claude/memory_check.last when it skipped a store, left a fact
+# unchecked, or a store's run or its own fixtures failed, and removes it when
+# none of these happened.
 #
 # Usage: memory_check.sh [--all] [--dry-run] [--self-test]
 #   --all        every store, not only this project's
@@ -54,12 +55,7 @@ ALL_REPORT="$HOME/.claude/memory_check.last"
 # --- Evidence ---------------------------------------------------------------
 
 # mc_run_one FILE — exit status of one run of the fact's verify command.
-# Without pipefail: a verify is written as `git show … | grep -q …`, whose verdict
-# is grep's. `grep -q` exits on its first match, which kills the producer with
-# SIGPIPE, and pipefail would report that 141 as the claim being false.
-mc_run_one() {
-  ( set +o pipefail; cd "$MEM_PROJECT_ROOT" && eval "$(mem_field "$1" verify)" ) >/dev/null 2>&1
-}
+mc_run_one() { mem_verify "$(mem_field "$1" verify)"; }
 
 # mc_verify FILE — ok | unrun | unanswered | contradicted.
 # 126 and 127 mean the shell never reached the command, and 75 means the command
@@ -161,13 +157,29 @@ mc_all_report() {
 }
 
 # mc_all — one run of this script per store, each told its project. Exits
-# non-zero when any run did.
+# non-zero when any run did. A fact left unchecked is reported with the night it
+# was first left unchecked, carried from the last report, so one that stays
+# unchecked night after night reads as such.
 mc_all() {
-  local mem folder root st rc=0 problems="" args=()
+  local mem folder root st out line rc=0 problems="" args=()
+  local -A since=()
   [[ "$DRY" -eq 1 ]] && args+=(--dry-run)
-  for mem in "$HOME"/.claude/projects/*/memory/MEMORY.md; do
+  local re_prev='^unchecked since ([0-9-]+): ([a-z0-9-]+) in (.*) — '
+  local re_run='^  unchecked  ([a-z0-9-]+) — (.*)$'
+  if [[ -f "$ALL_REPORT" ]]; then
+    while IFS= read -r line; do
+      [[ "$line" =~ $re_prev ]] && since["${BASH_REMATCH[3]}/${BASH_REMATCH[2]}"]=${BASH_REMATCH[1]}
+    done < "$ALL_REPORT"
+  fi
+  for folder in "$HOME"/.claude/projects/*; do
+    # A folder linked into a volume that is not mounted holds no store to see.
+    if [[ -L "$folder" && ! -e "$folder" ]]; then
+      echo "memory_check: $folder links to $(readlink "$folder"), which is not there; skipped"
+      problems+="skipped $folder — its store is not mounted"$'\n'
+      continue
+    fi
+    mem="$folder/memory/MEMORY.md"
     [[ -f "$mem" ]] || continue
-    folder=${mem%/memory/MEMORY.md}
     root=$(mc_root_of "$folder")
     if [[ -z "$root" ]]; then
       echo "memory_check: no session in $folder names its project; skipped"
@@ -175,8 +187,13 @@ mc_all() {
       continue
     fi
     echo "== $root"
-    MEM_PROJECT_ROOT="$root" MEMORY_FILE="$mem" "$SCRIPTS_DIR/memory_check.sh" "${args[@]}"
+    out=$(MEM_PROJECT_ROOT="$root" MEMORY_FILE="$mem" "$SCRIPTS_DIR/memory_check.sh" "${args[@]}" 2>&1)
     st=$?
+    printf '%s\n' "$out"
+    while IFS= read -r line; do
+      [[ "$line" =~ $re_run ]] || continue
+      problems+="unchecked since ${since["$root/${BASH_REMATCH[1]}"]:-$TODAY}: ${BASH_REMATCH[1]} in $root — ${BASH_REMATCH[2]}"$'\n'
+    done <<<"$out"
     [[ "$st" -eq 0 ]] || { rc=1; problems+="failed $root — its run exited $st"$'\n'; }
   done
   mc_all_report "$problems"
@@ -370,6 +387,25 @@ mc_e2e_test() {
   rm -rf "$fx/home/.claude/projects/-orphan"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
   check2 "an --all run with nothing to say removes the stale report" 'true' \
+    "$([[ ! -f "$all_report" ]] && echo true || echo false)"
+
+  ln -s "$fx/unmounted/data" "$fx/home/.claude/projects/-unmounted"
+  HOME="$fx/home" "$self" --all >/dev/null 2>&1
+  check2 "--all reports a store linked to a volume that is not mounted" 'true' \
+    "$(grep -q 'skipped .*-unmounted — its store is not mounted' "$all_report" 2>/dev/null && echo true || echo false)"
+  rm "$fx/home/.claude/projects/-unmounted"
+
+  mc_fixture "$folder/memory" allwait 'exit 75'
+  HOME="$fx/home" "$self" --all >/dev/null 2>&1
+  check2 "--all reports an unchecked fact from tonight" 'true' \
+    "$(grep -q "^unchecked since $(date -u +%F): allwait in $fx/proj — its verify got no answer" "$all_report" 2>/dev/null && echo true || echo false)"
+  sed -i 's/^unchecked since [0-9-]*:/unchecked since 2026-01-01:/' "$all_report"
+  HOME="$fx/home" "$self" --all >/dev/null 2>&1
+  check2 "and keeps the night it was first unchecked" 'true' \
+    "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)"
+  rm "$folder/memory/allwait.md"; sed -i '/(allwait.md)/d' "$folder/memory/MEMORY.md"
+  HOME="$fx/home" "$self" --all >/dev/null 2>&1
+  check2 "a fact checked again leaves the report" 'true' \
     "$([[ ! -f "$all_report" ]] && echo true || echo false)"
 
   rm -rf "$fx"

@@ -32,11 +32,12 @@ Then read what its kind depends on:
   and every settings file in that `.claude/`, because a helper's allow may sit
   in either. Then read what the lint does not check: what each entry admits, the script behind a hook, the command
   behind a permission. An entry matching more than it names is the finding.
-- **memory** — run the fact's own `verify:`, from its frontmatter, verbatim.
-  Exit 0 is the claim holding, 75 is no answer, anything else contradicts it
-  (`~/.claude/scripts/memory_lib.sh` states this). Report the result and
-  never delete — `~/.claude/scripts/memory_check.sh` owns deletion, and it
-  runs unattended.
+- **memory** — run `~/.claude/scripts/memory_fact.sh verify <name>` from the
+  project root, which runs the fact's `verify:` in the environment the nightly
+  check uses. Exit 0 is the claim holding, 75 is no answer, anything else
+  contradicts it (`~/.claude/scripts/memory_lib.sh` states this). Report the
+  result and never delete — `~/.claude/scripts/memory_check.sh` owns deletion,
+  and it runs unattended.
 
 Then invoke the `audit` skill, which owns the criteria and the rules. Three
 fields of this report are what it means by "a tool reports": an unset variable

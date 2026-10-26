@@ -42,7 +42,8 @@ The selftest needs `git`, `python3` and `shellcheck`.
 
 `~/.claude` is a local-only repo. `scripts/dotclaude_export.sh` copies the
 files above, as committed, into this repo. It refuses the copy on any denylisted
-name, token shape or real email, runs the copy's selftest, and commits.
+name, token shape, real email or binary file, runs the copy's selftest, and
+commits.
 
 ## License
 

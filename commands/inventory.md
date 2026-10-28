@@ -42,7 +42,7 @@ Then read what its kind depends on:
 Then invoke the `audit` skill, which owns the criteria and the rules. Three
 fields of this report are what it means by "a tool reports": an unset variable
 in a bash block, a fixed `/tmp` path and a line it restates are each flagged
-patterns with a benign case, and the docstring says what each one matches.
+patterns with a benign case.
 
 What each field measures is in the script's docstring. Read it there when a
 question depends on a definition; never restate it from memory.
@@ -57,8 +57,7 @@ A finding the user approved is fixed, gated and committed in the same round.
 
 Report the sha it printed, or the refusal it named.
 
-- **The message** — ticket-first or Conventional Commits as that repo's
-  `CLAUDE.md` states, its body stating the mechanism, then the defect it closed,
-  as the finding did.
+- **The message** — a subject in a form the script accepts, and a body stating
+  the mechanism, then the defect it closed, as the finding did.
 - **Nothing approved, or nothing found** — there is nothing to commit, and the
   round ends at the report.

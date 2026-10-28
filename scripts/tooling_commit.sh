@@ -6,6 +6,7 @@
 #
 # Usage:
 #   tooling_commit.sh -m "<message>" -- <path>…
+#   tooling_commit.sh --help
 #   tooling_commit.sh --self-test
 #
 # A tooling repo is a local-only repo — no remote — that carries a selftest at
@@ -27,11 +28,18 @@
 # (--only), so another session's staged or dirty work is left as it was. A
 # deleted path is committed as its deletion.
 #
+# The message's subject, its first line, takes one of two forms: Conventional
+# Commits, `type(scope)!: summary` with the scope and the `!` optional and the
+# type one of TYPES, or ticket-first, `KEY-123: summary`. A subject in neither
+# form is refused before the gate runs, so a guessed form never lands.
+#
 # Prints the new commit's short sha on stdout. Exit 0 committed, 1 refused, 2
 # usage. Every refusal names its reason on stderr.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 GATES=(scripts/selftest.sh .claude/scripts/selftest.sh)
+TYPES=(build chore ci docs feat fix perf refactor revert style test)
 UNGATED=.claude/session_history.md
 SELF=$(realpath -- "${BASH_SOURCE[0]}")
 
@@ -57,6 +65,14 @@ gates_of() {
 }
 
 # ---------------------------------------------------------------- checks
+
+subject_ok() {  # MESSAGE — its first line is Conventional Commits or ticket-first
+  local subject="${1%%$'\n'*}" types
+  types=$(IFS='|'; printf '%s' "${TYPES[*]}")
+  [[ "$subject" =~ ^($types)(\([^\)]+\))?!?:\ [^[:space:]] \
+     || "$subject" =~ ^[A-Z][A-Z0-9]+-[0-9]+:\ [^[:space:]] ]] \
+    || die "subject '$subject' is neither Conventional Commits (${TYPES[*]}) nor ticket-first (KEY-123: …)"
+}
 
 one_repo() {  # ABS… — the single repo holding every path, or a refusal
   local top p t
@@ -140,6 +156,7 @@ main() {
     esac
   done
   [[ -n "$msg" && $# -gt 0 ]] || usage
+  subject_ok "$msg"
 
   local -a abs=() rel=(); local p top
   for p in "$@"; do abs+=("$(realpath -m -- "$p")"); done
@@ -192,73 +209,89 @@ self_test() {
   check "the message is the one given" "chore: a" "$(git -C "$r" log -1 --format=%B)"
 
   git -C "$r" rm -q --cached staged.txt; rm "$r/staged.txt"
-  (cd "$r" && rm base.txt && echo "c d" > "c d.txt" && "$SELF" -m del -- base.txt "c d.txt" >/dev/null)
+  (cd "$r" && rm base.txt && echo "c d" > "c d.txt" && "$SELF" -m "chore: del" -- base.txt "c d.txt" >/dev/null)
   check "a relative path, a deletion and a space are committed whole" "base.txt
 c d.txt" "$(files_of_head "$r")"
 
   git -C "$r" mv "c d.txt" moved.txt
-  tc -m mv -- "$r/c d.txt" "$r/moved.txt" >/dev/null
+  tc -m "chore: mv" -- "$r/c d.txt" "$r/moved.txt" >/dev/null
   check "a git mv commits both its paths" "c d.txt
 moved.txt" "$(files_of_head "$r")"
 
   local h; h=$(head_of "$r")
   echo b > "$r/b.txt"; touch "$r/.claude/scripts/RED"
-  out=$(tc -m red -- "$r/b.txt")
+  out=$(tc -m "chore: red" -- "$r/b.txt")
   check "a red gate commits nothing" "$h" "$(head_of "$r")"
   check "and says the gate was red" "1" "$(grep -c 'is red; nothing committed' <<<"$out")"
   rm "$r/.claude/scripts/RED"
 
   mkdir -p "$r/.claude"; echo "## entry" > "$r/.claude/session_history.md"
   touch "$r/.claude/scripts/RED"
-  out=$(tc -m hist -- "$r/.claude/session_history.md")
+  out=$(tc -m "chore: hist" -- "$r/.claude/session_history.md")
   check "the session history alone commits past a red gate" ".claude/session_history.md" \
     "$(files_of_head "$r")"
   check "and says no gate reads it" "1" "$(grep -c 'no gate reads it' <<<"$out")"
   echo "## more" >> "$r/.claude/session_history.md"; echo c > "$r/code.sh"
   h=$(head_of "$r")
-  tc -m mixed -- "$r/.claude/session_history.md" "$r/code.sh" >/dev/null
+  tc -m "chore: mixed" -- "$r/.claude/session_history.md" "$r/code.sh" >/dev/null
   check "the history beside any other path is gated" "$h" "$(head_of "$r")"
   git -C "$r" checkout -q -- .claude/session_history.md; rm "$r/code.sh" "$r/.claude/scripts/RED"
 
   local ng2="$tmp/nogate-hist"; mkrepo "$ng2"; mkdir -p "$ng2/.claude"
   echo "## e" > "$ng2/.claude/session_history.md"
-  tc -m h -- "$ng2/.claude/session_history.md" >/dev/null
+  tc -m "chore: h" -- "$ng2/.claude/session_history.md" >/dev/null
   check "a history-only commit needs no selftest" ".claude/session_history.md" \
     "$(files_of_head "$ng2")"
 
   local g="$tmp/global"; mkrepo "$g" scripts/selftest.sh
   echo x > "$g/x.txt"
-  check "a gate at scripts/selftest.sh is found too" "$(tc -m x -- "$g/x.txt")" "$(head_of "$g")"
+  check "a gate at scripts/selftest.sh is found too" "$(tc -m "chore: x" -- "$g/x.txt")" "$(head_of "$g")"
 
   ln -s "$g" "$tmp/link"; echo y > "$g/y.txt"
-  tc -m y -- "$tmp/link/y.txt" >/dev/null
+  tc -m "chore: y" -- "$tmp/link/y.txt" >/dev/null
   check "a path through a symlink commits in the repo holding the file" "y.txt" "$(files_of_head "$g")"
 
   local rm_="$tmp/remote"; mkrepo "$rm_" scripts/selftest.sh
   git -C "$rm_" remote add origin https://example.invalid/r.git; echo z > "$rm_/z.txt"
-  out=$(tc -m z -- "$rm_/z.txt")
+  out=$(tc -m "chore: z" -- "$rm_/z.txt")
   check "a repo with a remote is refused" "1" "$(grep -c 'has a remote' <<<"$out")"
   git -C "$rm_" config tooling.commit true
-  out=$(tc -m z -- "$rm_/z.txt")
+  out=$(tc -m "chore: z" -- "$rm_/z.txt")
   check "a repo with a remote commits once the clone opts in" "$(head_of "$rm_")" "$out"
 
   local ng="$tmp/nogate"; mkrepo "$ng"; echo z > "$ng/z.txt"
-  out=$(tc -m z -- "$ng/z.txt")
+  out=$(tc -m "chore: z" -- "$ng/z.txt")
   check "a repo with no selftest is refused" "1" "$(grep -c 'carries no selftest' <<<"$out")"
 
   echo p > "$r/p.txt"; echo q > "$g/q.txt"
-  out=$(tc -m pq -- "$r/p.txt" "$g/q.txt")
+  out=$(tc -m "chore: pq" -- "$r/p.txt" "$g/q.txt")
   check "paths in two repos are refused" "1" "$(grep -c 'one call is one repo' <<<"$out")"
 
-  out=$(tc -m none -- "$r/a.txt")
+  out=$(tc -m "chore: none" -- "$r/a.txt")
   check "an unchanged path is refused, not an empty commit" "1" \
     "$(grep -c 'nothing changed' <<<"$out")"
 
   echo w > "$g/scripts/w.sh"
-  out=$(cd "$r" && "$SELF" -m w -- scripts/w.sh 2>&1)
+  out=$(cd "$r" && "$SELF" -m "chore: w" -- scripts/w.sh 2>&1)
   check "a path named from the wrong directory is refused as unknown" "1" \
     "$(grep -c 'neither on disk nor tracked' <<<"$out")"
   rm "$g/scripts/w.sh"
+
+  echo n > "$r/n.txt"; h=$(head_of "$r")
+  out=$(tc -m "Update the notes" -- "$r/n.txt")
+  check "a subject in neither form commits nothing" "$h" "$(head_of "$r")"
+  check "and says which forms it takes" "1" "$(grep -c 'neither Conventional Commits' <<<"$out")"
+  out=$(tc -m "credo: n" -- "$r/n.txt")
+  check "a type outside TYPES is refused" "1" "$(grep -c 'neither Conventional Commits' <<<"$out")"
+  out=$(tc -m "chore:n" -- "$r/n.txt")
+  check "a subject with no space after the colon is refused" "1" \
+    "$(grep -c 'neither Conventional Commits' <<<"$out")"
+  tc -m "XYZ-7: n" -- "$r/n.txt" >/dev/null
+  check "a ticket-first subject commits" "XYZ-7: n" "$(git -C "$r" log -1 --format=%s)"
+  echo m > "$r/n.txt"
+  tc -m $'feat(tc)!: n\n\nthe body is free' -- "$r/n.txt" >/dev/null
+  check "a scoped breaking subject commits, and only the first line is judged" \
+    "feat(tc)!: n" "$(git -C "$r" log -1 --format=%s)"
 
   "$SELF" -- "$r/p.txt" >/dev/null 2>&1
   check "no message is a usage error" "2" "$?"

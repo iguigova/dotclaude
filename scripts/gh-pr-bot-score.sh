@@ -41,13 +41,9 @@ an issue comment, not as review threads, so they never appear in
 gh-pr-bot-comments.sh's `threads[]` and never count towards its `open_count`. A PR can read as "no open threads" with real
 findings outstanding; this is where they surface.
 
-A listed finding is a worklist entry, not a blocker. The bot edits this comment
-in place on each run and drops a finding only once the file it anchors to
-changes — which never happens when that file was deleted, so an addressed
-finding can stay listed for the life of the PR. Measured on one PR [unverified]:
-the score reached 5/5 with one P2 still listed against a deleted path, both
-comments having been refreshed seconds apart in the same run. Reconcile the
-list against the replies already posted; `at_max` is the bot's verdict, not the
+A listed finding is a worklist entry, not a blocker: one already addressed
+can stay listed, as two anchored to deleted files did on psi-serverless
+PR #194 (2026-09-23). Reconcile the list against the replies already posted; `at_max` is the bot's verdict, not the
 length of this array.
 
 Exits non-zero if any gh call fails.

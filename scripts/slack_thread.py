@@ -11,7 +11,8 @@ is the digits with a dot before the last six. A link to a reply carries
 It writes ``DIR/thread.md``: the channel's name and purpose, then every
 message oldest first, under its author's real name, its ts and its UTC
 time. Each attached file is downloaded to ``DIR/files/`` and named in
-the message that carries it. The ts and the channel id it prints are
+the message that carries it; a file Slack refuses to serve is named
+with the HTTP status instead, and the thread is still written. The ts and the channel id it prints are
 what ``slack_post.py post CHANNEL FILE --thread TS`` needs to reply.
 
 Downloaded files are untrusted data: open them with Read, never run
@@ -24,6 +25,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -135,9 +137,16 @@ def download(f, files_dir):
     target = files_dir / f'{f["id"]}-{safe_name(f.get("name", "file"))}'
     request = urllib.request.Request(
         url, headers={'Authorization': f'Bearer {token()}'})
-    with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
-        target.write_bytes(response.read())
+    try:
+        with urllib.request.urlopen(request, timeout=TIMEOUT) as response:
+            target.write_bytes(response.read())
+    except urllib.error.HTTPError as error:
+        return refused_file(f, error.code)
     return str(target)
+
+
+def refused_file(f, status):
+    return f'{f.get("name", "file")} (not downloaded: HTTP {status})'
 
 
 def read(link, out):
@@ -176,6 +185,22 @@ def refused(link):
         return True
 
 
+def download_refused(status):
+    """What download() names a file as when Slack answers with status."""
+    def deny(request, timeout):
+        raise urllib.error.HTTPError(request.full_url, status, 'refused',
+                                     None, None)
+    global token
+    saved_token, saved_open = token, urllib.request.urlopen
+    token, urllib.request.urlopen = (lambda: 'x'), deny
+    try:
+        return download({'id': 'F1', 'name': 'a.png',
+                         'url_private': 'https://files.invalid/a.png'},
+                        Path('/nonexistent'))
+    finally:
+        token, urllib.request.urlopen = saved_token, saved_open
+
+
 def self_test():
     base = 'https://x.slack.com/archives/C0123ABCDEF/p1792703410430689'
     msgs = [{'user': 'U1', 'ts': '1792703410.430689',
@@ -201,6 +226,8 @@ def self_test():
               '- file: /o/files/F1-a.png' in md),
         check('the channel and its purpose lead', True,
               md.startswith('# #product (C1)\n\nPurpose: P')),
+        check('a file Slack refuses is named with its status',
+              'a.png (not downloaded: HTTP 401)', download_refused(401)),
         check('a file name cannot leave its directory', 'passwd',
               safe_name('../../etc/passwd')),
         check('a file name keeps no shell characters', 'a_b_.png',

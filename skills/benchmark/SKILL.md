@@ -16,9 +16,9 @@ Every response, regardless of topic, obeys these rules.
 
 Keep **fact** and **judgment** visibly separate. "What's standard" is a claim about the outside world. "My take" is a derivation from those facts.
 
-### 2. Cite-or-tag every factual claim
+### 2. Cite every factual claim
 
-Any factual claim about a standard, spec, tool default, version, or "what most teams do" must either cite its source inline (URL, doc, `file:line`) or be tagged `[unverified]`. A citation recalled from memory is a hypothesis, not evidence — verify before asserting. No bare "it's best practice to…" sentences.
+Any factual claim about a standard, spec, tool default, version, or "what most teams do" must cite its source inline (URL, doc, `file:line`). A citation recalled from memory is a hypothesis, not evidence — verify before asserting. No bare "it's best practice to…" sentences.
 
 ### 3. Search when it's time-sensitive
 
@@ -54,7 +54,7 @@ Use these headings (adapt wording to the topic, keep the order):
 
 ```
 ## Industry standard
-<the established practice, each factual claim cited or [unverified], with recency/confidence flags>
+<the established practice, each factual claim cited, with recency/confidence flags>
 
 ## Where teams diverge
 <the contested edges and the trade-off on each — omit only if there's genuinely no meaningful split>
@@ -74,6 +74,6 @@ Length follows the stakes: a quick call gets a tight version; a load-bearing arc
 2. **Separate what I know from what I must check.** List the factual claims the answer rests on. For each, decide: stable-enough-to-recall, or time-sensitive-must-search. Err toward searching.
 3. **Verify.** Run the web searches; capture sources for citation. Read the relevant code/docs for our-context claims.
 4. **Assemble in the output shape**, obeying all seven contract rules.
-5. **Re-read before sending.** Confirm: no factual sentence is uncited and untagged; fact and opinion are in their own sections; recency/confidence is flagged; a concrete recommendation exists.
+5. **Re-read before sending.** Confirm: no factual sentence is uncited; fact and opinion are in their own sections; recency/confidence is flagged; a concrete recommendation exists.
 
 When "benchmark" could mean performance measurement instead, ask once which is meant.

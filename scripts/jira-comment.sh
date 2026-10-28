@@ -25,6 +25,7 @@
 #
 # Wiki markup reference: h3. heading, *bold*, {{code}}, [text|url], * bullet,
 # # numbered, ||th||th|| / |td|td| tables, {code}…{code} blocks.
+# jira-wiki-check.sh refuses a body whose {{…}} span holds an unescaped { } [ ] or --.
 #
 # Prints the comment JSON (its id is .id). Exit 0 on HTTP 200/201; non-zero
 # otherwise, with the HTTP status and response on stderr.
@@ -79,6 +80,9 @@ if [[ "$SELF_TEST" -eq 1 ]]; then
   if printf 'x' | "$self" --dry-run --reply abc XYZ-0 >/dev/null 2>&1; then
     echo "self-test: a non-numeric --reply id was accepted" >&2; exit 1
   fi
+  if printf '{{{"a":1}}}' | "$self" --dry-run XYZ-0 >/dev/null 2>&1; then
+    echo "self-test: an unescaped brace in {{…}} was accepted" >&2; exit 1
+  fi
   if printf 'x' | "$self" --dry-run XYZ-0 /dev/stdin extra >/dev/null 2>&1; then
     echo "self-test: a third positional argument was accepted" >&2; exit 1
   fi
@@ -112,6 +116,7 @@ fi
 
 [[ -n "$(jq -r '.body | gsub("\\s"; "")' <<<"$PAYLOAD")" ]] \
   || { echo "Refusing to write an empty comment to ${ISSUE}" >&2; exit 1; }
+jq -r '.body' <<<"$PAYLOAD" | "$(dirname "$0")/jira-wiki-check.sh"
 
 if [[ -n "$EDIT_ID" ]]; then
   METHOD=PUT ENDPOINT=/rest/api/2/issue/${ISSUE}/comment/${EDIT_ID}

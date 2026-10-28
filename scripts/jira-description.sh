@@ -12,6 +12,7 @@
 #   jira-description.sh --summary "<title>" <issue-key> [file]
 #   jira-description.sh --summary "<title>" --summary-only <issue-key>
 #   jira-description.sh --label repo:mobile-app <issue-key> [file]
+#   jira-description.sh --field customfield_10028=5 <issue-key> [file]
 #   jira-description.sh --self-test
 #
 # Examples:
@@ -20,12 +21,15 @@
 #
 # Wiki markup reference: h2. heading, *bold*, {{code}}, [text|url], * bullet,
 # # numbered, ||th||th|| / |td|td| tables.
+# jira-wiki-check.sh refuses a body whose {{…}} span holds an unescaped { } [ ] or --.
 #
 # PUT replaces the whole description — fetch the current body with
 # jira-issue.sh first if you intend to amend rather than replace.
 # --summary sets the title with the description, in one write; with
 # --summary-only it sets the title alone and reads no body.
 # --label adds one label, and may repeat; it keeps the labels already there.
+# --field <id>=<json> sets one field to a JSON value, and may repeat; it rides
+# with the description, or with the title under --summary-only.
 #
 # Exit 0 on HTTP 204; non-zero otherwise. Prints HTTP status to stderr.
 
@@ -37,12 +41,19 @@ SELF_TEST=0
 SUMMARY=""
 SUMMARY_ONLY=0
 LABELS='[]'
+FIELDS='{}'
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --summary) SUMMARY="${2:?--summary takes the new title}"; shift 2 ;;
     --summary-only) SUMMARY_ONLY=1; shift ;;
     --label) LABELS=$(jq -c --arg l "${2:?--label takes a label}" '. + [$l]' <<<"$LABELS"); shift 2 ;;
+    --field)
+      f="${2:?--field takes <id>=<json>}"
+      [[ "$f" == *=* ]] || { echo "--field takes <id>=<json>, got: $f" >&2; exit 2; }
+      FIELDS=$(jq -c --arg k "${f%%=*}" --argjson v "${f#*=}" '. + {($k): $v}' <<<"$FIELDS") \
+        || { echo "--field value is not JSON: ${f#*=}" >&2; exit 2; }
+      shift 2 ;;
     --self-test) SELF_TEST=1; shift ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
@@ -64,6 +75,9 @@ if [[ "$SELF_TEST" -eq 1 ]]; then
   if printf '' | "$self" --dry-run XYZ-0 >/dev/null 2>&1; then
     echo "self-test: an empty description was accepted" >&2; exit 1
   fi
+  if printf '{{{"a":1}}}' | "$self" --dry-run XYZ-0 >/dev/null 2>&1; then
+    echo "self-test: an unescaped brace in {{…}} was accepted" >&2; exit 1
+  fi
   both=$(printf 'h2. Goal\n' | "$self" --dry-run --summary 'New title' XYZ-0 | tail -n +2)
   echo "$both" | jq -e '.fields == {summary:"New title", description:"h2. Goal\n"}' >/dev/null \
     || { echo "self-test: summary and description not set together" >&2; exit 1; }
@@ -76,6 +90,12 @@ if [[ "$SELF_TEST" -eq 1 ]]; then
   labelled=$(printf 'h2. Goal\n' | "$self" --dry-run --label a --label b XYZ-0 | tail -n +2)
   echo "$labelled" | jq -e '.update == {labels:[{add:"a"},{add:"b"}]}' >/dev/null \
     || { echo "self-test: labels not added one by one" >&2; exit 1; }
+  fielded=$(printf 'h2. Goal\n' | "$self" --dry-run --field customfield_1=5 --field c2='{"id":"7"}' XYZ-0 | tail -n +2)
+  echo "$fielded" | jq -e '.fields == {description:"h2. Goal\n", customfield_1:5, c2:{id:"7"}}' >/dev/null \
+    || { echo "self-test: --field not set beside the description" >&2; exit 1; }
+  if "$self" --dry-run --field c3=notjson XYZ-0 </dev/null >/dev/null 2>&1; then
+    echo "self-test: a non-JSON --field value was accepted" >&2; exit 1
+  fi
   echo "jira-description self-test: PASS"
   exit 0
 fi
@@ -101,9 +121,14 @@ else
   fi
   [[ "$(echo "$PAYLOAD" | jq -r '.fields.description | length')" -gt 0 ]] \
     || { echo "Refusing to write an empty description to ${ISSUE}" >&2; exit 1; }
+  jq -r '.fields.description' <<<"$PAYLOAD" | "$(dirname "$0")/jira-wiki-check.sh"
   if [[ -n "$SUMMARY" ]]; then
     PAYLOAD=$(echo "$PAYLOAD" | jq --arg s "$SUMMARY" '.fields.summary = $s')
   fi
+fi
+
+if [[ "$FIELDS" != '{}' ]]; then
+  PAYLOAD=$(jq --argjson f "$FIELDS" '.fields += $f' <<<"$PAYLOAD")
 fi
 
 # An add per label, so the labels already on the issue stay.

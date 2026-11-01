@@ -43,6 +43,12 @@ EMAIL_OK='@(example\.(com|org|net|invalid)|test\.com)$|^git@github\.com$|^norepl
 die()   { echo "dotclaude_export.sh: $*" >&2; exit 1; }
 usage() { echo "usage: dotclaude_export.sh [-m <message>] <target-clone>" >&2; exit 2; }
 
+# files <dir> — every file `git add -A` would leave in the commit, as a path
+# under <dir>: tracked or untracked, never ignored. The scan reads exactly
+# these, so the clone's own ignored .claude is never read and never refuses,
+# and a kept README or a new file the clone forgot to ignore is still read.
+files() { git -C "$1" ls-files -co --exclude-standard | sed "s|^|$1/|"; }
+
 # report <dir> <reason> <grep flags>… — print each matching line as
 # path:line [reason], never the line itself, since a hit may be a secret.
 # Status 1 on any hit. Each file is grepped alone, so a colon in a path such as
@@ -53,7 +59,7 @@ report() {
     while IFS= read -r n; do
       printf '%s:%s [%s]\n' "${f#"$dir/"}" "$n" "$reason"; hit=1
     done < <(grep -nI "$@" "$f" | cut -d: -f1)
-  done < <(grep -rlI --exclude-dir=.git "$@" "$dir")
+  done < <(files "$dir" | xargs -r -d '\n' grep -slI "$@")
   return "$hit"
 }
 
@@ -63,7 +69,7 @@ scan() {
   # A NUL byte is what grep takes for binary, and binary is what -I skips.
   while IFS= read -r f; do
     printf '%s [binary]\n' "${f#"$dir/"}"; hits=1
-  done < <(grep -rlaP --exclude-dir=.git '\x00' "$dir")
+  done < <(files "$dir" | xargs -r -d '\n' grep -slaP '\x00')
   if [[ -s "$deny" ]]; then
     while IFS= read -r re; do
       [[ -z "$re" || "$re" == \#* ]] && continue
@@ -75,13 +81,13 @@ scan() {
       [[ "$e" == "$TOKEN_OK" ]] && continue
       printf '%s:%s [token shape]\n' "${f#"$dir/"}" "$n"; hits=1
     done < <(grep -noIE -e "$TOKENS" "$f")
-  done < <(grep -rlIE --exclude-dir=.git -e "$TOKENS" "$dir")
+  done < <(files "$dir" | xargs -r -d '\n' grep -slIE -e "$TOKENS")
   while IFS= read -r f; do
     while IFS=: read -r n e; do
       grep -qE "$EMAIL_OK" <<<"$e" && continue
       printf '%s:%s [email]\n' "${f#"$dir/"}" "$n"; hits=1
     done < <(grep -noIE -e "$EMAIL" "$f")
-  done < <(grep -rlIE --exclude-dir=.git -e "$EMAIL" "$dir")
+  done < <(files "$dir" | xargs -r -d '\n' grep -slIE -e "$EMAIL")
   return "$hits"
 }
 
@@ -176,6 +182,12 @@ self_test() {
   out=$(run "binary") && fail "a binary file exported" || { grep -q "scripts/e.bin \[binary\]" <<<"$out" && ok "a binary file is refused" || fail "binary: $out"; }
   g "$fx/src" rm -q scripts/e.bin; g "$fx/src" commit -qm "undo bin"
   out=$(run "example email") && ok "an example-domain email and AWS's example key pass" || fail "examples refused: $out"
+  echo "secret-co" >> "$fx/dst/.claude/session_history.md"
+  out=$(run "ignored hit") && ok "a hit in the clone's ignored .claude is never read" || fail "ignored .claude refused: $out"
+  head=$(git -C "$fx/dst" rev-parse HEAD)
+  echo "secret-co" >> "$fx/dst/README.md"; g "$fx/dst" commit -qam "readme hit"
+  out=$(run "readme hit") && fail "a hit in the kept README exported" || { grep -q "README.md:2 \[denylist\]" <<<"$out" && ok "a hit in the kept README is refused" || fail "readme: $out"; }
+  g "$fx/dst" reset -q --hard "$head"
 
   echo "draft" > "$fx/dst/NOTES.md"; echo "edited" >> "$fx/dst/README.md"
   out=$(run "dirty") && fail "a dirty target was exported into" || { grep -q "uncommitted changes" <<<"$out" && ok "a dirty target is refused" || fail "dirty: $out"; }

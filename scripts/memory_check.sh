@@ -4,7 +4,8 @@
 # It checks the store of the project it is run in (memory_lib.sh finds it), or
 # with --all every store under ~/.claude/projects, each in a run of its own. A
 # store's project is the working directory its sessions record; a store whose
-# sessions name none is skipped and said so. --all is what cron runs.
+# sessions name none is skipped and said so. --all is what the nightly timer
+# runs, which memory_schedule.sh installs.
 #
 # A fact its `verify:` contradicts is deleted, file and index line, with no
 # tombstone: a failing check is evidence a fact is false and never evidence of

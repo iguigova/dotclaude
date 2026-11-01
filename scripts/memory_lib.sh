@@ -56,7 +56,7 @@ export MEMORY_FILE
 MEM_DIR="$(dirname "$MEMORY_FILE")"
 
 # --- Running a verify -------------------------------------------------------
-# Every verify runs in one environment, the one cron gives the nightly check:
+# Every verify runs in one environment, built here whatever started the check:
 # HOME, the system PATH from /etc/environment, and nothing else of the caller's.
 # A fact the writer admits from a session is then a fact the night can check,
 # and a tool found only on a session's PATH is refused at the write.

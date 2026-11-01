@@ -25,7 +25,9 @@ What a session keeps for the next one is a fact: one file, one claim, and a
 `verify:` command that exits 0 while the claim holds. `scripts/memory_fact.sh`
 writes a fact only when its command passes, and `scripts/memory_check.sh --all`
 re-runs every command each night and deletes a fact its own command
-contradicts. The facts stay on the machine; only the scripts are here.
+contradicts. `scripts/memory_schedule.sh install` schedules that run on a
+systemd user timer, which catches up on a night the machine missed. The facts
+stay on the machine; only the scripts are here.
 
 ## Use it
 

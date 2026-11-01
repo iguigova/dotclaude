@@ -12,6 +12,10 @@ and the tested scripts behind them. It mirrors `~/.claude`.
 | `scripts/` | The scripts the rules and skills call. Each offers `--self-test`. |
 | `settings.json`, `statusline.sh` | Hooks, permissions and the status line. |
 
+The look of my pages and documents is one file, the way the credo is:
+[`brand.css`](https://github.com/iguigova/iguigova.github.io/blob/main/brand.css),
+shown with itself at [iguigova.github.io/style.html](https://iguigova.github.io/style.html).
+
 ## The loop
 
 A rule names the script that enforces it. The script carries its own

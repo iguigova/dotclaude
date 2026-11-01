@@ -5,7 +5,9 @@ A script states what it does in its header: the module docstring of a .py,
 the leading comment block of a .sh. That header is the only description a
 script has, so it is what this searches -- the header and the file name of
 every script under scripts/ and helpers/ of the global tree (~/.claude) and
-of the project the working directory is in. The census reads the same
+of the project the working directory is in: the nearest directory at or
+above it whose .claude/ holds scripts/ or helpers/, so a product repo's own
+.claude/ of settings and agents does not hide the project around it. The census reads the same
 headers through skill_inventory.py, so the two never describe a script two
 ways.
 
@@ -72,10 +74,12 @@ COMMON = frozenset({"this", "that", "with", "from", "into", "what", "when",
 
 
 def project_of(start: Path) -> Path | None:
-    """The nearest directory at or above start holding a .claude/, other than
-    the home directory, whose .claude/ is the global tree."""
+    """The nearest directory at or above start whose .claude/ holds scripts/
+    or helpers/, other than the home directory, whose .claude/ is the global
+    tree. A .claude/ with neither is a repo's own settings, not a project."""
     for d in (start, *start.parents):
-        if (d / ".claude").is_dir() and d != Path.home():
+        if d != Path.home() and any((d / ".claude" / s).is_dir()
+                                    for s in ("scripts", "helpers")):
             return d
     return None
 
@@ -235,6 +239,7 @@ def self_test() -> int:
                  "#!/bin/sh\n# Go live.\n#\n# Production use: writes the config\necho prod-db\n")
         si.write(project / ".claude/scripts/tail.py",
                  '"""Tail it."""\nDB = "prod-db"\n')
+        si.write(project / "api/repo/.claude/settings.json", "{}\n")
         items = scripts(home, project)
         got = {
             "ranked": [(h["name"], h["words"]) for h in
@@ -248,6 +253,7 @@ def self_test() -> int:
             "line": [h["line"] for h in find(["lambda"], items, LIMIT)],
             "broken": [h["name"] for h in find(["unterminated"], items, LIMIT)],
             "project": project_of(project / ".claude/scripts") == project,
+            "nested": project_of(project / "api/repo") == project,
             "sources": [(n, it["name"]) for n, it in sources(items)],
             "untagged": [(kind, it["name"]) for kind, it in
                          untagged(items, re.compile(r"prod-db|Rails"))],
@@ -260,7 +266,7 @@ def self_test() -> int:
             "lead": ["camera_report.py", "camera_report.py", "lambda-tail.sh"],
             "limit": 1, "summary": "x…", "wrapped": ["Per-camera LPR report."],
             "line": ["Tail a Lambda's log stream."],
-            "broken": [], "project": True,
+            "broken": [], "project": True, "nested": True,
             "sources": [("Camera roles", "plates.sh"), ("plate reads", "plates.sh"),
                         ("Rails Postgres", "rails_sql.py")],
             "untagged": [("untagged", "deploy.sh"), ("no 75", "plates.sh"),

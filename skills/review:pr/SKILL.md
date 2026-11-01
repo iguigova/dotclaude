@@ -231,7 +231,7 @@ Sample how the **rest of the repo** handles the same concerns the PR touches, an
 A search that returns nothing is evidence only once you have seen the listing — an empty result over a candidate set you never inspected is indistinguishable from searching the wrong place.
 
 Check for:
-- **Naming conventions** — do new files, components, functions, variables, and routes follow the naming patterns already established in sibling files?
+- **Naming conventions** — do new files, components, functions, variables, and routes follow the naming patterns already established in sibling files? When the diff names an AWS resource or account (CDK, SAM, Terraform, a workflow) and `~/.claude/scripts/project_file.sh naming_convention` prints a path, fetch the page that file names with `~/.claude/scripts/confluence-page.sh <url> > "$D/naming.json"` and check each new name against its `.body.storage.value`, citing the rule it breaks. While its `.title` says `[Proposal]`, a mismatch is a Nit.
 - **File / folder structure** — is the new code placed where similar code lives? Are new directories justified or should the code land in an existing one?
 - **API & BFF route patterns** — do new API routes follow the same middleware, error handling, auth, and response shape as neighbouring routes?
 - **State management & data fetching** — does the PR use the same hooks, query patterns, or state patterns (e.g., react-query, formik, custom hooks) as the rest of the codebase, or does it introduce a one-off approach?

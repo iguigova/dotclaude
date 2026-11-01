@@ -28,9 +28,7 @@ Then read what its kind depends on:
 - **rules** — the documents it cites and the ones that cite it. A rule stated
   in two places is the finding.
 - **settings** — run `~/.claude/scripts/settings_lint.py` first and report
-  its output verbatim: a project file with `--helpers <project>/.claude/helpers`
-  and every settings file in that `.claude/`, because a helper's allow may sit
-  in either. Then read what the lint does not check: what each entry admits, the script behind a hook, the command
+  its output verbatim. Then read what the lint does not check: what each entry admits, the script behind a hook, the command
   behind a permission. An entry matching more than it names is the finding.
 - **memory** — run `~/.claude/scripts/memory_fact.sh verify <name>` from the
   project root, which runs the fact's `verify:` in the environment the nightly

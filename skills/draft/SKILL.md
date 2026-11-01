@@ -60,7 +60,7 @@ As long as the question needs, and no longer. Every sentence answers
 the question, supports the answer, or states the reader's next step.
 Leave out the rest: a caveat the reader did not raise, an internal
 detail they cannot act on, and an offer of work they did not ask for.
-Three such additions come up most often:
+Four such additions come up most often:
 
 - History. A status states where things stand now. When each step
   landed, and who did it, is the path to that state, not the state.
@@ -72,6 +72,10 @@ Three such additions come up most often:
   to someone's earlier question, or an acknowledgement of a message
   other than the one being answered, is a post of its own, written when
   asked for.
+- A closing ask. A next step is written only when the reader already
+  has one. A draft that ends on its answer is finished; a question or
+  task added to close on, such as asking someone for an estimate or
+  handing them work nobody has assigned, goes.
 
 Each fact appears once. A summary does not repeat the sections under
 it, and a label does not repeat what the medium already shows, such as

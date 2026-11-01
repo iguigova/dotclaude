@@ -33,6 +33,10 @@
 # Every firing leaves one line in $LOG, skips included; the sweep's own
 # output follows its start line. Read it with
 # `tail ~/.claude/logs/session_end.log`.
+#
+# A run also rewrites <project>/.claude/git_sweep.last, read at the start of
+# the next session: its start line, the sweep's TSV lines and its exit
+# status. A record with no `run finished` line is a run that was killed.
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -83,9 +87,21 @@ run() {  # <project> — the detached half
   due "$1" || { say "$1 swept by a racing run, skipped"; return 0; }
   touch "$(stamp_of "$1")"
   say "$1 run started"
-  env -u CLAUDE_CODE_SESSION_ID "$SWEEP" "$1" --apply >>"$LOG" 2>&1
-  rc=$?
+  report "$1" "run started"
+  env -u CLAUDE_CODE_SESSION_ID "$SWEEP" "$1" --apply 2>&1 \
+    | tee -a "$LOG" >>"$(report_of "$1")"
+  rc=${PIPESTATUS[0]}
   say "$1 run finished rc=$rc"
+  printf 'run finished rc=%s\n' "$rc" >>"$(report_of "$1")"
+}
+
+report_of() {  # <project> -> the record the next session reads
+  printf '%s/.claude/git_sweep.last' "$1"
+}
+
+report() {  # <project> <what> — starts the record afresh
+  printf 'git_sweep %s: %s %s\n' "$(date -u '+%Y-%m-%d %H:%M')" "$1" "$2" \
+    >"$(report_of "$1")"
 }
 
 hook() {  # <dry> — reads the payload on stdin
@@ -143,6 +159,12 @@ self_test() {
   check "and journals as no session, not the one that ended" "1" \
     "$(grep -c "^SWEPT $p --apply sid=unset" "$LOG")"
   check "and logs the sweep's exit status" "1" "$(grep -c 'finished rc=1' "$LOG")"
+  check "and records the run for the next session" "git_sweep $(date -u +%Y)" \
+    "$(head -1 "$p/.claude/git_sweep.last")"
+  check "with the sweep's output" "1" \
+    "$(grep -c "^SWEPT $p --apply" "$p/.claude/git_sweep.last")"
+  check "and its exit status last" "run finished rc=1" \
+    "$(tail -1 "$p/.claude/git_sweep.last")"
   check "and stamps the project, failure included" "skip: $p swept" \
     "$(decide "$p")"
   (run "$p")

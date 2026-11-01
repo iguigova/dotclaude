@@ -28,7 +28,8 @@ next reply in the same thread (under the new message when it is not
 itself a reply), and prints the file's permalink. Uploading needs the
 ``files:write`` scope on the write token. ``delete`` removes the message
 at TS, one the write token's user posted, and reads back to confirm it
-is gone.
+is gone: absent, or the ``tombstone`` Slack leaves in place of a deleted
+message that has replies.
 
 Raw ``<``, ``>`` and ``&`` arrive as written, so FILE needs no escaping.
 Slack caps all ``markdown`` blocks in one payload at 12,000 characters
@@ -302,11 +303,17 @@ def edit(channel, ts, path, dry_run):
     return 0 if sent is None else confirm(channel, ts, markdown)
 
 
+def gone(msg):
+    """True when a read-back shows no message: none, or the tombstone
+    Slack keeps in a deleted message's place while it has replies."""
+    return msg is None or msg.get('subtype') == 'tombstone'
+
+
 def delete(channel, ts, dry_run):
     """Remove the message at ts, then confirm it is gone."""
     if send('chat.delete', delete_payload(channel, ts), dry_run) is None:
         return 0
-    if found(channel, ts) is not None:
+    if not gone(found(channel, ts)):
         raise SlackError(f'message {ts} still there after delete')
     print(f'deleted {channel} {ts}')
     return 0
@@ -435,6 +442,11 @@ def self_test(tmp):
               complete_fields('F1', 'a.png', 'C1', '1.2')),
         check('a delete names the channel and ts',
               {'channel': 'C1', 'ts': '1.2'}, delete_payload('C1', '1.2')),
+        check('a deleted message with replies reads back as gone', True,
+              gone({'ts': '1.2', 'subtype': 'tombstone'})),
+        check('a missing message reads back as gone', True, gone(None)),
+        check('a message still posted is not gone', False,
+              gone({'ts': '1.2', 'text': 'x'})),
         check("an error keeps Slack's code", 'thread_not_found',
               error_code({'ok': False, 'error': 'thread_not_found'})),
     ]

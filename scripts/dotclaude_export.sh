@@ -10,8 +10,9 @@
 # The copy is the allowlist below as committed at the source's HEAD, read with
 # `git archive`, so another session's uncommitted work is never exported. The
 # target must be clean, so a refusal can restore it exactly. It keeps only its
-# .git, README.md, LICENSE and .gitignore; every other file is
-# replaced by the copy, so a file removed from the source is removed from the
+# .git, README.md, LICENSE, .gitignore and .claude, the clone's own session
+# history, which the clone must ignore and so never publishes; every other file
+# is replaced by the copy, so a file removed from the source is removed from the
 # target too.
 #
 # The copy is refused, and nothing is committed, when any of these hit:
@@ -33,7 +34,7 @@
 set -uo pipefail
 
 ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json commands skills scripts)
-KEEP=(.git README.md LICENSE .gitignore)
+KEEP=(.git README.md LICENSE .gitignore .claude)
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -137,6 +138,8 @@ self_test() {
   g "$fx/src" init -q; g "$fx/src" add -A; g "$fx/src" commit -qm one
   g "$fx" init -q dst; echo "readme" > "$fx/dst/README.md"; echo "stale" > "$fx/dst/old.md"
   g "$fx/dst" add -A; g "$fx/dst" commit -qm init
+  mkdir "$fx/dst/.claude"; echo "history" > "$fx/dst/.claude/session_history.md"
+  echo ".claude/" >> "$fx/dst/.git/info/exclude"
 
   run() { (export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
            export_to "$fx/src" "$fx/dst" "$1") 2>&1; }
@@ -145,6 +148,8 @@ self_test() {
   [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && ok "the allowlist is copied" || fail "allowlist missing"
   [[ ! -e "$fx/dst/projects" && ! -e "$fx/dst/dotclaude_denylist.txt" ]] && ok "paths off the allowlist stay behind" || fail "an unlisted path was exported"
   [[ -f "$fx/dst/README.md" && ! -e "$fx/dst/old.md" ]] && ok "README is kept and a stale file is removed" || fail "keep/remove wrong"
+  [[ -f "$fx/dst/.claude/session_history.md" && -z "$(git -C "$fx/dst" ls-files .claude)" ]] \
+    && ok "the clone's ignored .claude is kept and not committed" || fail ".claude removed or committed"
   [[ -z "$(git -C "$fx/dst" ls-files scripts/__pycache__)" && -z "$(git -C "$fx/dst" status --porcelain)" ]] \
     && ok "what the selftest leaves behind is neither committed nor left" || fail "selftest leftovers reached the target"
   g "$fx/dst" log -1 --format=%B | grep -q "Source commit: $(git -C "$fx/src" rev-parse --short HEAD)" && ok "the commit names the source commit" || fail "no source commit in message"

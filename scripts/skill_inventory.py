@@ -7,7 +7,8 @@ is skipped), in one of six kinds:
   skill     skills/<name>/SKILL.md, global and project
   command   commands/<name>.md, global and project
   script    scripts/ and helpers/, .sh and .py
-  rules     CLAUDE.md, the *_guidelines.md documents, a tooling README
+  rules     CLAUDE.md, the credo, the *_guidelines.md documents, a
+            tooling README
   settings  settings.json and settings.local.json
   memory    the project's memory fact files
 
@@ -23,9 +24,11 @@ Every field is measured; nothing is judged:
              subagents and in late runs; growth in tokens -- skills and
              commands only
   upkeep     commits, first commit, last edit, edits in 90 days,
-             uncommitted
+             uncommitted -- a script's bundled files included
   integrity  scripts named in the body (exist, offer --self-test),
-             bundled files, the other items that name this script,
+             bundled files (a skill's beside SKILL.md; the files beside a
+             script that are no script and that it names, such as
+             inventory_kinds.txt), the other items that name this script,
              journal entries via it
   restates   the sentences said again in another sentence -- skills and
              commands only
@@ -42,7 +45,9 @@ item is. The table holds every item there is, or one kind under --kind. A
 column no row fills is left out. The rest of the
 measurement -- sessions, typed and loaded counts, upkeep beyond commits and
 last edit, the scripts an item names, bundled files, journal facts -- is in
-the one-item report and --json.
+the one-item report and --json. The census's --json carries the attention
+rows too, as attention: [problem, item, detail] apiece, so a reader of the
+JSON states the same rows the text view does.
 
 A cost is a run's messages priced one at a time from PRICES at the model's
 list price, its subagents' messages added in. Growth is the median, over runs,
@@ -61,6 +66,11 @@ open note naming an item is a known defect in it and the audit is handed it.
 
 A note is open while journal_queue.sh lists it: the queue holds open work, so
 the absence of a close does not make a note open.
+
+The header counts the closes that placed a note into the tooling: into an
+item here, into a kind and no item in it, and into an item that is gone, each
+gone one named. A close counts toward an item's report only when it names that
+item, so the other two would otherwise be missing without a word.
 
 A script's own source is not read for references or probes: a path-shaped
 string in code may be a usage example or a fixture rather than a call. So
@@ -294,7 +304,7 @@ def scripts_in(base: Path, scope: str) -> list[dict]:
 
 def rules_in(base: Path, scope: str) -> list[dict]:
     return files_in(base, scope, "rules",
-                    ("CLAUDE.md", "*_guidelines.md"))
+                    ("CLAUDE.md", "credo.md", "*_guidelines.md"))
 
 
 def readmes_in(base: Path, scope: str) -> list[dict]:
@@ -738,20 +748,27 @@ def git(cwd: Path, *args: str) -> str | None:
     return proc.stdout if proc.returncode == 0 else None
 
 
-def upkeep(it: dict, today: dt.date) -> dict:
+def upkeep(it: dict, today: dt.date, bundles: list[str] = ()) -> dict:
+    """The item's history, its bundled files' included: a script and the
+    list it reads are one thing to keep up. Each path is logged on its
+    own, since --follow takes one, and a commit touching two counts once."""
     root = Path(it["root"])
     follow = ["--follow"] if root.is_file() else []
-    log = git(root.parent, "log", "--format=%as", *follow, "--", root.name)
-    if log is None:
-        return {"tracked": "no repo"}
+    commits = {}
+    for name in (root.name, *bundles):
+        log = git(root.parent, "log", "--format=%H %as", *follow, "--", name)
+        if log is None:
+            return {"tracked": "no repo"}
+        commits.update(ln.split() for ln in log.splitlines())
     # check-ignore names a path only while git does not track it, so a hit is
     # exactly the file with no history and no backup. `status` cannot answer
     # this: it prints nothing for an ignored file, which reads as clean.
     if git(root.parent, "check-ignore", "-q", root.name) is not None:
         return {"tracked": "ignored"}
-    dates = log.split()
+    dates = sorted(commits.values(), reverse=True)
     cutoff = (today - dt.timedelta(days=RECENT_DAYS)).isoformat()
-    status = git(root.parent, "status", "--porcelain", "--", root.name)
+    status = git(root.parent, "status", "--porcelain", "--untracked-files=all",
+                 "--", root.name, *bundles)
     return {"tracked": "yes", "commits": len(dates),
             "first_commit": dates[-1] if dates else None,
             "last_edit": dates[0] if dates else None,
@@ -781,11 +798,18 @@ def script_fact(ref: tuple, home: Path, project: Path) -> dict:
 
 
 def bundled(it: dict) -> list[str]:
+    """A skill's files beside SKILL.md; a script's files beside it that are
+    no script and that its text names -- a list it reads."""
     root = Path(it["root"])
-    if it["kind"] != "skill":
+    if it["kind"] == "skill":
+        return sorted(str(p.relative_to(root)) for p in root.rglob("*")
+                      if p.is_file() and p.name != "SKILL.md")
+    if it["kind"] != "script":
         return []
-    return sorted(str(p.relative_to(root)) for p in root.rglob("*")
-                  if p.is_file() and p.name != "SKILL.md")
+    text = root.read_text(encoding="utf-8", errors="replace")
+    return sorted(p.name for p in root.parent.iterdir()
+                  if p.is_file() and p.suffix not in SCRIPT_SUFFIX
+                  and p.name in text)
 
 
 def scripts_named(it: dict, home: Path, project: Path) -> list[dict]:
@@ -1078,7 +1102,8 @@ def places(close: str, it: dict) -> bool:
     seven now drive themselves` names the kind and no item in it: it attributes
     to nothing rather than to an arbitrary script. A memory fact is named by its
     stem, because `memory_fact.sh write <name>` and the MEMORY.md pointer both
-    use the stem while the item carries the file name.
+    use the stem while the item carries the file name. A script is named by
+    either: closes wrote `script:rails_pr_env` for rails_pr_env.sh.
 
     Two items can share a name -- there are two CLAUDE.md and two selftest.sh --
     and a placement cannot say which, so it counts for both. A count shown twice
@@ -1087,8 +1112,35 @@ def places(close: str, it: dict) -> bool:
     kind, _, name = placement(close).partition(":")
     if kind != it["kind"] or not name:
         return False
-    return name == (Path(it["name"]).stem if it["kind"] == "memory"
-                    else it["name"])
+    stem = Path(it["name"]).stem
+    return name in ({stem} if kind == "memory"
+                    else {it["name"], stem} if kind == "script"
+                    else {it["name"]})
+
+
+def placements(entries: list[dict], items: list[dict]) -> dict:
+    """Every close into the tooling, by whether it names an item that is here.
+
+    A close counts once, however many items share its name. `item` names one,
+    `kind` names a kind and no item in it -- the grammar allows that, so it is
+    counted rather than refused -- and `gone` lists the named placements no item
+    answers to: renamed or deleted since. A close into a ticket, into `-`, or
+    written before the grammar names no kind, and is none of the three. Taken
+    from every item, before --kind keeps one, so a placement into another kind
+    is not read as gone.
+    """
+    out = {"item": 0, "kind": 0, "gone": []}
+    for c in (c for e in entries for c in close_lines(e)):
+        kind, _, name = placement(c).partition(":")
+        if kind not in KINDS:
+            continue
+        if not name:
+            out["kind"] += 1
+        elif any(places(c, it) for it in items):
+            out["item"] += 1
+        elif placement(c) not in out["gone"]:
+            out["gone"].append(placement(c))
+    return out
 
 
 def captured_note(note: str, closed: set, queue: dict) -> dict:
@@ -1165,23 +1217,26 @@ def inventory(home: Path, project: Path, transcripts: Path,
     return {"generated": today.isoformat(), "project": str(project),
             "transcripts": str(transcripts),
             "attribution_since": acc["since"][:10] or None,
+            "placements": placements(entries, items),
             "items": rows}
 
 
 def describe(it, acc, entries, todos, home, project, today) -> dict:
     name, run = it["name"], it["kind"] in PROCEDURE
+    bundles = bundled(it)
     return {**{k: it[k] for k in ("name", "scope", "kind", "path")},
             **identity(it),
             "usage": (usage(name, acc) if run
                       else script_usage(it["path"], acc)
                       if it["kind"] == "script" else {}),
             "cost": cost(name, acc) if run else {},
-            "upkeep": upkeep(it, today),
+            "upkeep": upkeep(it, today,
+                             bundles if it["kind"] == "script" else []),
             "scripts": [] if it["kind"] == "script"
                        else scripts_named(it, home, project),
             **({"tested": tested(Path(it["path"]))}
                if it["kind"] == "script" else {}),
-            "bundled": bundled(it),
+            "bundled": bundles,
             "probes": probes(it),
             "journal": journal(it, entries, todos)}
 
@@ -1435,7 +1490,14 @@ def header(inv: dict) -> str:
             f"{len(items)} items: {kinds or 'none'}\n"
             f"runs and cost since {dash(inv['attribution_since'])}, "
             f"from {short(inv['transcripts'])}\n"
+            + placements_line(inv["placements"])
             + (f"kind {inv['kind']} only\n" if inv.get("kind") else ""))
+
+
+def placements_line(p: dict) -> str:
+    gone = f": {', '.join(p['gone'])}" if p["gone"] else ""
+    return (f"notes placed: {p['item']} into an item, {p['kind']} into a kind"
+            f" and no item, {len(p['gone'])} into an item gone{gone}\n")
 
 
 def needs_attention(items) -> str:
@@ -1567,6 +1629,7 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
           "#!/bin/sh\n# Gated.\n--self-test\necho /tmp/out\n")
     write(home / "scripts/tool.py", '"""Tool."""\nx = 1\n')
     write(home / "CLAUDE.md", "# Global Preferences\n")
+    write(home / "credo.md", "# Credo\n")
     write(home / "x_guidelines.md", "# X rules\n")
     write(home / "settings.json", "{}\n")
     write(project / ".claude/skills/alpha/SKILL.md",
@@ -1576,7 +1639,10 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
           # A cited line names the script; a glob names no script at all.
           "See .claude/scripts/probe.sh:12 and .claude/helpers/jira-*.sh\n")
     write(project / ".claude/skills/alpha/scripts/local.sh", "echo\n")
-    write(project / ".claude/scripts/probe.sh", "echo no flag\n")
+    # A data file the script names beside it is the script's bundled file.
+    write(project / ".claude/scripts/probe.sh", "echo no flag < probe.list\n")
+    write(project / ".claude/scripts/probe.list", "x\n")
+    write(project / ".claude/scripts/unnamed.list", "x\n")
     write(project / ".claude/commands/beta.md",
           "# Beta heading\n\n```bash\nDIR=/tmp/out\n"
           "echo $DIR $DAY $HOME /tmp/r-$(id -u)/x\n```\n"
@@ -1633,20 +1699,24 @@ def journal_fixture(hist: Path) -> None:
     subprocess.run([str(SCRIPTS / "journal.sh"), "-t", "chore: fixture",
                     "-b", "b", "--via", "/beta", "-n", "not /alphabet"],
                    env=env, check=True, capture_output=True)
-    # Three notes opened and placed three ways: an item named by its file name,
-    # a memory fact named by its stem, and a kind naming no item. Their text
-    # names nothing, so they test the placement and not the pattern that also
-    # attributes a note by what it mentions.
+    # Five notes opened and placed five ways: a script named by its file name
+    # and by its stem, a memory fact named by its stem, a kind naming no item,
+    # and an item that is gone. Their text names nothing, so they test the
+    # placement and not the pattern that also attributes a note by what it
+    # mentions.
     out = subprocess.run([str(SCRIPTS / "journal.sh"), "-t", "chore: fixture",
                           "-b", "b", "-n", "tidy the shed",
-                          "-n", "sweep the yard", "-n", "oil the hinge"],
+                          "-n", "sweep the yard", "-n", "oil the hinge",
+                          "-n", "mend the fence", "-n", "clear the gutter"],
                          env=env, check=True, capture_output=True, text=True)
     ids = re.findall(r"^note opened: ([a-z0-9]{4}) ", out.stdout, re.M)
     subprocess.run(
         [str(SCRIPTS / "journal.sh"), "-t", "chore: fixture", "-b", "b",
          "--placed", f"{ids[0]}: script:gated.sh — the workflow is a script now",
          "--placed", f"{ids[1]}: memory:fact — checked and written",
-         "--placed", f"{ids[2]}: script — every script drives itself"],
+         "--placed", f"{ids[2]}: script — every script drives itself",
+         "--placed", f"{ids[3]}: script:renamed.sh — renamed since",
+         "--placed", f"{ids[4]}: script:gated — named without its extension"],
         env=env, check=True, capture_output=True)
 
 
@@ -1755,6 +1825,7 @@ EXPECTED = {
                ("command", "project", "beta"),
                ("memory", "project", "fact.md"),
                ("rules", "global", "CLAUDE.md"),
+               ("rules", "global", "credo.md"),
                ("rules", "global", "x_guidelines.md"),
                ("rules", "project", "CLAUDE.md"),
                ("script", "global", "gated.sh"),
@@ -1802,7 +1873,7 @@ EXPECTED = {
                      "uncommitted": False},
     "mine.upkeep": {"tracked": "no repo"},
     "ignored.upkeep": {"tracked": "ignored"},
-    "attention.untracked": ["CLAUDE.md (global)", "fact.md", "gated.sh",
+    "attention.untracked": ["CLAUDE.md (global)", "credo.md", "fact.md", "gated.sh",
                             "mine", "quoted", "selftest.sh", "settings.json",
                             "settings.local.json", "tool.py",
                             "x_guidelines.md"],
@@ -1818,6 +1889,7 @@ EXPECTED = {
     "note.states": ["open 3d", "placed", "drained", "no id"],
     "notes.item": {"alpha": ["make /alpha faster", "cache the /alpha probe"],
                    "beta": ["fix /beta later"]},
+    "census.json": True,
     "census.kinds": (2, True, False),
     "columns": {"memory.title": "== Items",
                 "memory": ["name", "kind", "scope", "what", "it", "is"],
@@ -1833,15 +1905,21 @@ EXPECTED = {
                       ("tool.py", True, False),
                       ("gone.sh", False, False)],
     "alpha.bundled": ["scripts/local.sh"],
+    "probe.bundled": (["probe.list"], 1),
+    "probe.bundle_edit": True,
     "alpha.journal": {"via_entries": 1,
                       "captured": ["open    make /alpha faster",
                                    "placed  cache the /alpha probe"],
                       "open": 1},
     "alpha.captured_ids": 2,
     "beta.usage": {"runs": 2, "last_run": "2026-05-11"},
-    "placed": {"gated.sh": ["script:gated.sh — the workflow is a script now"],
+    "placed": {"gated.sh": ["script:gated.sh — the workflow is a script now",
+                            "script:gated — named without its extension"],
                "fact.md": ["memory:fact — checked and written"]},
-    "placed.ids": 2,
+    "placed.ids": 3,
+    "placements": {"item": 3, "kind": 1, "gone": ["script:renamed.sh"]},
+    "placements.line": "notes placed: 3 into an item, 1 into a kind and no item,"
+                       " 1 into an item gone: script:renamed.sh",
     "beta.todos": 1,
     "probe.cases": {k: v for k, (_, v) in PROBE_CASES.items()},
     "beta.probes": ["block 1 uses unset DAY", "block 3 uses unset FROM_GONE",
@@ -1993,6 +2071,8 @@ def observed(inv: dict) -> dict:
         "alpha.scripts": [(Path(s["script"]).name, s["exists"],
                            s["tested"]) for s in a["scripts"]],
         "alpha.bundled": a["bundled"],
+        "probe.bundled": (by["probe.sh"]["bundled"],
+                          by["probe.sh"]["upkeep"]["commits"]),
         # The id is minted per run, so the text is compared with it normalised
         # away and its presence asserted separately — otherwise a reader that
         # silently dropped the id would still pass.
@@ -2008,6 +2088,9 @@ def observed(inv: dict) -> dict:
                    for i in inv["items"] if i["journal"]["placed"]},
         "placed.ids": sum(1 for i in inv["items"]
                           for p in i["journal"]["placed"] if p["id"]),
+        # The two no item answers to are counted, not lost, and survive --kind.
+        "placements": inv["placements"],
+        "placements.line": render(narrow(inv, "skill")).splitlines()[3],
         "beta.todos": len(by["beta"]["journal"]["open"]),
         "beta.usage": {k: by["beta"]["usage"][k] for k in ("runs", "last_run")},
         "probe.cases": {k: sorted(used_in(b) - set_in(b))
@@ -2084,6 +2167,8 @@ def attention_facts(inv: dict) -> dict:
                        for i in inv["items"] if i["name"] == name},
         # The census is the attention rows and one table holding every kind
         # there is. No note is in it.
+        # The JSON census holds the rows the text view's attention lists.
+        "census.json": census_json(inv)["attention"] == rows != [],
         "census.kinds": (view.count("\n== "),
                  sorted({i["kind"] for i in inv["items"] if i["name"] in listed})
                  == sorted({i["kind"] for i in inv["items"]}),
@@ -2109,12 +2194,21 @@ def repeated_keys() -> list[str]:
     return sorted({k for ks in keys for k in ks if ks.count(k) > 1})
 
 
+def bundle_edit(inv: dict) -> bool:
+    """An edit to a script's bundled file leaves the script uncommitted. It
+    edits the fixture, so it runs after every other observation."""
+    probe = next(i for i in inv["items"] if i["name"] == "probe.sh")
+    (Path(probe["path"]).parent / "probe.list").write_text("y\n")
+    return upkeep({"root": probe["path"]}, dt.date(2026, 6, 1),
+                  probe["bundled"])["uncommitted"]
+
+
 def self_test() -> int:
     with tempfile.TemporaryDirectory() as d:
         home, project, transcripts = fixture(Path(d))
         inv = inventory(home, project, transcripts, dt.date.today())
         seen, extra = observed(inv), attention_facts(inv)
-        got = {**seen, **extra}
+        got = {**seen, **extra, "probe.bundle_edit": bundle_edit(inv)}
         render_choice(chosen(inv["items"], "CLAUDE.md", None))
     got["desc"] = {k: got["desc"][k] for k in EXPECTED["desc"]}
     # A dict keeps the last of two equal keys without a word, so a check that
@@ -2166,6 +2260,10 @@ def emit(text: str) -> int:
         return 141
 
 
+def census_json(inv: dict) -> dict:
+    return {**inv, "attention": attention(inv["items"])}
+
+
 def one(inv: dict, name: str, scope: str | None, as_json: bool) -> int:
     hits = chosen(inv["items"], name, scope)
     if not hits:
@@ -2200,7 +2298,7 @@ def main() -> int:
                            dt.date.today()), args.kind)
     if args.name:
         return one(inv, args.name, args.scope, args.json)
-    return emit(json.dumps(inv, indent=1) if args.json
+    return emit(json.dumps(census_json(inv), indent=1) if args.json
                 else render(inv))
 
 

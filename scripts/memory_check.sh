@@ -16,7 +16,7 @@
 # It runs unattended, so it says no on anything it is unsure of:
 #   * a fact reading a repository is checked only against a ref just fetched,
 #     and is left unchecked when the fetch failed — a stale ref answers about
-#     a past the claim was never about;
+#     a past the claim was never about — with git's reason for the failure;
 #   * a contradiction must reproduce, because a verdict that does not repeat
 #     is not evidence, and the fact it would delete may be true;
 #   * an empty store is a missing store — a volume not mounted, say — so the
@@ -85,7 +85,7 @@ mc_verify() {
 # repository any fact reads, and a repository it could not reach makes every
 # fact reading it unchecked rather than false.
 
-declare -A MC_STALE=()
+declare -A MC_STALE=()   # repository -> why it was not fetched
 
 # mc_repos_of FILE — the repositories this fact's verify reads, one per line:
 # the <repo> of `git_fact.sh <repo>` and of `git -C <repo>`.
@@ -94,7 +94,7 @@ mc_repos_of() {
 }
 
 mc_fetch_repos() {
-  local f repo path
+  local f repo path err fetch
   local -A repos=()
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
@@ -105,10 +105,25 @@ mc_fetch_repos() {
 
   for repo in "${!repos[@]}"; do
     path=$repo; [[ "$path" == /* ]] || path="$MEM_PROJECT_ROOT/$repo"
-    [[ -e "$path/.git" ]] || { MC_STALE["$repo"]=1; continue; }
-    timeout 120 git -C "$path" fetch --quiet --prune origin >/dev/null 2>&1 \
-      || MC_STALE["$repo"]=1
+    if [[ ! -e "$path/.git" ]]; then
+      MC_STALE["$repo"]="no checkout at $path"; continue
+    fi
+    fetch=(timeout 120 git -C "$path" fetch --quiet --prune origin)
+    err=$("${fetch[@]}" 2>&1 >/dev/null) \
+      || MC_STALE["$repo"]=$(mc_fetch_error "$?" "$err")
   done
+}
+
+# mc_fetch_error STATUS STDERR — why a fetch failed, in one line: git's first
+# fatal or error line, else its last line, else the exit status. A fetch
+# killed by the timeout says nothing, so it is named.
+mc_fetch_error() {
+  local line
+  [[ "$1" -eq 124 ]] && { printf 'timed out after 120s'; return; }
+  line=$(grep -m1 -E '^(fatal|error): ' <<<"$2" \
+    || grep -v '^[[:space:]]*$' <<<"$2" | tail -1)
+  line=${line#fatal: }; line=${line#error: }
+  printf '%s' "${line:-git fetch exited $1}"
 }
 
 # mc_stale_repo FILE — the name of a repository this fact reads that was not
@@ -226,7 +241,7 @@ mc_run() {
 
     stale=$(mc_stale_repo "$f")
     if [[ -n "$stale" ]]; then
-      echo "  unchecked  $name — $stale was not fetched, so its ref answers about a past"
+      echo "  unchecked  $name — $stale was not fetched (${MC_STALE[$stale]}), so its ref answers about a past"
       unchecked=$((unchecked + 1)); continue
     fi
 
@@ -261,7 +276,7 @@ mc_fixture() {  # DIR NAME [VERIFY]
 }
 
 mc_self_test() {
-  local d out rc=0
+  local d out why rc=0
   d=$(mktemp -d) || return 2
   echo "# fixtures" > "$d/MEMORY.md"
   mc_fixture "$d" holds        'true'
@@ -283,7 +298,8 @@ mc_self_test() {
   # shellcheck disable=SC2034
   out=$(
     MEMORY_FILE="$d/MEMORY.md"; MEM_DIR="$d"; DRY=0
-    MC_STALE=([api/zzq-fixture]=1)     # the fetch this run could not do
+    # the fetch this run could not do, and git's reason
+    MC_STALE=([api/zzq-fixture]="Could not resolve host: zzq")
     mc_run
     echo "COUNTS $held $deleted $unchecked"
   )
@@ -301,6 +317,27 @@ mc_self_test() {
   check "a contradiction that does not repeat deletes nothing" '[[ -f "$d/flaky.md" ]]'
   check "a fact whose repository was not fetched is left alone" '[[ -f "$d/needsfetch.md" ]]'
   check "so is one reading it through git_fact.sh" '[[ -f "$d/factfetch.md" ]] && grep -q "factfetch — api/zzq-fixture was not fetched" <<<"$out"'
+  check "an unfetched fact says why the fetch failed" \
+    'grep -q "not fetched (Could not resolve host: zzq), so" <<<"$out"'
+  why=$(mc_fetch_error 128 $'warning: w\nfatal: f1\nfatal: f2\n\nPlease x')
+  check "a failed fetch is named by git's first fatal line" '[[ "$why" == f1 ]]'
+  why=$(mc_fetch_error 1 $'a\nb\n\n')
+  check "else by its last line" '[[ "$why" == b ]]'
+  why=$(mc_fetch_error 1 "")
+  check "else by its exit status" '[[ "$why" == "git fetch exited 1" ]]'
+  why=$(mc_fetch_error 124 "")
+  check "a fetch the timeout killed says so" '[[ "$why" == "timed out after 120s" ]]'
+  # A checkout whose origin is not there: the real fetch, failing.
+  git init -q "$d/proj/api/zzq-fixture"
+  git -C "$d/proj/api/zzq-fixture" remote add origin "$d/nowhere"
+  # $why is read by the eval'd `check` below, as $out is above.
+  # shellcheck disable=SC2034
+  why=$(
+    MEM_PROJECT_ROOT="$d/proj"; MEM_DIR="$d"
+    mc_fetch_repos; printf '%s' "${MC_STALE[api/zzq-fixture]}"
+  )
+  check "a fetch that fails records git's reason" \
+    '[[ "$why" == "'\''$d/nowhere'\'' does not appear to be a git repository" ]]'
   check "both forms name the repository to fetch" \
     '[[ "$(MEM_DIR="$d"; mc_repos_of "$d/factfetch.md") $(MEM_DIR="$d"; mc_repos_of "$d/needsfetch.md")" == "api/zzq-fixture api/zzq-fixture" ]]'
   check "a producer killed by SIGPIPE is not a contradiction" '[[ -f "$d/sigpipe.md" ]]'
@@ -456,7 +493,9 @@ fi
 
 [[ "$DRY" -eq 1 ]] && echo "memory_check $TODAY (dry run)" || echo "memory_check $TODAY"
 mc_fetch_repos
-for r in "${!MC_STALE[@]}"; do echo "  not fetched $r — every fact reading it is left unchecked"; done
+for r in "${!MC_STALE[@]}"; do
+  echo "  not fetched $r — ${MC_STALE[$r]}; every fact reading it is left unchecked"
+done
 mc_run
 echo "memory_check: $held held, $deleted deleted, $unchecked unchecked"
 

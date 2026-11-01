@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Lint the permission rules in Claude Code settings files.
 
-    settings_lint.py [--helpers DIR] FILE ...
+    settings_lint.py FILE ...
     settings_lint.py --self-test
 
 A permission rule that matches nothing, or matches everything, fails silently:
@@ -20,8 +20,6 @@ Enforced:
   a Bash rule naming a script by path names one that exists and is executable
   a Read or Edit path never starts with a single / before a filesystem root
     directory: one / anchors at the settings file, so the rule matches nothing
-  with --helpers DIR, every executable in DIR has its allow,
-    Bash(<DIR>/<name> *), in one of the files
 
 Exit 0 when every file is clean, 1 when any is not. Each problem prints as
 file: rule — what is wrong, so the verdict is always attributable to one rule.
@@ -114,44 +112,24 @@ def duplicates(lists: dict[str, list[str]]) -> list[str]:
     return out + [f"{r} — in both allow and deny" for r in sorted(both)]
 
 
-def lint_file(path: pathlib.Path) -> tuple[list[str], list[str]]:
-    """(problems, allow rules) for one settings file."""
+def lint_file(path: pathlib.Path) -> list[str]:
+    """The problems in one settings file."""
     settings, why = load(path)
     if why:
-        return [why], []
+        return [why]
     lists = rules(settings)
     per_rule = [f"{r} — {p}"
                 for k, rs in lists.items() for r in rs
                 for p in rule_problems(k, r)]
-    return duplicates(lists) + per_rule, lists["allow"]
-
-
-def helper_allow(helpers: pathlib.Path, name: str) -> str:
-    return f"Bash({helpers}/{name} *)"
-
-
-def executables(helpers: pathlib.Path) -> list[str]:
-    return sorted(p.name for p in helpers.iterdir()
-                  if p.is_file() and os.access(p, os.X_OK))
-
-
-def missing_helpers(helpers: pathlib.Path, allows: set[str]) -> list[str]:
-    return [f"{helper_allow(helpers, n)} — {n} has no allow"
-            for n in executables(helpers)
-            if helper_allow(helpers, n) not in allows]
+    return duplicates(lists) + per_rule
 
 
 # ── entry ────────────────────────────────────────────────────────────────
 
-def run(files: list[pathlib.Path], helpers: pathlib.Path | None) -> int:
-    problems, allows = [], set()
+def run(files: list[pathlib.Path]) -> int:
+    problems = []
     for f in files:
-        found, allowed = lint_file(f)
-        problems += [f"{f}: {p}" for p in found]
-        allows |= set(allowed)
-    if helpers:
-        problems += [f"{helpers}: {p}"
-                     for p in missing_helpers(helpers, allows)]
+        problems += [f"{f}: {p}" for p in lint_file(f)]
     for p in problems:
         print(f"  {p}")
     print(f"settings_lint: {len(files)} files, errors={len(problems)}")
@@ -175,18 +153,15 @@ def self_test() -> int:
     print("settings_lint.py --self-test")
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
-        helpers = root / "helpers"
-        helpers.mkdir()
-        tool = helpers / "tool.sh"
+        tool = root / "tool.sh"
         tool.write_text("#!/bin/sh\n")
         tool.chmod(0o755)
-        (helpers / "lib.sh").write_text("")           # sourced, not run
 
         def problems(allow=(), deny=()):
             f = root / "s.json"
             f.write_text(json.dumps(
                 {"permissions": {"allow": list(allow), "deny": list(deny)}}))
-            return lint_file(f)[0]
+            return lint_file(f)
 
         def first(*allow):
             p = problems(allow)
@@ -215,13 +190,7 @@ def self_test() -> int:
 
         (root / "bad.json").write_text("{")
         check("unparseable JSON is named, not skipped", True,
-              "not readable JSON" in lint_file(root / "bad.json")[0][0])
-
-        check("an allowed helper leaves nothing missing", [],
-              missing_helpers(helpers, {helper_allow(helpers, "tool.sh")}))
-        check("an unallowed executable helper is named; a sourced one is not",
-              [f"{helper_allow(helpers, 'tool.sh')} — tool.sh has no allow"],
-              missing_helpers(helpers, set()))
+              "not readable JSON" in lint_file(root / "bad.json")[0])
     return rc
 
 
@@ -231,10 +200,7 @@ def main(args: list[str]) -> int:
         return 0
     if args[:1] == ["--self-test"]:
         return self_test()
-    helpers = None
-    if args[:1] == ["--helpers"]:
-        helpers, args = pathlib.Path(args[1]).absolute(), args[2:]
-    return run([pathlib.Path(a) for a in args], helpers)
+    return run([pathlib.Path(a) for a in args])
 
 
 if __name__ == "__main__":

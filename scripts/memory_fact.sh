@@ -8,7 +8,8 @@
 #   memory_fact.sh verify <name>                 # runs its verify:, exits as it did
 #   memory_fact.sh --self-test
 #
-# `write` creates or replaces, and creates the store for a project's first fact;
+# `write` creates or replaces, and creates the store for a project's first fact
+# inside the folder the harness keeps for it, refusing a directory with none;
 # the pointer keeps its position when one exists, and lands at the end when it
 # does not. `remove` prints what it deleted, because a fact's text survives
 # nowhere else once the file is gone. `verify` runs a fact's check as the writer
@@ -73,8 +74,15 @@ mf_write() {  # NAME HOOK  (fact file on stdin)
   verify: $vcmd"; }
 
   # A project's first fact starts its store, and a rollback takes the store back.
+  # Only inside the folder the harness keeps for the project: with none, no
+  # session ever started at $MEM_PROJECT_ROOT, so the working directory is not a
+  # project — a store made there is one no session reads.
   local fresh=""
-  if [[ ! -f "$MEMORY_FILE" ]]; then fresh=1; mkdir -p "$MEM_DIR"; : > "$MEMORY_FILE"; fi
+  if [[ ! -f "$MEMORY_FILE" ]]; then
+    [[ -d "$(dirname "$MEM_DIR")" ]] || { rm -f "$tmp"
+      die "no session has started at $MEM_PROJECT_ROOT, so it has no store to start; run from the project's root"; }
+    fresh=1; mkdir -p "$MEM_DIR"; : > "$MEMORY_FILE"
+  fi
   idx_bak=$(mktemp); cp "$MEMORY_FILE" "$idx_bak"
   if [[ -f "$file" ]]; then file_bak=$(mktemp); cp "$file" "$file_bak"; fi
 
@@ -183,12 +191,17 @@ self_test() {
   # A project with no store yet: the first fact creates it, and a first fact
   # the lint rejects leaves no store behind.
   local e="$d/empty/memory"
+  mkdir -p "$d/empty" "$d/none"
   fact first true | MEMORY_FILE="$e/MEMORY.md" "$SELF" write first "hook" >/dev/null
   check "a first fact creates the store, its file and its pointer" \
     eval '[[ -f "$e/first.md" && "$(cat "$e/MEMORY.md")" == "- [first](first.md) — hook" ]]'
   printf -- '---\nname: bad\ndescription: "d"\nmetadata:\n  type: nonsense\n  verify: true\n---\n\nb\n' \
     | MEMORY_FILE="$d/none/memory/MEMORY.md" "$SELF" write bad "hook" >/dev/null 2>&1
   check "a rejected first fact leaves no store" test ! -e "$d/none/memory"
+  # A store's own folder as the working directory is how this one was misplaced.
+  check "a first fact outside any project folder is refused" \
+    eval '! fact stray true | MEMORY_FILE="$d/noproject/memory/MEMORY.md" "$SELF" write stray "hook" >/dev/null 2>&1'
+  check "and creates nothing" test ! -e "$d/noproject"
 
   out=$(run remove new 2>/dev/null)
   check "a removal prints the fact it deleted" \

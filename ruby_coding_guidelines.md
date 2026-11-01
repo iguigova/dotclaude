@@ -670,6 +670,24 @@ end
 | `insert_all` / `upsert_all` | **no** | **no** | **no** |
 | `touch` | no | `after_touch` | yes |
 
+### Soft deletes
+> *Source: [paranoia README](https://github.com/rubysherpas/paranoia)*
+
+A soft-delete gem (`paranoia`, `discard`) makes `destroy` set `deleted_at`
+and scopes every query to the rows where it is null.
+
+- **A uniqueness rule accounts for `deleted_at`.** "Because NULL != NULL in
+  standard SQL, we can not simply create a unique index on the deleted_at
+  column"; use a partial index, `where: "deleted_at IS NULL"`, and scope the
+  validation to match, or a deleted row blocks a new one.
+- **A read that must see deleted rows says so** with `with_deleted` or
+  `only_deleted`. A join through a soft-deleted association drops rows
+  silently.
+- **`really_destroy!` cascades**: it "will also _really destroy_ all
+  `dependent: :destroy` records".
+- **A `default_scope` composes with the soft-delete scope silently**; read
+  both before trusting a count.
+
 ### Dirty tracking
 > *Source: [`ActiveRecord::AttributeMethods::Dirty`](https://api.rubyonrails.org/classes/ActiveRecord/AttributeMethods/Dirty.html)*
 
@@ -731,6 +749,8 @@ User.where("created_at > :since AND role = :role",
 - **`exists?` to ask whether anything matches** — it does not instantiate.
 - **Ranges over comparison fragments** — `where(created_at: 1.week.ago..)`.
 - **Don't order by `id`** to mean chronological; order by a timestamp.
+- **`first` and `last` carry the `order` that defines them.** With none,
+  `first` orders by primary key, which answers "oldest row" only by accident.
 - **`where.missing(:association)`** for records with no associated row.
 - **Squished heredocs (`<<~SQL.squish`)** for the rare unavoidable SQL.
 - **`all` as a receiver is redundant.**
@@ -853,6 +873,11 @@ Booking.where(created_at: Date.current.all_day)
   tested.
 - **"Avoid complex formatting in the views"** — a helper for simple cases, a
   presenter or serializer once it has branches.
+- **Name the view at every serializer render.** A serializer with views
+  (Blueprinter's `view:`) renders its default view when none is named, so a
+  caller missing it gets fewer fields and nothing fails. Its spec asserts a
+  field only the intended view carries; a spec asserting `id` alone passes
+  under every view.
 - **Mitigate duplication with partials and layouts.**
 - **No user-facing strings in views, models or controllers** — I18n keys, with
   lazy lookup (`t('.title')`) inside a view, and dot-separated keys rather than
@@ -1170,6 +1195,8 @@ Each of these has its rule above; this is the review checklist.
 - [Sidekiq Best Practices](https://github.com/sidekiq/sidekiq/wiki/Best-Practices)
 - [strong_migrations](https://github.com/ankane/strong_migrations) — the
   catalogue of migrations that lock a table
+- [paranoia](https://github.com/rubysherpas/paranoia) — soft deletes
+- [Blueprinter](https://github.com/procore-oss/blueprinter) — serializer views
 - [The Rails Doctrine](https://rubyonrails.org/doctrine)
 - [Ruby documentation](https://docs.ruby-lang.org/en/master/) — in particular
   [`Data`](https://docs.ruby-lang.org/en/master/Data.html) and

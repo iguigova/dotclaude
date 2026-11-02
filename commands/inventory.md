@@ -22,7 +22,8 @@ Print the facts verbatim first. Then read the item's own file, end to end.
 
 Then read what its kind depends on:
 
-- **skill, command** — the scripts it names and the guidelines it cites.
+- **skill, command** — the scripts it names and the guidelines it cites,
+  and `~/.claude/scripts/allowed_tools_lint.py <file>`'s rows, each judged.
 - **script** — the items listed under `named by`, because a script's contract
   is whatever its callers rely on, and one named by nothing has no contract.
 - **rules** — the documents it cites and the ones that cite it. A rule stated

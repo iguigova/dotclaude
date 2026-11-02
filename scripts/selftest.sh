@@ -64,7 +64,7 @@ for f in ./*.sh ./*.py; do
   fi
 done
 
-echo "== 4. skill and command frontmatter =="
+echo "== 4. skill and command frontmatter, and their allowed-tools =="
 # The census reads frontmatter leniently so it can describe a malformed file.
 # This reads it strictly, so a block that is absent, unparseable, or silently the
 # wrong type is a failure rather than a file that quietly stops being routed.
@@ -73,6 +73,11 @@ echo "== 4. skill and command frontmatter =="
 fm_out=$(./frontmatter_lint.py "$(dirname "$PWD")") && fm_st=0 || fm_st=$?
 printf '%s\n' "$fm_out" | sed 's/^/  /'
 [ "$fm_st" -eq 0 ] || fail=1
+# A command's allowed-tools drift from the commands its steps run, silently:
+# a rule too broad never prompts, and a missing one prompts mid-run.
+at_out=$(./allowed_tools_lint.py "$(dirname "$PWD")") && at_st=0 || at_st=$?
+[ -z "$at_out" ] || printf '%s\n' "$at_out" | sed 's/^/  /'
+[ "$at_st" -eq 0 ] || fail=1
 
 echo "== 5. permission rules =="
 # A rule that matches nothing still prompts, and one that matches everything

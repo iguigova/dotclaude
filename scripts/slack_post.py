@@ -37,24 +37,21 @@ Slack caps all ``markdown`` blocks in one payload at 12,000 characters
 longer text is refused before sending, and so is a line that starts
 with a typed ``•`` or ``–``, which would post as a character.
 
-It writes with ``~/.slack-token-write`` (chat:write only) and reads back
-with ``~/.slack-token``; ``SLACK_WRITE_TOKEN`` and ``SLACK_READ_TOKEN``
-name other files.
+It writes with the project's ``.secrets/slack-token-write`` (chat:write
+only) and reads back with ``.secrets/slack-token``;
+``SLACK_WRITE_TOKEN`` and ``SLACK_READ_TOKEN`` name other files.
 """
 import argparse
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
 SLACK_API = 'https://slack.com/api'
-WRITE_TOKEN = Path(os.environ.get(
-    'SLACK_WRITE_TOKEN', Path.home() / '.slack-token-write'))
-READ_TOKEN = Path(os.environ.get(
-    'SLACK_READ_TOKEN', Path.home() / '.slack-token'))
 MARKDOWN_LIMIT = 12000
 TIMEOUT = 30
 # conversations.replies answers this for a message that no longer exists.
@@ -181,6 +178,27 @@ def delete_payload(channel, ts):
 
 # ── Slack ────────────────────────────────────────────────────────────
 
+def token_file(env, name):
+    """The token file: the path ``env`` names, else the project's
+    ``.secrets/<name>`` (secret_file.sh)."""
+    if os.environ.get(env):
+        return Path(os.environ[env])
+    found = subprocess.run(
+        [str(Path(__file__).resolve().parent / 'secret_file.sh'), name],
+        capture_output=True, text=True)
+    if found.returncode:
+        sys.exit(found.stderr.strip())
+    return Path(found.stdout.strip())
+
+
+def read_token():
+    return token_file('SLACK_READ_TOKEN', 'slack-token')
+
+
+def write_token():
+    return token_file('SLACK_WRITE_TOKEN', 'slack-token-write')
+
+
 def call(method, token, payload=None, params=None):
     headers = {'Authorization': f'Bearer {token.read_text().strip()}'}
     url = f'{SLACK_API}/{method}'
@@ -227,7 +245,7 @@ def found(channel, ts):
     params = {'channel': channel, 'ts': ts, 'oldest': ts, 'latest': ts,
               'inclusive': 'true', 'limit': 1}
     try:
-        messages = call('conversations.replies', READ_TOKEN,
+        messages = call('conversations.replies', read_token(),
                         params=params)['messages']
     except SlackError as error:
         if error.code == GONE:
@@ -246,7 +264,7 @@ def read_back(channel, ts):
 
 def confirm(channel, ts, markdown):
     """Print the permalink; exit 1 when the message did not render."""
-    link = call('chat.getPermalink', READ_TOKEN,
+    link = call('chat.getPermalink', read_token(),
                 params={'channel': channel, 'message_ts': ts})['permalink']
     print(link)
     problem = verdict(markdown, read_back(channel, ts))
@@ -262,7 +280,7 @@ def send(method, payload, dry_run):
     if dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return None
-    return call(method, WRITE_TOKEN, payload=payload)
+    return call(method, write_token(), payload=payload)
 
 
 def post(channel, path, thread, broadcast, image, dry_run):
@@ -284,10 +302,10 @@ def post(channel, path, thread, broadcast, image, dry_run):
 
 def attach(channel, thread, name, data):
     """Upload the image as a reply under thread and print its permalink."""
-    target = call_form('files.getUploadURLExternal', WRITE_TOKEN,
+    target = call_form('files.getUploadURLExternal', write_token(),
                        upload_fields(name, data))
     put_bytes(target['upload_url'], data)
-    done = call_form('files.completeUploadExternal', WRITE_TOKEN,
+    done = call_form('files.completeUploadExternal', write_token(),
                      complete_fields(target['file_id'], name, channel, thread))
     print(done['files'][0].get('permalink', target['file_id']))
 

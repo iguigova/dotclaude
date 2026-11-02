@@ -11,7 +11,7 @@
 # The function adds basic-auth + Accept: application/json automatically.
 #
 # Executed rather than sourced, it takes one argument, --self-test, which sources
-# a copy against a fixture site, fixture dotfiles and a curl that prints its
+# a copy against a fixture site, fixture secrets and a curl that prints its
 # arguments, so no network and no real credential is read.
 
 # The guard compares this file with the script being run, so a helper sourcing
@@ -22,10 +22,11 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   mkdir -p "$fx/.claude/helpers" "$fx/home" "$fx/bin"
   cp "$0" "$fx/.claude/helpers/atlassian-auth.sh"
-  cp "$(dirname "$0")/project_file.sh" "$fx/.claude/helpers/project_file.sh"
+  cp "$(dirname "$0")/project_file.sh" "$(dirname "$0")/secret_file.sh" "$fx/.claude/helpers/"
+  mkdir -p "$fx/.secrets"; : > "$fx/.claude/session_history.md"
   printf 'https://example.invalid\n' > "$fx/.claude/atlassian_site"
-  printf 'me@example.invalid\n' > "$fx/home/.jira-email"
-  printf 'tok\n' > "$fx/home/.jira-token"
+  printf 'me@example.invalid\n' > "$fx/.secrets/jira-email"
+  printf 'tok\n' > "$fx/.secrets/jira-token"
   printf '#!/bin/sh\nprintf "%%s\\n" "$@"\n' > "$fx/bin/curl"
   chmod +x "$fx/bin/curl"
   # shellcheck disable=SC2016  # expanded by the inner shell, after the source
@@ -39,7 +40,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
 -s -u me@example.invalid:tok -H Accept: application/json https://example.invalid/x'
   if [[ "$got" == "$want" && "$site_rc" == 1 ]] && grep -q 'no .claude/atlassian_site at or above' "$fx/err"; then
     echo "atlassian-auth self-test: PASS (site read from the nearest .claude/atlassian_site above \$PWD," \
-      "credentials from the dotfiles with newlines trimmed, atlassian_curl" \
+      "credentials from the project's .secrets/ with newlines trimmed, atlassian_curl" \
       "sends them as basic auth with the JSON Accept header, a missing site" \
       "fails the source)"
     exit 0
@@ -57,12 +58,14 @@ ATLASSIAN_SITE_FILE=$("$(dirname "${BASH_SOURCE[0]}")/project_file.sh" atlassian
 ATLASSIAN_SITE=$(tr -d '\n' < "$ATLASSIAN_SITE_FILE")
 export ATLASSIAN_SITE
 
-# Single source of truth: the mode-600 dotfiles (~/.jira-email, ~/.jira-token).
-# Falls back to the project's .mcp.json only if a dotfile is absent, so a token rotated in the
-# canonical place can't silently leave this helper on a stale credential.
-if [[ -r "${HOME}/.jira-email" && -r "${HOME}/.jira-token" ]]; then
-  JIRA_USER=$(tr -d '\n' < "${HOME}/.jira-email")
-  JIRA_TOKEN=$(tr -d '\n' < "${HOME}/.jira-token")
+# Single source of truth: the project's .secrets/jira-email and .secrets/jira-token
+# (secret_file.sh). Falls back to the project's .mcp.json only if one is absent, so a
+# token rotated in the canonical place can't silently leave this helper on a stale credential.
+if _email=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-email 2>/dev/null) \
+  && _token=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-token 2>/dev/null); then
+  JIRA_USER=$(tr -d '\n' < "$_email")
+  JIRA_TOKEN=$(tr -d '\n' < "$_token")
+  unset _email _token
 else
   _mcp="$(dirname "$(dirname "$ATLASSIAN_SITE_FILE")")/.mcp.json"
   JIRA_USER=$(jq -r '.mcpServers["mcp-atlassian"].env.JIRA_USERNAME' "$_mcp")

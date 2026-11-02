@@ -18,13 +18,15 @@ names is a file its steps read, so its commands count too. The project root
 is the folder holding the file's `.claude`.
 
 A block is split into subcommands the way the matcher splits it, on `&&`,
-`||`, `;`, `|`, `&` and newlines (https://code.claude.com/docs/en/permissions,
-"Compound commands"); a leading `{` or `(` is dropped, and the text of a
-`$( … )` or a `<placeholder>` is not split further. Each subcommand is
-matched as written: a rule matches "the command text Claude writes", and `~`
-is matched as text, never expanded (same page, "Wildcard patterns"). `X:*`
-is the same rule as `X *`, which matches `X` alone and `X …` but not `Xy`.
-The read-only commands that page lists need no rule.
+`||`, `;`, `|`, `&` and newlines
+(https://code.claude.com/docs/en/permissions, "Compound commands"); a
+leading `{` or `(` is dropped, and the text of a `$( … )` or a
+`<placeholder>` is not split further. A process wrapper, such as `timeout
+120`, is dropped first ("Process wrappers"). Each subcommand is matched as
+written: a rule matches "the command text Claude writes", and `~` is matched
+as text, never expanded (same page, "Wildcard patterns"). `X:*` is the same
+rule as `X *`, which matches `X` alone and `X …` but not `Xy`. The read-only
+commands that page lists need no rule.
 
 Only Bash rules are checked; Read, WebFetch, an MCP tool and the rest name no
 command a step writes out.
@@ -48,7 +50,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from skill_inventory import skills_in, commands_in   # noqa: E402
 
 # https://code.claude.com/docs/en/permissions, "Read-only commands". git is
-# read-only only in some forms, so it is not here.
+# read-only only in some forms, so it is not here. cd is read-only only into a
+# working directory, which a file cannot show, so a cd anywhere passes.
 READ_ONLY = {"ls", "cat", "echo", "pwd", "head", "tail", "grep", "find", "wc",
              "which", "diff", "stat", "du", "cd"}
 
@@ -133,10 +136,40 @@ def split(block: str) -> list[str]:
         s = s.strip()
         while s[:1] in "{(":
             s = s[1:].strip()
-        s = re.sub(r"\s*[})]+$", "", s) if s.split()[:1] != ["$("] else s
+        for o, c in (("(", ")"), ("{", "}")):
+            while s.endswith(c) and s.count(c) > s.count(o):
+                s = s[:-1].rstrip()
         if s and s not in ("}", ")"):
             cmds.append(s)
     return cmds
+
+
+# Same page, "Process wrappers": stripped before a rule is matched, with the
+# options and the duration or niceness they take; xargs only when bare.
+WRAPPERS = {"timeout", "time", "nice", "nohup", "stdbuf", "command", "builtin"}
+WITH_ARG = {"timeout": {"-k", "-s", "--kill-after", "--signal"},
+            "nice": {"-n", "--adjustment"},
+            "stdbuf": {"-i", "-o", "-e"}}
+
+
+def unwrap(cmd: str) -> str:
+    """The command a wrapper runs, as the matcher sees it."""
+    words = cmd.split()
+    while words:
+        w = words[0]
+        if w == "xargs" and len(words) > 1 and not words[1].startswith("-"):
+            words = words[1:]
+            continue
+        if w not in WRAPPERS:
+            break
+        words = words[1:]
+        while words and words[0].startswith("-"):
+            opt = words.pop(0)
+            if opt in WITH_ARG.get(w, ()) and words:
+                words.pop(0)
+        if w == "timeout" and words:
+            words.pop(0)
+    return " ".join(words)
 
 
 def executable(word: str, root: pathlib.Path) -> bool:
@@ -188,6 +221,9 @@ def lint(path: pathlib.Path) -> list[str]:
             if ".claude" in parts else path.resolve().parent)
     rows, used = [], set()
     for f, n, cmd in commands(path.resolve(), root, set()):
+        cmd = unwrap(cmd)
+        if not cmd:
+            continue
         hit = [r for r in rules if admits(r, cmd)]
         used.update(hit)
         if not hit and cmd.split()[0] not in READ_ONLY:
@@ -240,12 +276,20 @@ def self_test() -> int:
             ".claude/commands/c.md:7\tunruled\tjob.sh <a|b> <id>",
             ".claude/commands/c.md\tunused\tBash(curl:*)"]
     checks = [admits("git:*", "git"), admits("git:*", "git status"),
-              not admits("git:*", "gitk"), not admits("ls*", "") or True]
+              not admits("git:*", "gitk"), admits("ls*", "lsof"),
+              not admits("ls *", "lsof"),
+              split("echo $(date) && (cd a && make)")
+              == ["echo $(date)", "cd a", "make"],
+              [unwrap(c) for c in ("timeout -k 5 120 foo -x", "nice -n 5 foo",
+                                   "stdbuf -oL foo", "time nohup foo",
+                                   "xargs foo", "xargs -0 foo")]
+              == ["foo -x", "foo", "foo", "foo", "foo", "xargs -0 foo"]]
     checks.append(by_root == [cmd])
     if got == want and all(checks):
         print("allowed_tools_lint self-test: PASS (unruled, unused, a read "
-              "file's piped span, a quoted ';', a placeholder's '|', a redirect's "
-              "'&', a continuation, a comment)")
+              "file's piped span, a quoted ';', a placeholder's '|', a "
+              "redirect's '&', a continuation, a comment, a $( ), a process "
+              "wrapper)")
         return 0
     print("allowed_tools_lint self-test: FAIL", file=sys.stderr)
     for w, g in itertools.zip_longest(want, got, fillvalue=""):

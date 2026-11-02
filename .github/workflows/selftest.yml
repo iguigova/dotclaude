@@ -1,0 +1,18 @@
+# Every push runs the self-tests on a clean machine, where this checkout is
+# ~/.claude, the tree the scripts were written for. The showcase page reads
+# this run's result and shows it beside the claims the tests prove.
+name: selftest
+on:
+  push:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  selftest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make this checkout ~/.claude
+        run: rm -rf "$HOME/.claude" && ln -s "$GITHUB_WORKSPACE" "$HOME/.claude"
+      - name: Run every self-test
+        run: ~/.claude/scripts/selftest.sh --copy

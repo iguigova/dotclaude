@@ -31,8 +31,18 @@
 # (default 120) rather than pulling a whole repo; narrow the glob instead. The
 # tree listing is one call and is never capped.
 #
-# Exits non-zero if the ref is unrecognized, the tree is truncated (the listing
-# would be silently short), no path matches, or any fetch fails.
+# A search exits like grep: 0 when a line matched, 1 when every candidate was
+# read and none matched. 1 means exactly that and nothing else; every other
+# outcome that is not a match exits 2:
+#   - a candidate could not be fetched: the matches it did find are printed,
+#     then each failed path with gh's error. Fetched blobs stay cached, so a
+#     re-run fetches only the paths that failed;
+#   - the candidates exceed the cap, the ref is unrecognized, the tree listing
+#     failed or is truncated (it would be silently short), or no path matches
+#     the glob;
+#   - any other step failed.
+# A scan with a hole in it, or one that never ran, is never reported as "no
+# match". `--list` exits 0 with its paths, or 2.
 
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
@@ -78,8 +88,88 @@ candidates() {  # <newline-separated paths> <newline-separated globs>
   done <<<"$1"
 }
 
+# Write one blob at head into <dest>; on failure print gh's error and return
+# non-zero. Reads RSLUG and HEAD_SHA. The self-test replaces it.
+fetch_blob() {  # <path> <dest>
+  local err
+  if ! err=$(gh api "repos/$RSLUG/contents/$1?ref=$HEAD_SHA" \
+      -H "Accept: application/vnd.github.raw" 2>&1 > "$2"); then
+    printf '%s\n' "${err:-gh api exited non-zero with no message}" | head -1
+    return 1
+  fi
+}
+
+# grep -nE <pattern> over each candidate, fetching the ones not cached under
+# HEADDIR. Returns 0 on a match, 1 when every file was read and none matched,
+# 2 when any fetch failed. A failed fetch must not fall through to the 0/1
+# verdict: "no match" over a scan with a hole in it is a false clean result.
+search_blobs() {  # <pattern> <newline-separated paths>
+  local pattern="$1" path dest why rc=1
+  local -a unread=()
+  while IFS= read -r path; do
+    dest="$HEADDIR/$path"
+    if [[ ! -s "$dest" ]]; then
+      mkdir -p "$(dirname "$dest")"
+      if ! why=$(fetch_blob "$path" "$dest"); then
+        rm -f "$dest"
+        echo "could not fetch at $HEAD_SHA: $path — $why" >&2
+        unread+=("$path")
+        continue
+      fi
+    fi
+    if grep -nE "$pattern" "$dest" 2>/dev/null | sed "s#^#$path:#"; then
+      rc=0
+    fi
+  done <<<"$2"
+  if ((${#unread[@]})); then
+    echo "${#unread[@]} of $(wc -l <<<"$2") files were not read, so the result above is incomplete; re-run to fetch only those" >&2
+    return 2
+  fi
+  return "$rc"
+}
+
+# Refuse a search over more than <max> candidates: one blob fetch each.
+check_cap() {  # <count> <max> <globs>
+  (( $1 <= $2 )) && return 0
+  echo "$1 files match $(tr '\n' ' ' <<<"$3") — above the $2 cap." >&2
+  echo "Narrow the glob (e.g. 'apps/libs/**') or raise GH_PR_GREP_MAX deliberately." >&2
+  echo "Use --list to see what matched." >&2
+  return 2
+}
+
 if [[ "${1:-}" == "--self-test" ]]; then
   fails=()
+
+  # Every refusal is 2: a 1 there reads as "searched, nothing found".
+  check_cap 121 120 '*.ts' 2>/dev/null && st=0 || st=$?
+  [[ "$st" == 2 ]] || fails+=("over-cap refusal exited $st, want 2")
+  check_cap 120 120 '*.ts' 2>/dev/null || fails+=("a count at the cap was refused")
+  "${BASH_SOURCE[0]}" not-a-ref needle >/dev/null 2>&1 && st=0 || st=$?
+  [[ "$st" == 2 ]] || fails+=("unrecognized ref exited $st, want 2")
+  "${BASH_SOURCE[0]}" only-one-arg >/dev/null 2>&1 && st=0 || st=$?
+  [[ "$st" == 2 ]] || fails+=("usage error exited $st, want 2")
+
+  # search_blobs against a stub fetch: a.ts holds a match, b.ts fetches with no
+  # match, bad.ts fails. The exit must be 2 with a.ts's match still printed,
+  # and 1/0 only once every file was read.
+  HEADDIR=$(mktemp -d); HEAD_SHA=deadbeef
+  trap 'rm -rf "$HEADDIR"' EXIT
+  fetch_blob() {
+    case "$1" in
+      a.ts) echo 'needle here' > "$2" ;;
+      b.ts) echo 'nothing' > "$2" ;;
+      *) echo 'HTTP 502: Bad Gateway'; return 1 ;;
+    esac
+  }
+  out=$(search_blobs needle $'a.ts\nbad.ts\nb.ts' 2>"$HEADDIR/err") && st=0 || st=$?
+  [[ "$st" == 2 ]] || fails+=("search with a failed fetch exited $st, want 2")
+  [[ "$out" == "a.ts:1:needle here" ]] || fails+=("search with a failed fetch printed '$out', want a.ts's match")
+  grep -q 'bad.ts — HTTP 502' "$HEADDIR/err" || fails+=("failed fetch did not report the path with gh's error")
+  [[ ! -e "$HEADDIR/bad.ts" ]] || fails+=("failed fetch left a cache file behind")
+  search_blobs needle 'b.ts' >/dev/null 2>&1 && st=0 || st=$?
+  [[ "$st" == 1 ]] || fails+=("clean no-match exited $st, want 1")
+  search_blobs needle $'b.ts\na.ts' >/dev/null 2>&1 && st=0 || st=$?
+  [[ "$st" == 0 ]] || fails+=("match exited $st, want 0")
 
   got=$(printf 'apps/x.py\nlib/y.py\nsrc/a.tsx\nREADME.md\nMakefile\n' | globs_from_paths | tr '\n' ' ')
   [[ "$got" == "*.md *.py *.tsx " ]] || fails+=("globs_from_paths: got '$got', want '*.md *.py *.tsx '")
@@ -116,13 +206,17 @@ if [[ "${1:-}" == "--self-test" ]]; then
   if ((${#fails[@]})); then
     printf 'gh-pr-grep self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
   fi
-  echo "gh-pr-grep self-test: PASS (glob derivation over 2 cases, path matching over 7, candidate filter survives a trailing miss, head_sha pin and truncation check asserted)"
+  echo "gh-pr-grep self-test: PASS (search exits 2 with partial matches on a failed fetch, 1 on a clean miss, 0 on a match; over-cap, bad-ref and usage refusals exit 2; glob derivation over 2 cases, path matching over 7, candidate filter survives a trailing miss, head_sha pin and truncation check asserted)"
   exit 0
 fi
 
+# From here on an unexpected failure exits 2, never set -e's 1 (which would
+# read as a clean miss). Statuses consumed by `||`, `&&` and `if` do not fire it.
+trap 'exit 2' ERR
+
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 <pr-ref> --list [<glob>] | <pr-ref> <ere-pattern> [<glob>] | --self-test" >&2
-  exit 1
+  exit 2
 fi
 
 REF="$1"; shift
@@ -130,25 +224,32 @@ MODE="$1"; shift
 GLOB="${1:-}"
 MAX_FILES="${GH_PR_GREP_MAX:-$MAX_FILES_DEFAULT}"
 
-REFJSON=$("$HERE/gh_pr_ref.py" "$REF") || exit 1
+REFJSON=$("$HERE/gh_pr_ref.py" "$REF") || exit 2
 RSLUG=$(jq -er .slug <<<"$REFJSON")
 WORKDIR=$("$HERE/gh-pr-workdir.sh" "$REF")
 
 # The head directory's owner resolves head_sha and drops files fetched at an
 # older commit, so a cached blob never mixes two trees.
-HEADOUT=$("$HERE/gh-pr-head-dir.sh" "$REF") || exit 1
+HEADOUT=$("$HERE/gh-pr-head-dir.sh" "$REF") || exit 2
 IFS=$'\t' read -r HEAD_SHA HEADDIR <<<"$HEADOUT"
 
+# Written beside the cache and moved in only on success: gh prints an error
+# body to stdout, and a cached error body would be read as the tree forever.
 TREE="$WORKDIR/tree-$HEAD_SHA.json"
 if [[ ! -s "$TREE" ]]; then
-  gh api "repos/$RSLUG/git/trees/$HEAD_SHA?recursive=1" > "$TREE"
+  if ! gh api "repos/$RSLUG/git/trees/$HEAD_SHA?recursive=1" > "$TREE.part"; then
+    rm -f "$TREE.part"
+    echo "could not list the tree of $RSLUG@$HEAD_SHA" >&2
+    exit 2
+  fi
+  mv "$TREE.part" "$TREE"
 fi
 # A truncated tree lists some of the repo and says so only in a flag. Treating
 # it as the whole repo is how a consistency check reports "no precedent found"
 # for a precedent that exists.
 if [[ "$(jq -r '.truncated // false' "$TREE")" == "true" ]]; then
   echo "tree listing for $RSLUG@$HEAD_SHA is truncated — narrow with a glob and re-run; a partial listing would under-report precedent" >&2
-  exit 1
+  exit 2
 fi
 
 ALL_PATHS=$(jq -r '.tree[] | select(.type=="blob") | .path' "$TREE")
@@ -168,7 +269,7 @@ CANDIDATES=$(candidates "$ALL_PATHS" "$GLOBS")
 
 if [[ -z "$CANDIDATES" ]]; then
   echo "no path at $HEAD_SHA matches: $(tr '\n' ' ' <<<"$GLOBS")" >&2
-  exit 1
+  exit 2
 fi
 
 if [[ "$MODE" == "--list" ]]; then
@@ -176,28 +277,9 @@ if [[ "$MODE" == "--list" ]]; then
   exit 0
 fi
 
-COUNT=$(wc -l <<<"$CANDIDATES")
-if (( COUNT > MAX_FILES )); then
-  echo "$COUNT files match $(tr '\n' ' ' <<<"$GLOBS") — above the $MAX_FILES cap." >&2
-  echo "Narrow the glob (e.g. 'apps/libs/**') or raise GH_PR_GREP_MAX deliberately." >&2
-  echo "Use --list to see what matched." >&2
-  exit 1
-fi
+check_cap "$(wc -l <<<"$CANDIDATES")" "$MAX_FILES" "$GLOBS" || exit 2
 
-rc=1  # no match is grep's exit 1, and the caller should be able to test for it
-while IFS= read -r path; do
-  dest="$HEADDIR/$path"
-  if [[ ! -s "$dest" ]]; then
-    mkdir -p "$(dirname "$dest")"
-    gh api "repos/$RSLUG/contents/$path?ref=$HEAD_SHA" \
-      -H "Accept: application/vnd.github.raw" > "$dest" 2>/dev/null || {
-        rm -f "$dest"
-        echo "could not fetch at $HEAD_SHA: $path" >&2
-        continue
-      }
-  fi
-  if grep -nE "$MODE" "$dest" 2>/dev/null | sed "s#^#$path:#"; then
-    rc=0
-  fi
-done <<<"$CANDIDATES"
+# `|| rc=$?` so a clean miss's 1 is returned as 1, not turned into 2 by the trap.
+rc=0
+search_blobs "$MODE" "$CANDIDATES" || rc=$?
 exit "$rc"

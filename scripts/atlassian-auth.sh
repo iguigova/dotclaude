@@ -58,20 +58,13 @@ ATLASSIAN_SITE_FILE=$("$(dirname "${BASH_SOURCE[0]}")/project_file.sh" atlassian
 ATLASSIAN_SITE=$(tr -d '\n' < "$ATLASSIAN_SITE_FILE")
 export ATLASSIAN_SITE
 
-# Single source of truth: the project's .secrets/jira-email and .secrets/jira-token
-# (secret_file.sh). Falls back to the project's .mcp.json only if one is absent, so a
-# token rotated in the canonical place can't silently leave this helper on a stale credential.
-if _email=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-email 2>/dev/null) \
-  && _token=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-token 2>/dev/null); then
-  JIRA_USER=$(tr -d '\n' < "$_email")
-  JIRA_TOKEN=$(tr -d '\n' < "$_token")
-  unset _email _token
-else
-  _mcp="$(dirname "$(dirname "$ATLASSIAN_SITE_FILE")")/.mcp.json"
-  JIRA_USER=$(jq -r '.mcpServers["mcp-atlassian"].env.JIRA_USERNAME' "$_mcp")
-  JIRA_TOKEN=$(jq -r '.mcpServers["mcp-atlassian"].env.JIRA_API_TOKEN' "$_mcp")
-  unset _mcp
-fi
+# The credential is the project's .secrets/jira-email and .secrets/jira-token
+# (secret_file.sh), and nowhere else; a missing one fails here, naming it.
+_email=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-email) || return 1
+_token=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-token) || return 1
+JIRA_USER=$(tr -d '\n' < "$_email")
+JIRA_TOKEN=$(tr -d '\n' < "$_token")
+unset _email _token
 export JIRA_USER JIRA_TOKEN
 
 atlassian_curl() {

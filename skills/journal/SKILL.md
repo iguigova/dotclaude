@@ -1,4 +1,5 @@
 ---
+name: journal
 description: Append a session-history entry via the journal.sh writer.
 argument-hint: "[what to record — defaults to this turn's work]"
 ---

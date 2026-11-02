@@ -1,4 +1,5 @@
 ---
+name: recap
 description: Recap the current conversation thread — the session task list, the notes it opened or closed, plus a concise, read-only "what we did → where it stands → what's left → what to do next" summary printed to the terminal. Does NOT write any file (use /journal to persist).
 argument-hint: "[optional focus, e.g. 'decisions only' | 'as a PR description']"
 ---

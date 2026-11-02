@@ -24,9 +24,12 @@ Checks, each printing `ok` or `FAIL <what>`:
   copies    every built copy (dist/brand.css) equals the hub's file
   live      the site serves origin/main's brand.css (skipped by --offline)
 
---diff REV also renders every consumer page with brand.css at REV and as it
-is now, in light and dark, and prints the differing pixels of each; a page
-whose CSS sets @page is a document and is printed too, with its page count.
+--diff REV also renders every consumer page as committed (the hub at REV,
+every other repo at its HEAD) and as it is in the working trees, in light and
+dark, and prints the differing pixels of each, so an uncommitted change to
+brand.css or to a project's own CSS shows; a page whose CSS sets @page is a
+document and is printed too, with its page count. A page with no committed
+copy, such as a built document, is its working file on both sides.
 Every page is rendered three times from each file, over a local server laid
 out like the site, and the closest old and new pair is reported: headless
 Chrome now and then renders a page in a second state, and a real change
@@ -34,9 +37,6 @@ differs in every pair. Beside it is how far the new file's own renders vary.
 A refactor shows 0 everywhere; an intended change shows where it lands.
 Differences are reported, never failed. A page in a repo whose build copies
 brand.css is not rendered: its copy is what `copies` checks.
-
-The Trust Loop artifact inlines brand.css too. No shell can read it, so the
-last line names the commit its copy must name, for the session to check.
 
 Exit 0 when every check passes, 1 when one fails, 75 when all pass but the
 site gave no answer.
@@ -256,16 +256,38 @@ def pages(root, found):
     return sorted(out)
 
 
-def mirror(root, brand_text, dest):
-    """The site as it is served, made of symlinks, with brand.css replaced:
-    the hub's files at the top and every other repo at /<repo>/."""
+def repos(root):
+    """Every repo of ROOT but the hub."""
+    return [p for p in sorted(root.iterdir()) if p.is_dir()
+            and p.name != HUB and not p.name.startswith(".")]
+
+
+def mirror(root, dest):
+    """The site as the working trees serve it, made of symlinks: the hub's
+    files at the top and every other repo at /<repo>/."""
     for p in (root / HUB).iterdir():
-        if p.name not in ("brand.css", ".git"):
+        if p.name != ".git":
             (dest / p.name).symlink_to(p)
-    for p in root.iterdir():
-        if p.is_dir() and p.name != HUB and not p.name.startswith("."):
+    for p in repos(root):
+        (dest / p.name).symlink_to(p)
+
+
+def archive(repo, ref, dest):
+    dest.mkdir(exist_ok=True)
+    tar = subprocess.run(["git", "-C", str(repo), "archive", ref],
+                         capture_output=True, check=True).stdout
+    subprocess.run(["tar", "-x", "-C", str(dest)], input=tar, check=True)
+
+
+def snapshot(root, rev, dest):
+    """The site as committed: the hub at REV and every other repo at its
+    HEAD. A folder that is no repo is the same on both sides."""
+    archive(root / HUB, rev, dest)
+    for p in repos(root):
+        if (p / ".git").exists():
+            archive(p, "HEAD", dest / p.name)
+        else:
             (dest / p.name).symlink_to(p)
-    (dest / "brand.css").write_text(brand_text)
 
 
 def url_path(root, page):
@@ -311,25 +333,36 @@ def differing(a, b):
     return float(r.stderr.split()[0])
 
 
-def render_diff(root, hub, rev, rep):
+def render_diff(root, rev, rep):
     for tool in ("google-chrome", "compare", "pdfinfo", "pdftoppm"):
         if not shutil.which(tool):
             rep.fail(f"diff: {tool} is not installed, so --diff did not run")
             return
-    old_text = git(hub, "show", f"{rev}:brand.css").decode()
     found = consumers(root)
     with tempfile.TemporaryDirectory() as tmp:
         tmp = pathlib.Path(tmp)
-        trees = {"old": tmp / "old", "new": tmp / "new"}
-        for name, text in (("old", old_text),
-                           ("new", (root / HUB / "brand.css").read_text())):
-            trees[name].mkdir()
-            mirror(root, text, trees[name])
-        print(f"== diff: brand.css at {rev} against the working file ==")
-        with serve(trees["old"]) as old, serve(trees["new"]) as new:
-            sites = {"old": old, "new": new}
-            for page, is_doc in pages(root, found):
+        old, new = tmp / "old", tmp / "new"
+        snapshot(root, rev, old)
+        new.mkdir()
+        mirror(root, new)
+        print(f"== diff: the hub at {rev} and every repo at HEAD,"
+              " against the working trees ==")
+        found_pages = pages(root, found)
+        for page, _ in found_pages:
+            uncommitted(root, page, old)
+        with serve(old) as old_site, serve(new) as new_site:
+            sites = {"old": old_site, "new": new_site}
+            for page, is_doc in found_pages:
                 render_page(root, page, is_doc, sites, tmp)
+
+
+def uncommitted(root, page, old):
+    """A page with no committed copy, such as a built document, is its
+    working file on both sides, so only the styles around it differ."""
+    dest = old / url_path(root, page).lstrip("/")
+    if not dest.exists():
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(page, dest)
 
 
 def render_page(root, page, is_doc, sites, tmp):
@@ -386,10 +419,7 @@ def run(root, offline, rev):
     check_copies(root, brand, found, rep)
     answered = True if offline else check_live(hub, rep)
     if rev:
-        render_diff(root, hub, rev, rep)
-    head = git(hub, "log", "-1", "--format=%h", "--", "brand.css")
-    print(f"  the Trust Loop's copy must name commit {head.decode().strip()}"
-          " (read_artifact)")
+        render_diff(root, rev, rep)
     if rep.failed:
         return 1
     return 0 if answered else 75
@@ -465,25 +495,53 @@ def self_test():
         expect(rep.failed, "a stale built copy fails")
         dest = root.parent / (root.name + "-mirror")
         dest.mkdir()
+        snap = root.parent / (root.name + "-snapshot")
         try:
-            mirror(root, "OLD", dest)
-            expect((dest / "brand.css").read_text() == "OLD"
+            mirror(root, dest)
+            expect((dest / "brand.css").resolve() == brand
                    and (dest / "index.html").resolve()
                    == (hub / "index.html")
                    and (dest / "proj").resolve() == (root / "proj")
                    and not (dest / HUB).exists(),
-                   "the mirror is the site: hub at the top, repos below,"
-                   " brand.css swapped")
+                   "the mirror is the site: hub at the top, repos below")
+            for repo in (hub, root / "proj"):
+                g = ["git", "-C", str(repo), "-c", "user.name=t",
+                     "-c", "user.email=t@example.com"]
+                subprocess.run([*g, "init", "-q"], check=True)
+                subprocess.run([*g, "add", "-A"], check=True)
+                subprocess.run([*g, "commit", "-qm", "one"], check=True)
+            (hub / "brand.css").write_text("NEW")
+            (proj / "a.css").write_text("NEW")
+            snapshot(root, "HEAD", snap)
+            expect((snap / "brand.css").read_text() == good
+                   and (snap / "proj" / "demo" / "a.css").read_text()
+                   .startswith("@import")
+                   and (snap / "ext").resolve() == ext,
+                   "the snapshot is every repo as committed, and a folder"
+                   " that is no repo as it is")
+            built = proj / "built.html"
+            built.write_text("BUILT")
+            uncommitted(root, built, snap)
+            (proj / "p.html").write_text("CHANGED")
+            uncommitted(root, proj / "p.html", snap)
+            expect((snap / "proj" / "demo" / "built.html").read_text()
+                   == "BUILT"
+                   and "a.css" in (snap / "proj" / "demo" / "p.html")
+                   .read_text(),
+                   "a page with no committed copy is its working file on"
+                   " both sides, and a committed one stays as committed")
             expect(url_path(root, hub / "index.html") == "/index.html"
                    and url_path(root, proj / "p.html")
                    == "/proj/demo/p.html",
                    "a file's site path drops the hub's folder name")
             with serve(dest) as site:
                 with urllib.request.urlopen(site + "/proj/demo/a.css") as r:
-                    expect(b"brand.css" in r.read(),
-                           "the server reaches a repo through its symlink")
+                    expect(r.read() == b"NEW",
+                           "the server reaches a repo's working tree"
+                           " through its symlink")
         finally:
             shutil.rmtree(dest)
+            shutil.rmtree(snap, ignore_errors=True)
     print(f"brand_check self-test: {'FAIL' if st else 'PASS'}")
     return st
 

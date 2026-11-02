@@ -10,8 +10,9 @@
 # The copy is the allowlist below as committed at the source's HEAD, read with
 # `git archive`, so another session's uncommitted work is never exported. The
 # target must be clean, so a refusal can restore it exactly. It keeps only its
-# .git, README.md, LICENSE, .gitignore and .claude, the clone's own session
-# history, which the clone must ignore and so never publishes; every other file
+# .git, README.md, LICENSE, .gitignore, .nojekyll, index.html, the page GitHub
+# Pages serves, and .claude, the clone's own session history, which the clone
+# must ignore and so never publishes; every other file
 # is replaced by the copy, so a file removed from the source is removed from the
 # target too.
 #
@@ -24,8 +25,9 @@
 #   - an email address outside the example domains and the commit trailer's.
 #   - a binary file, which the checks above read as text and cannot see into.
 # A hit is reported as path:line and its reason, never the line, since the hit
-# may be the secret itself. The target's own `scripts/selftest.sh --copy` must
-# then pass on the copy.
+# may be the secret itself. Every claim index.html makes must then hold against
+# the copy, as page_claims.py beside this script judges it, and the target's
+# own `scripts/selftest.sh --copy` must pass on the copy.
 #
 # The commit message names the source commit. This script never pushes.
 #
@@ -33,8 +35,9 @@
 # Exit 0 committed or nothing to commit, 1 refused, 2 usage.
 set -uo pipefail
 
-ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json commands skills scripts)
-KEEP=(.git README.md LICENSE .gitignore .claude)
+ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts)
+KEEP=(.git README.md LICENSE .gitignore .nojekyll index.html .claude)
+CLAIMS="${BASH_SOURCE[0]%/*}/page_claims.py"
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -91,14 +94,15 @@ scan() {
   return "$hits"
 }
 
-# refuse <target> <reason> — put the clean target back as it was, then exit 1.
+# refuse <target> <reason> — put the clean target back as it was, index
+# included, then exit 1.
 refuse() {
-  git -C "$1" checkout -q -- . 2>/dev/null; git -C "$1" clean -qfd
+  git -C "$1" reset -q --hard; git -C "$1" clean -qfd
   die "refused: $2; the target is restored"
 }
 
 export_to() {  # <src> <target> <message>
-  local src=$1 dst=$2 msg=$3 sha k f
+  local src=$1 dst=$2 msg=$3 sha k f claims
   git -C "$src" rev-parse --verify -q HEAD >/dev/null || die "$src is not a git repo with a commit"
   git -C "$dst" rev-parse --git-dir >/dev/null 2>&1 || die "$dst is not a git clone"
   [[ "$(git -C "$dst" rev-parse --show-toplevel)" == "$(realpath "$dst")" ]] || die "$dst is not the root of its clone"
@@ -113,6 +117,10 @@ export_to() {  # <src> <target> <message>
   git -C "$src" archive HEAD -- "${ALLOW[@]}" | tar -x -C "$dst" || die "git archive of $src failed"
 
   scan "$dst" "$src/dotclaude_denylist.txt" >&2 || refuse "$dst" "the copy holds the hits above"
+  if [[ -f "$dst/index.html" ]]; then
+    claims=$("$CLAIMS" "$dst/index.html" 2>&1) \
+      || { echo "$claims" >&2; refuse "$dst" "index.html makes a claim the copy does not hold"; }
+  fi
   [[ -x "$dst/scripts/selftest.sh" ]] || refuse "$dst" "the copy has no executable scripts/selftest.sh"
   # Staged before the selftest runs, so what the selftest leaves in the tree,
   # bytecode or a scratch file, is put back out and never committed.
@@ -143,6 +151,7 @@ self_test() {
   echo "secret-co" > "$fx/src/dotclaude_denylist.txt"
   g "$fx/src" init -q; g "$fx/src" add -A; g "$fx/src" commit -qm one
   g "$fx" init -q dst; echo "readme" > "$fx/dst/README.md"; echo "stale" > "$fx/dst/old.md"
+  echo '<p data-check="credo.md" data-says="credo">' > "$fx/dst/index.html"
   g "$fx/dst" add -A; g "$fx/dst" commit -qm init
   mkdir "$fx/dst/.claude"; echo "history" > "$fx/dst/.claude/session_history.md"
   echo ".claude/" >> "$fx/dst/.git/info/exclude"
@@ -188,6 +197,10 @@ self_test() {
   echo "secret-co" >> "$fx/dst/README.md"; g "$fx/dst" commit -qam "readme hit"
   out=$(run "readme hit") && fail "a hit in the kept README exported" || { grep -q "README.md:2 \[denylist\]" <<<"$out" && ok "a hit in the kept README is refused" || fail "readme: $out"; }
   g "$fx/dst" reset -q --hard "$head"
+  [[ -f "$fx/dst/index.html" ]] && ok "the page is kept" || fail "index.html removed"
+  echo '<p data-check="credo.md" data-says="not in the credo">' > "$fx/dst/index.html"; g "$fx/dst" commit -qam "stale page"
+  out=$(run "stale page") && fail "a page with a failing claim exported" || { grep -q "makes a claim" <<<"$out" && ok "a page whose claim fails is refused" || fail "stale page: $out"; }
+  g "$fx/dst" reset -q --hard "$head"
 
   echo "draft" > "$fx/dst/NOTES.md"; echo "edited" >> "$fx/dst/README.md"
   out=$(run "dirty") && fail "a dirty target was exported into" || { grep -q "uncommitted changes" <<<"$out" && ok "a dirty target is refused" || fail "dirty: $out"; }
@@ -198,6 +211,7 @@ self_test() {
   head=$(git -C "$fx/dst" rev-parse HEAD)
   out=$(run "red") && fail "a failing selftest exported" || { grep -q "selftest.sh fails" <<<"$out" && ok "a failing selftest is refused" || fail "red: $out"; }
   [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" ]] || fail "red: target committed"
+  [[ -z "$(git -C "$fx/dst" status --porcelain)" ]] && ok "a refusal after staging leaves nothing staged" || fail "red: the copy is left staged"
 
   [[ $st -eq 0 ]] && echo "dotclaude_export self-test: PASS" || echo "dotclaude_export self-test: FAIL"
   return "$st"

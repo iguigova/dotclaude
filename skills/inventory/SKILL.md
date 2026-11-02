@@ -1,4 +1,5 @@
 ---
+name: inventory
 description: Inventory of everything you authored under .claude/ — skills, commands, scripts, rules, settings and memory. No argument censuses the tree, facts only — what needs attention, then one table of every item — runs per month, cost, upkeep; --kind narrows it to one kind. A name audits that one item.
 argument-hint: "[name [--scope global|project]] [--kind skill|command|script|rules|settings|memory] [--json] [--project DIR]"
 ---

@@ -23,11 +23,18 @@
 #   note    needs a person; --apply opens one note in the /notes queue,
 #           unless an open note already carries its key
 #   keep    live: an open PR; also a branch a linked worktree holds, whose
-#           note is the tree's
-#   skip    could not be decided now (a PR lookup failed); nothing is done
+#           note is the tree's; also every branch of a clone whose origin
+#           you cannot push to, such as a pinned SDK, which holds no work
+#           of yours for a PR to prove
+#   skip    could not be decided now (a PR or permission lookup failed);
+#           nothing is done
 #   close   an open sweep note whose item this run no longer notes: the item
 #           is gone, kept or deleted; --apply closes the note `-`. Only a
 #           note whose clone this run scanned is judged.
+#
+# A branch's PRs are those whose head is that branch in the origin's own
+# owner. `gh pr list --head` matches the branch name in every fork, so a
+# stranger's closed PR from a fork branch named `stable` is not this branch's.
 #
 # A branch is proven finished when its tip equals or precedes the head commit
 # of a merged PR, no linked worktree holds it, and no stash names it. When it
@@ -128,10 +135,27 @@ precedes() {  # <clone> <tip> <head> <pr> -> tip equals or precedes head
   git -C "$1" merge-base --is-ancestor "$2" "$3" 2>/dev/null
 }
 
-pr_rows() {  # <clone> <branch> -> "<number>\t<state>\t<head>" per PR
-  "$GH" pr list -R "$(origin_slug "$1")" --head "$2" --state all \
-    --json number,state,headRefOid \
-    --jq '.[] | "\(.number)\t\(.state)\t\(.headRefOid)"'
+# `|| continue` rather than `&& printf`: a while loop exits with its last
+# iteration's status, so a final fork row would fail the pipeline and read as
+# a failed lookup.
+pr_rows() {  # <clone> <branch> -> "<number>\t<state>\t<head>" per own PR
+  local slug owner n state head who
+  slug=$(origin_slug "$1"); owner=${slug%/*}
+  "$GH" pr list -R "$slug" --head "$2" --state all \
+    --json number,state,headRefOid,headRepositoryOwner \
+    --jq '.[] | "\(.number)\t\(.state)\t\(.headRefOid)\t\(.headRepositoryOwner.login)"' \
+  | while IFS="$TAB" read -r n state head who; do
+      [[ "${who,,}" == "${owner,,}" ]] || continue
+      printf '%s\t%s\t%s\n' "$n" "$state" "$head"
+    done
+}
+
+# GitHub's permission names; only these three can push a branch.
+pushable() {  # <clone> -> succeeds when you can push to origin
+  local p
+  p=$("$GH" repo view "$(origin_slug "$1")" --json viewerPermission \
+        --jq .viewerPermission) || return 2
+  [[ "$p" =~ ^(ADMIN|MAINTAIN|WRITE)$ ]]
 }
 
 current() {  # <clone> <branch> -> the main checkout is on branch
@@ -185,10 +209,16 @@ branch_verdict() {  # <clone> <branch> <tip> <pr rows> -> verdict\treason
 }
 
 classify_branches() {  # <clone>
-  local c=$1 def b tip rows v held
+  local c=$1 def b tip rows v held push=0
   def=$(default_branch "$c")
+  pushable "$c" 2>/dev/null || push=$?
   while IFS="$TAB" read -r b tip; do
     [[ "$b" == "$def" ]] && continue
+    case "$push" in
+      1) record keep "$c" branch "$b" "origin $(origin_slug "$c") is read-only to you"
+         continue ;;
+      2) record skip "$c" branch "$b" "permission lookup failed"; continue ;;
+    esac
     held=$(checked_out_in "$c" "$b")
     if [[ -n "$held" && "$held" != "$c" ]]; then
       record keep "$c" branch "$b" "held by worktree $(basename "$held")"
@@ -424,7 +454,13 @@ self_test() {
   g() { git "${G[@]}" -C "$r" "$@" >/dev/null 2>&1; }
   commit() { echo "$1" >"$r/$1"; g add -A; g commit -m "$1"; }
   tip() { git -C "$r" rev-parse "$1"; }
-  fixture() { printf '%s\n' "$2" >"$tmp/prs/$1"; }
+  # A row's head owner is the test origin's own, "$tmp"; `fork` writes a row
+  # whose head is in someone else's fork.
+  fixture() {
+    if [[ "$2" == FAIL ]]; then echo FAIL >"$tmp/prs/$1"
+    else printf '%s\t%s\n' "$2" "$tmp" >"$tmp/prs/$1"; fi
+  }
+  fork() { printf '%s\tstranger\n' "$2" >"$tmp/prs/$1"; }
   expect() {  # <description> <ERE over the output>
     if grep -qE -- "$2" <<<"$out"; then echo "  ok  $1"
     else echo "  FAIL $1: no line matches /$2/"; fail=1; fi
@@ -442,6 +478,11 @@ self_test() {
   git -C "$tmp/root" branch stray
   cat >"$tmp/gh" <<'EOF'
 #!/usr/bin/env bash
+if [[ "$1 $2" == "repo view" ]]; then
+  p="$GIT_SWEEP_PRS/perm_${3##*/}"
+  [[ -f "$p" ]] && cat "$p" || echo WRITE
+  exit 0
+fi
 while (( $# )); do [[ "$1" == --head ]] && h=$2; shift; done
 f="$GIT_SWEEP_PRS/${h//\//_}"
 [[ -f "$f" ]] || exit 0
@@ -472,6 +513,9 @@ EOF
   g checkout -b nopr main; commit n1
   g checkout -b closed main; commit c1
   fixture closed "11${TAB}CLOSED${TAB}$(tip closed)"
+  # forked: the only PR with this head name is from a stranger's fork
+  g checkout -b forked main; commit k1
+  fork forked "16${TAB}CLOSED${TAB}$(tip forked)"
   g checkout -b feat/slash main; commit f1; fixture feat_slash FAIL
   g checkout -b stashed main; commit st1
   fixture stashed "12${TAB}MERGED${TAB}$(tip stashed)"
@@ -487,6 +531,14 @@ EOF
   g remote set-head origin main; g checkout -b dirtied main; commit d1
   fixture dirtied "14${TAB}MERGED${TAB}$(tip dirtied)"
   echo x >"$r/untracked"
+  # sdk: a clone of a repository you can only read, on a non-default branch
+  git "${G[@]}" -c init.defaultBranch=main init --bare -q "$tmp/upstream.git"
+  git "${G[@]}" clone -q "$tmp/upstream.git" "$tmp/root/sdk" 2>/dev/null
+  r="$tmp/root/sdk"
+  g checkout -b main; commit u0; g push -u origin main
+  g remote set-head origin main; g checkout -b stable main; commit u1
+  echo READ >"$tmp/prs/perm_upstream"
+  fixture stable "17${TAB}CLOSED${TAB}x"
   r="$tmp/root/repo"
 
   # origin's main moves on, so a switch to main has something to catch up
@@ -512,6 +564,8 @@ EOF
   expect "open PR → keep" '^keep	repo	branch	open	'
   expect "no PR → note" '^note	repo	branch	nopr	no PR'
   expect "closed PR → note" '^note	repo	branch	closed	PR #11 closed'
+  expect "a fork's PR is not the branch's → no PR" '^note	repo	branch	forked	no PR'
+  expect "read-only origin → keep" '^keep	sdk	branch	stable	origin .* is read-only'
   expect "failed lookup → skip" '^skip	repo	branch	feat/slash	'
   expect "merged but stashed → note" '^note	repo	branch	stashed	.*stash names'
   expect "merged, checked out, clean → delete" \

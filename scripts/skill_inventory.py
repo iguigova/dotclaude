@@ -187,7 +187,7 @@ from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent
 HOME = Path.home() / ".claude"
-COMMAND = SCRIPTS.parent / "commands/inventory.md"
+INVENTORY_SKILL = SCRIPTS.parent / "skills/inventory/SKILL.md"
 TOKEN_FIELDS = (
     "input_tokens",
     "cache_creation_input_tokens",
@@ -2037,7 +2037,7 @@ def observed(inv: dict) -> dict:
             "alpha", "--scope", "project", "--kind", "skill") or {}).items()
             if k in ("name", "scope", "kind")},
         "scope.alone": refused("--scope", "global"),
-        "hint.gaps": hint_gaps(COMMAND),
+        "hint.gaps": hint_gaps(INVENTORY_SKILL),
         "desc": {f"{i['scope']}:{i['name']}": i["description"]
                  for i in inv["items"]},
         "named_by": {i["name"]: i["named_by"] for i in inv["items"]

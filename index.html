@@ -96,7 +96,7 @@
         <span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">A rule says what to do, and anything done twice becomes a tested script.</span></li>
       <li><b>2 · test</b>
         <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">One command runs every script's own self-test,</span>
-        <span class="claim" data-check=".github/workflows/selftest.yml" data-says="selftest.sh --copy">and GitHub runs it on every push.</span></li>
+        and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest" data-test="scripts/tooling_commit.sh" data-proves="check &quot;a red gate commits nothing&quot;">A change is committed only when every test passes,</span>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">and never pushed by the script.</span></li>

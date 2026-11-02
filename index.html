@@ -1,0 +1,362 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>dotclaude: don't take my word for it</title>
+<meta name="description" content="My Claude Code setup keeps only what it can check. So does this page: your browser checks every claim on it against the files it names.">
+<link rel="stylesheet" href="../brand.css">
+<style>
+  .tally { margin: 10px 0 0; color: var(--ink); min-height: 1.6em; max-width: none; }
+
+  .claim { transition: color .3s; }
+  .claim[data-code="1"] { text-decoration: line-through; color: var(--muted); }
+  .mark { font: 12px/1 var(--mono); color: var(--muted); background: none;
+    border: 1px solid var(--hair); border-radius: 10px; padding: 3px 7px;
+    margin-left: 4px; cursor: pointer; white-space: nowrap; vertical-align: 1px; }
+  .mark[data-code="0"] { color: var(--good); border-color: currentColor; }
+  .mark[data-code="1"] { color: var(--title); border-color: currentColor; }
+  .evidence { display: block; margin: 6px 0 4px; padding: 6px 10px;
+    background: var(--panel); border-left: 2px solid var(--rule);
+    font-size: 13px; overflow-wrap: anywhere; }
+  .evidence[hidden] { display: none; }
+  .evidence code { background: none; padding: 0; white-space: pre-wrap; }
+  .evidence b { color: var(--ink); }
+
+  .loop { list-style: none; padding: 0; margin: 0 0 12px; max-width: none;
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
+  .loop li { border-top: 3px solid var(--rule); padding-top: 8px; margin: 0; }
+  .loop > li > b { display: block; font: 400 13px var(--mono); color: var(--link); }
+  .again { color: var(--muted); }
+
+  .fact { border: 1px solid var(--hair); padding: 12px 14px; max-width: 70ch; }
+  .fact pre { margin: 0 0 12px; background: none; padding: 0; white-space: pre-wrap;
+    transition: color .6s; }
+  .fact[data-code="1"] pre { color: var(--muted); text-decoration: line-through; }
+  .fact label { display: block; color: var(--muted); font-size: 13px; }
+  .fact input { font: 14px var(--mono); width: 100%; max-width: 40ch;
+    padding: 8px; margin: 4px 0 12px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--muted); border-radius: 3px; }
+  .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+  .buttons button { font: 14px var(--sans); color: var(--link); background: var(--bg);
+    border: 1px solid var(--link); border-radius: 3px; padding: 10px 14px;
+    min-height: 44px; cursor: pointer; }
+  .verdict { margin: 12px 0 0; min-height: 3.2em; }
+  .verdict b { font-family: var(--mono); font-weight: 400; }
+
+  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+    gap: 16px 24px; margin: 0 0 8px; }
+  .stats div { border-top: 1px solid var(--hair); padding-top: 6px; }
+  .stats dt { font-size: 28px; line-height: 1.1; }
+  .stats dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
+  .note { color: var(--muted); font-size: 13px; }
+
+  .why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 10px 24px; margin: 0; max-width: 80ch; }
+  .why dt, .why dd { margin: 0; padding-bottom: 10px; border-bottom: 1px solid var(--hair); }
+  @media (max-width: 640px) { .why { grid-template-columns: 1fr; }
+    .why dt { border-bottom: 0; padding-bottom: 0; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div>
+    <h1>Don't take my word for it</h1>
+    <p class="tag">My Claude Code setup keeps only what it can check. So does this page.</p>
+    <p class="tally" id="tally" aria-live="polite">Your browser checks every claim marked like this one
+      <span class="mark">✓ holds</span> against the file it names.</p>
+  </div>
+</header>
+<main>
+
+<section aria-labelledby="h-idea">
+  <h2 id="h-idea">The idea</h2>
+  <div>
+    <p>I don't want an assistant that remembers a lot. I want one whose memory I can trust.</p>
+    <p>So nothing gets kept without a way to check it. Not a fact, not a rule, not a number on this page.
+      Each sentence below that makes a claim names a file and the words it should find there.
+      When this page loads, your browser reads those files and looks.
+      Press any mark to see the line it found.</p>
+    <p>That's a modest check: it shows the file says what the sentence says.
+      Proving the code does it is the self-tests' job. But it's the same check my memory runs on itself every night,
+      and it's enough to catch a page that's gone stale.</p>
+  </div>
+</section>
+
+<section aria-labelledby="h-loop">
+  <h2 id="h-loop">The loop</h2>
+  <div>
+    <ol class="loop">
+      <li><b>1 · rule</b>
+        <span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">A rule says what to do, and anything done twice becomes a tested script.</span></li>
+      <li><b>2 · test</b>
+        <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">One command runs every script's own self-test.</span></li>
+      <li><b>3 · commit</b>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest">A change is committed only when every test passes,</span>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">and never pushed by the script.</span></li>
+      <li><b>4 · journal</b>
+        <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Each turn that changed something gets an entry, from one writer.</span></li>
+      <li><b>5 · note</b>
+        <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">What a session notices becomes a note, and each note is done, dropped or kept open.</span></li>
+    </ol>
+    <p class="again">↺ And the next session starts by
+      <span class="claim" data-check="CLAUDE.md" data-says="Read what ran while nobody was here.">reading what ran while nobody was here.</span></p>
+  </div>
+</section>
+
+<section aria-labelledby="h-try">
+  <h2 id="h-try">Try it</h2>
+  <div>
+    <p>A memory fact is one claim and a command that checks it. Here's one about this repo.
+      Change the words and run the check. Your browser does what <code>git_fact.sh</code> does: it reads the file and looks for the words.</p>
+    <div class="fact" id="fact">
+<pre><code>name: credo-removing
+claim: the credo says "<span id="echo">Removing is generous</span>"
+verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is generous</span>'</code></pre>
+      <label for="words">The words the credo should hold</label>
+      <input id="words" value="Removing is generous" autocomplete="off" spellcheck="false">
+      <div class="buttons">
+        <button type="button" id="run">Run the check</button>
+        <button type="button" id="cut">Run it with the network cut</button>
+      </div>
+      <p class="verdict" id="verdict" aria-live="polite"></p>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-memory">
+  <h2 id="h-memory">Memory</h2>
+  <div>
+    <p>There are three answers a check can give, and each one does something different.</p>
+    <ul>
+      <li><b>0, it holds.</b> <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now">A fact is only written when its check passes the day it's written.</span></li>
+      <li><b>1, it doesn't.</b> <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted">A fact its own check contradicts is deleted, file and index line.</span></li>
+      <li><b>75, no answer.</b> <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it">Nothing is learned, and nothing is deleted on a maybe.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section aria-labelledby="h-away">
+  <h2 id="h-away">While I'm away</h2>
+  <div>
+    <ul>
+      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00">Every night at 04:30, every fact is checked again,</span>
+        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true">and a night the machine missed is caught up.</span></li>
+      <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes">A session starts by hearing how many notes are open, and the three oldest.</span></li>
+      <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">When it ends, what it noticed is placed without me.</span></li>
+      <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR">Once a day, a branch whose pull request merged is deleted.</span></li>
+      <li><span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape">Nothing reaches this public repo if it looks like a key, a token or a real email.</span></li>
+    </ul>
+  </div>
+</section>
+
+<section aria-labelledby="h-numbers">
+  <h2 id="h-numbers">Numbers</h2>
+  <div>
+    <h3>Counted just now, by your browser</h3>
+    <dl class="stats">
+      <div><dt data-live="scripts">…</dt><dd>scripts</dd></div>
+      <div><dt data-live="skills">…</dt><dd>skills</dd></div>
+      <div><dt data-live="hooks">…</dt><dd>hooks, at session start and end</dd></div>
+    </dl>
+    <p class="note" id="live-note">From <a href="https://github.com/iguigova/dotclaude">the public repo</a> and its <code>settings.json</code>.</p>
+    <h3>Counted on my machine</h3>
+    <dl class="stats">
+      <div><dt data-count="commits">264</dt><dd>commits to my <code>~/.claude</code> since <span data-count="since">3 September 2026</span></dd></div>
+      <div><dt data-count="entries">3,136</dt><dd>journal entries, across <span data-count="projects">4</span> projects</dd></div>
+      <div><dt data-count="closed">668</dt><dd>notes placed or dropped</dd></div>
+      <div><dt data-count="open">22</dt><dd>notes still open</dd></div>
+    </dl>
+    <p class="note">You can't check these, so they carry the day I counted them: <time data-count="date" datetime="2026-11-02">2 November 2026</time>.</p>
+  </div>
+</section>
+
+<section aria-labelledby="h-why">
+  <h2 id="h-why">Why</h2>
+  <div>
+    <p>Even what I believe is checked, against <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">my credo</a>.</p>
+    <dl class="why">
+      <dt><span class="claim" data-check="credo.md" data-says="So checking matters more than storing.">Checking matters more than storing.</span></dt>
+      <dd>No fact without a check.</dd>
+      <dt><span class="claim" data-check="credo.md" data-says="Removing is generous, not violent.">Removing is generous, not violent.</span></dt>
+      <dd>A struck-out claim on this page is a kindness. You'd rather know.</dd>
+      <dt><span class="claim" data-check="credo.md" data-says="Point, don't copy.">Point, don't copy.</span></dt>
+      <dd>This page copies nothing. It points at the files and reads them.</dd>
+      <dt><span class="claim" data-check="credo.md" data-says="Never get ahead of the evidence.">Never get ahead of the evidence.</span></dt>
+      <dd>A file that can't be reached proves nothing, so its claim says "no answer", not "false".</dd>
+    </dl>
+  </div>
+</section>
+
+<section aria-labelledby="h-gaps">
+  <h2 id="h-gaps">Known gaps</h2>
+  <div>
+    <ul>
+      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The nightly timer only runs while I'm logged in, so a missed night runs at my next login, not at 04:30.</span></li>
+      <li>The checks here read words, not behaviour. A file can say the right thing and do the wrong one. That's what the self-tests are for.</li>
+    </ul>
+  </div>
+</section>
+
+</main>
+<footer>
+  <div class="line">The export won't publish this page while one of its claims fails. · <a href="https://github.com/iguigova/dotclaude">github.com/iguigova/dotclaude</a> · <a href="/style.html">Style</a></div>
+  <div class="band" aria-hidden="true"></div>
+</footer>
+</div>
+
+<script>
+// Each claim names a file and words one line of it holds. A claim is checked
+// the way git_fact.sh checks a fact: 0 the words are there, 1 the file was read
+// and they are not, 75 the file could not be read, so nothing is learned.
+const BLOB = 'https://github.com/iguigova/dotclaude/blob/main/';
+const TREE = 'https://api.github.com/repos/iguigova/dotclaude/git/trees/main?recursive=1';
+const LIVE = {
+  scripts: /^scripts\/[^/]+\.(sh|py)$/,
+  skills: /^skills\/[^/]+\/SKILL\.md$/,
+};
+const LABEL = { 0: '✓ holds', 1: '✗ no longer holds', 75: '? no answer' };
+const reads = new Map();
+
+// read — the file's text, or null when it could not be read.
+const fetchText = (path, signal) =>
+  fetch(path, { signal, cache: 'no-store' })
+    .then(r => (r.ok ? r.text() : null))
+    .catch(() => null);
+const read = (path) => {
+  if (!reads.has(path)) reads.set(path, fetchText(path));
+  return reads.get(path);
+};
+
+// verdict — what the text says about the words, as git_fact.sh would.
+const lineOf = (lines, says) => lines.findIndex(l => l.includes(says));
+const verdict = (text, says) => {
+  if (text === null) return { code: 75 };
+  const lines = text.split('\n');
+  const i = lineOf(lines, says);
+  return i < 0 ? { code: 1 } : { code: 0, line: i + 1, text: lines[i], says };
+};
+
+// excerpt — the words in bold, with a little of the line on either side.
+const AROUND = 40;
+const excerpt = (v) => {
+  const at = v.text.indexOf(v.says);
+  const from = Math.max(0, at - AROUND);
+  const to = Math.min(v.text.length, at + v.says.length + AROUND);
+  const b = document.createElement('b');
+  b.textContent = v.says;
+  return [
+    (from > 0 ? '…' : '') + v.text.slice(from, at).trimStart(), b,
+    v.text.slice(at + v.says.length, to).trimEnd() + (to < v.text.length ? '…' : ''),
+  ];
+};
+
+// Marks: one button after each claim, opening the evidence it found.
+const evidenceText = (path, v) => {
+  if (v.code === 75) return `Couldn't read ${path}, so this claim is neither true nor false yet.`;
+  if (v.code === 1) return `Read ${path}, and it no longer says this. I'd rather you saw it struck out than believed it.`;
+  return null;
+};
+const evidence = (path, v) => {
+  const box = document.createElement('span');
+  box.className = 'evidence';
+  box.hidden = true;
+  const note = evidenceText(path, v);
+  if (note) { box.textContent = note; return box; }
+  const link = document.createElement('a');
+  link.href = `${BLOB}${path}#L${v.line}`;
+  link.textContent = `${path}:${v.line}`;
+  const code = document.createElement('code');
+  code.append(...excerpt(v));
+  box.append(link, document.createElement('br'), code);
+  return box;
+};
+const mark = (claim, v) => {
+  const path = claim.dataset.check;
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mark';
+  button.dataset.code = claim.dataset.code = v.code;
+  button.textContent = LABEL[v.code];
+  button.setAttribute('aria-expanded', 'false');
+  const box = evidence(path, v);
+  button.addEventListener('click', () => {
+    box.hidden = !box.hidden;
+    button.setAttribute('aria-expanded', String(!box.hidden));
+  });
+  claim.after(' ', button, box);
+  return v.code;
+};
+const checkClaim = async (claim) =>
+  mark(claim, verdict(await read(claim.dataset.check), claim.dataset.says));
+
+// The tally says what every check found.
+const count = (codes, c) => codes.filter(x => x === c).length;
+const tally = (codes) => {
+  const parts = [`${count(codes, 0)} hold`];
+  if (count(codes, 1)) parts.push(`${count(codes, 1)} no longer hold and are struck out`);
+  if (count(codes, 75)) parts.push(`${count(codes, 75)} got no answer`);
+  return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${parts.join(', ')}.`;
+};
+const checkAll = async () => {
+  const codes = await Promise.all([...document.querySelectorAll('.claim')].map(checkClaim));
+  document.getElementById('tally').textContent = tally(codes);
+};
+
+// Numbers counted live. No answer shows as a dash, never as a guess.
+const show = (key, n) => {
+  document.querySelector(`[data-live="${key}"]`).textContent = n ?? '—';
+};
+const countTree = async () => {
+  const r = await fetch(TREE).catch(() => null);
+  const body = r && r.ok ? await r.json() : null;
+  const paths = body ? body.tree.map(t => t.path) : null;
+  Object.entries(LIVE).forEach(([key, re]) =>
+    show(key, paths && paths.filter(p => re.test(p)).length));
+  if (!paths) document.getElementById('live-note').textContent =
+    'GitHub gave no answer just now, so these show a dash rather than a guess.';
+};
+const countHooks = async () => {
+  const text = await read('settings.json');
+  const hooks = text && JSON.parse(text).hooks;
+  show('hooks', hooks && Object.values(hooks).flat().flatMap(g => g.hooks).length);
+};
+
+// Try it: the fact's check, run on the words in the box.
+const fact = document.getElementById('fact');
+const words = document.getElementById('words');
+const out = document.getElementById('verdict');
+const SAID = {
+  0: 'The words are there, so the fact stays.',
+  1: "The file was read and the words aren't there. Tonight's run deletes this fact, file and index line, and the rest are easier to believe.",
+  75: 'The file never arrived, so nothing was learned. The fact stays: nothing is deleted on a maybe.',
+};
+const say = (v) => {
+  fact.dataset.code = v.code;
+  out.innerHTML = '';
+  const b = document.createElement('b');
+  b.textContent = `exit ${v.code}. `;
+  out.append(b, SAID[v.code]);
+};
+const echo = () => {
+  document.getElementById('echo').textContent = words.value;
+  document.getElementById('echo2').textContent = words.value;
+  delete fact.dataset.code;
+  out.textContent = '';
+};
+const runFact = async (cut) => {
+  const gone = new AbortController();
+  if (cut) gone.abort();
+  say(verdict(await fetchText('credo.md', gone.signal), words.value));
+};
+words.addEventListener('input', echo);
+document.getElementById('run').addEventListener('click', () => runFact(false));
+document.getElementById('cut').addEventListener('click', () => runFact(true));
+
+checkAll();
+countTree();
+countHooks();
+</script>
+</body>
+</html>

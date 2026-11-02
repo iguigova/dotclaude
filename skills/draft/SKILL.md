@@ -113,7 +113,8 @@ writer is the project's own helper.
 A reply or an edit to a Slack post starts by reading its thread with
 `~/.claude/scripts/slack_thread.py`. It writes every message under its
 author's name, the files attached, and the channel id and thread ts the
-writer needs.
+writer needs. A post addressed to someone in the thread tags them with the
+`<@U…>` its People block lists beside their name.
 
 ## Check, then post
 

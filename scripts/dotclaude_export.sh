@@ -10,11 +10,12 @@
 # The copy is the allowlist below as committed at the source's HEAD, read with
 # `git archive`, so another session's uncommitted work is never exported. The
 # target must be clean, so a refusal can restore it exactly. It keeps only its
-# .git, README.md, LICENSE, .gitignore, .nojekyll, index.html, the page GitHub
-# Pages serves, and .claude, the clone's own session history, which the clone
-# must ignore and so never publishes; every other file
-# is replaced by the copy, so a file removed from the source is removed from the
-# target too.
+# .git, README.md, LICENSE, .gitignore, index.html, the page GitHub Pages
+# serves, .github, the workflow that runs the self-tests on every push and
+# publishes the page with what they printed, and .claude, the clone's own
+# session history, which the clone must ignore and so never publishes; every
+# other file is replaced by the copy, so a file removed from the source is
+# removed from the target too.
 #
 # The copy is refused, and nothing is committed, when any of these hit:
 #   - a line of the denylist: one extended regex per line, matched without
@@ -36,8 +37,8 @@
 set -uo pipefail
 
 ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts)
-KEEP=(.git README.md LICENSE .gitignore .nojekyll index.html .claude)
-CLAIMS="${BASH_SOURCE[0]%/*}/page_claims.py"
+KEEP=(.git README.md LICENSE .gitignore index.html .github .claude)
+CLAIMS="$(dirname "${BASH_SOURCE[0]}")/page_claims.py"
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -151,6 +152,7 @@ self_test() {
   echo "secret-co" > "$fx/src/dotclaude_denylist.txt"
   g "$fx/src" init -q; g "$fx/src" add -A; g "$fx/src" commit -qm one
   g "$fx" init -q dst; echo "readme" > "$fx/dst/README.md"; echo "stale" > "$fx/dst/old.md"
+  mkdir -p "$fx/dst/.github/workflows"; echo "on: push" > "$fx/dst/.github/workflows/selftest.yml"
   echo '<p data-check="credo.md" data-says="credo">' > "$fx/dst/index.html"
   g "$fx/dst" add -A; g "$fx/dst" commit -qm init
   mkdir "$fx/dst/.claude"; echo "history" > "$fx/dst/.claude/session_history.md"
@@ -172,19 +174,19 @@ self_test() {
   out=$(run "again"); [[ "$out" == nothing\ to\ commit* ]] && ok "a second export with no change commits nothing" || fail "rerun: $out"
 
   head=$(git -C "$fx/dst" rev-parse HEAD)
-  expect_refusal() {  # <file> <content> <reason> <label>
+  expect_refusal() {  # <file> <content> <reason> <case, as it prints>
     mkdir -p "$(dirname "$fx/src/$1")"; echo "$2" > "$fx/src/$1"; g "$fx/src" add -A; g "$fx/src" commit -qm "$4"
-    out=$(run "$4") && fail "$4: exported" || { grep -q "$3" <<<"$out" && ok "$4 is refused" || fail "$4: $out"; }
+    out=$(run "$4") && fail "$4: it exported" || { grep -q "$3" <<<"$out" && ok "$4" || fail "$4: $out"; }
     [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" && -z "$(git -C "$fx/dst" status --porcelain)" ]] || fail "$4: target not restored"
     g "$fx/src" rm -q "$1"; g "$fx/src" commit -qm "undo $4"
   }
-  expect_refusal scripts/a.sh "works at Secret-Co" "scripts/a.sh:1 \[denylist\]" "a denylist name"
+  expect_refusal scripts/a.sh "works at Secret-Co" "scripts/a.sh:1 \[denylist\]" "a denylist name is refused"
   grep -q "Secret-Co" <<<"$out" && fail "the denylist hit's line was printed" || ok "a denylist hit prints its place, not its line"
-  expect_refusal "skills/review:bot/x.md" $'one\nsecret-co' "skills/review:bot/x.md:2 \[denylist\]" "a hit in a path with a colon"
+  expect_refusal "skills/review:bot/x.md" $'one\nsecret-co' "skills/review:bot/x.md:2 \[denylist\]" "a hit in a path with a colon is refused"
   tok="ghp_$(printf 'a%.0s' {1..36})"
-  expect_refusal scripts/b.sh "t=$tok" "scripts/b.sh:1 \[token shape\]" "a GitHub token"
+  expect_refusal scripts/b.sh "t=$tok" "scripts/b.sh:1 \[token shape\]" "a GitHub token is refused"
   grep -q "$tok" <<<"$out" && fail "the token was printed" || ok "a token hit never prints the token"
-  expect_refusal scripts/c.sh "mail me@realmail$(printf .)org" "scripts/c.sh:1 \[email\]" "a real email"
+  expect_refusal scripts/c.sh "mail me@realmail$(printf .)org" "scripts/c.sh:1 \[email\]" "a real email is refused"
   grep -q "realmail" <<<"$out" && fail "the email was printed" || ok "an email hit never prints the address"
   echo "fixtures use alice@example.com and AKIAIOSFODNN7EXAMPLE" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
   printf 'a\0b' > "$fx/src/scripts/e.bin"; g "$fx/src" add -A; g "$fx/src" commit -qm bin
@@ -198,6 +200,7 @@ self_test() {
   out=$(run "readme hit") && fail "a hit in the kept README exported" || { grep -q "README.md:2 \[denylist\]" <<<"$out" && ok "a hit in the kept README is refused" || fail "readme: $out"; }
   g "$fx/dst" reset -q --hard "$head"
   [[ -f "$fx/dst/index.html" ]] && ok "the page is kept" || fail "index.html removed"
+  [[ -f "$fx/dst/.github/workflows/selftest.yml" ]] && ok "the workflow is kept" || fail ".github removed"
   echo '<p data-check="credo.md" data-says="not in the credo">' > "$fx/dst/index.html"; g "$fx/dst" commit -qam "stale page"
   out=$(run "stale page") && fail "a page with a failing claim exported" || { grep -q "makes a claim" <<<"$out" && ok "a page whose claim fails is refused" || fail "stale page: $out"; }
   g "$fx/dst" reset -q --hard "$head"

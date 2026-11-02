@@ -6,12 +6,13 @@
 
 ROOT (default ~/src/oceanhue) mirrors https://iguigova.github.io: the hub
 repo, iguigova.github.io, is the site root and holds brand.css, every other
-repo is /<repo>/, and ROOT/brand.css is a symlink to the hub's file. Run it
+repo is /<repo>/, and ROOT/brand.css is a symlink to the hub's file, as
+ROOT/brand.js, the theme switch beside it, is to its own. Run it
 after every change to brand.css, or to a project's theme colours.
 
 Checks, each printing `ok` or `FAIL <what>`:
 
-  link      ROOT/brand.css is a symlink to the hub's brand.css
+  link      ROOT/brand.css and ROOT/brand.js are symlinks to the hub's files
   contrast  every colour token meets its WCAG AA ratio against --bg in both
             themes: text 4.5:1, large titles and rules 3:1; a colour token
             this script has no role for fails, so none goes unchecked
@@ -21,7 +22,11 @@ Checks, each printing `ok` or `FAIL <what>`:
   themes    no consumer repo's CSS or HTML uses prefers-color-scheme: a
             project colour is light-dark(light, dark), so it follows the
             color-scheme brand.css sets, data-theme included
-  copies    every built copy (dist/brand.css) equals the hub's file
+  switch    every page but a printed document loads brand.js: a page by a
+            path resolving to the hub's file, a page in a repo whose build
+            copies it by its bare name
+  copies    every built copy (dist/brand.css, dist/brand.js) equals the
+            hub's file
   live      the site serves origin/main's brand.css (skipped by --offline)
 
 --diff REV also renders every consumer page as committed (the hub at REV,
@@ -68,6 +73,7 @@ REF = re.compile(
 LINK = re.compile(r"""href=["']([^"']+\.css)["']""")
 STYLE = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
 HREF = re.compile(r"""href=["'][^"']+\.css["']""")
+SCRIPT = re.compile(r"""<script[^>]*\ssrc=["']([^"']*brand\.js)["']""")
 HEX = r"#[0-9a-fA-F]{6}"
 TOKEN = re.compile(
     rf"(--[\w-]+):\s*(?:light-dark\(\s*({HEX}),\s*({HEX})\s*\)|({HEX}))")
@@ -204,11 +210,31 @@ def check_themes(root, found, rep):
         rep.ok("themes: no consumer switches theme on its own")
 
 
+def check_switch(root, found, rep):
+    js = (root / HUB / "brand.js").resolve()
+    want = [(f, False) for f, is_doc in pages(root, found) if not is_doc]
+    want += [(f, True) for repo, refs in found.items() if builds_copy(repo)
+             for f, _, _ in refs if f.suffix == ".html"]
+    bad = []
+    for f, copied in sorted(set(want)):
+        srcs = SCRIPT.findall(f.read_text(errors="replace"))
+        if not any(s == "brand.js" if copied else resolve(root, f, s) == js
+                   for s in srcs):
+            bad.append(f)
+            rep.fail(f"switch: {f.relative_to(root)} does not load brand.js")
+    if not bad:
+        rep.ok(f"switch: {len(set(want))} pages load brand.js")
+
+
 def check_copies(root, brand, found, rep):
     for repo in found:
-        copy = repo / "dist" / "brand.css"
-        if builds_copy(repo) and copy.exists():
-            if copy.read_bytes() == brand.read_bytes():
+        if not builds_copy(repo):
+            continue
+        for src in (brand, brand.with_name("brand.js")):
+            copy = repo / "dist" / src.name
+            if not copy.exists():
+                continue
+            if copy.read_bytes() == src.read_bytes():
                 rep.ok(f"copies: {copy.relative_to(root)} is current")
             else:
                 rep.fail(f"copies: {copy.relative_to(root)} is stale;"
@@ -407,15 +433,17 @@ def run(root, offline, rev):
     hub = root / HUB
     brand = (hub / "brand.css").resolve()
     print(f"== brand_check: {root} ==")
-    link = root / "brand.css"
-    if link.is_symlink() and link.resolve() == brand:
-        rep.ok("link: ROOT/brand.css is a symlink to the hub's file")
-    else:
-        rep.fail(f"link: {link} is not a symlink to {brand}")
+    for name in ("brand.css", "brand.js"):
+        link, want = root / name, (hub / name).resolve()
+        if link.is_symlink() and link.resolve() == want:
+            rep.ok(f"link: ROOT/{name} is a symlink to the hub's file")
+        else:
+            rep.fail(f"link: {link} is not a symlink to {want}")
     check_contrast(brand.read_text(), rep)
     found = consumers(root)
     check_imports(root, brand, found, rep)
     check_themes(root, found, rep)
+    check_switch(root, found, rep)
     check_copies(root, brand, found, rep)
     answered = True if offline else check_live(hub, rep)
     if rev:
@@ -457,6 +485,7 @@ def self_test():
         hub.mkdir()
         (hub / "brand.css").write_text(good)
         (root / "brand.css").symlink_to(hub / "brand.css")
+        (hub / "brand.js").write_text("switch")
         proj = root / "proj" / "demo"
         proj.mkdir(parents=True)
         (proj / "a.css").write_text('@import url("../../brand.css");\n')
@@ -471,6 +500,28 @@ def self_test():
         expect([p.name for p, _ in pages(root, found)]
                == ["index.html", "p.html"],
                "pages finds a direct link and one through a project CSS")
+        rep = Report(quiet=True)
+        check_switch(root, found, rep)
+        expect(rep.failed, "a page that does not load brand.js fails")
+        (hub / "index.html").write_text(
+            '<link href="brand.css"><script src="brand.js"></script>')
+        (proj / "p.html").write_text(
+            '<link rel="stylesheet" href="a.css">'
+            '<script src="../brand.js"></script>')
+        rep = Report(quiet=True)
+        check_switch(root, found, rep)
+        expect(rep.failed, "a brand.js path that misses the hub's file fails")
+        (proj / "p.html").write_text(
+            '<link rel="stylesheet" href="a.css">'
+            '<script src="../../brand.js"></script>')
+        (proj / "a.css").write_text(
+            '@import url("../../brand.css");\n@page { size: A4 }\n')
+        (proj / "d.html").write_text('<link rel="stylesheet" href="a.css">')
+        rep = Report(quiet=True)
+        check_switch(root, consumers(root), rep)
+        expect(not rep.failed, "pages load the hub's brand.js; a printed"
+               " document need not")
+        (proj / "d.html").unlink()
         (proj / "b.css").write_text('@import url("../brand.css");\n')
         rep = Report(quiet=True)
         check_imports(root, brand, consumers(root), rep)
@@ -484,15 +535,18 @@ def self_test():
         (ext / "static").mkdir(parents=True)
         (ext / "dist").mkdir()
         (ext / "package.json").write_text('"build": "cp ../brand.css dist/"')
-        (ext / "static" / "p.html").write_text('<link href="brand.css">')
-        (ext / "dist" / "brand.css").write_text("old")
+        (ext / "static" / "p.html").write_text(
+            '<link href="brand.css"><script src="brand.js"></script>')
+        (ext / "dist" / "brand.css").write_text(good)
+        (ext / "dist" / "brand.js").write_text("old")
         found = consumers(root)
         rep = Report(quiet=True)
         check_imports(root, brand, {ext: found[ext]}, rep)
+        check_switch(root, {ext: found[ext]}, rep)
         expect(not rep.failed, "a repo that builds a copy may link it bare")
         rep = Report(quiet=True)
         check_copies(root, brand, found, rep)
-        expect(rep.failed, "a stale built copy fails")
+        expect(rep.failed, "a stale built copy of brand.js fails")
         dest = root.parent / (root.name + "-mirror")
         dest.mkdir()
         snap = root.parent / (root.name + "-snapshot")

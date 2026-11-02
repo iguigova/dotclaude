@@ -9,8 +9,20 @@
 # --copy runs it on an exported copy (dotclaude_export.sh): check 6 is skipped,
 # because the copy's prose was gated by this check at the source on every commit,
 # and a copy's own HEAD is the previous export, not a baseline for its names.
+#
+# --keep DIR writes what each self-test of check 3 printed to DIR/<script>.txt,
+# its `ok` and `FAIL` lines, one per case. The showcase page reads them from the
+# run GitHub publishes with it, so each claim shows how its own case went.
 set -uo pipefail
-copy=0; [ "${1:-}" = "--copy" ] && copy=1
+copy=0; keep=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --copy) copy=1; shift ;;
+    --keep) [ -n "${2:-}" ] || { echo "selftest.sh: --keep needs a directory" >&2; exit 2; }
+            mkdir -p "$2" && keep=$(cd "$2" && pwd) || exit 2; shift 2 ;;
+    *) echo "selftest.sh: unknown argument: $1 (takes --copy, --keep DIR)" >&2; exit 2 ;;
+  esac
+done
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 2   # → ~/.claude/scripts
 fail=0
 
@@ -57,7 +69,8 @@ for f in ./*.sh ./*.py; do
   grep -q -- '--self-test' "$f" || continue
   [ "$(basename "$f")" = "selftest.sh" ] && continue
   if [[ "$f" == *.py ]] || head -1 "$f" | grep -q python; then runner=python3; else runner=bash; fi
-  if timeout 120 "$runner" "$f" --self-test >/dev/null 2>&1; then
+  printed=/dev/null; [ -n "$keep" ] && printed="$keep/$(basename "$f").txt"
+  if timeout 120 "$runner" "$f" --self-test >"$printed" 2>&1; then
     echo "  ok  $f"
   else
     echo "  FAIL $f --self-test"; fail=1

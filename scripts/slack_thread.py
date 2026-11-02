@@ -10,7 +10,9 @@ is the digits with a dot before the last six. A link to a reply carries
 
 It writes ``DIR/thread.md``: the channel's name and purpose, then every
 message oldest first, under its author's real name, its ts and its UTC
-time. Each attached file is downloaded to ``DIR/files/`` and named in
+time. A ``People`` block under the channel lists everyone who wrote or
+is mentioned, each name beside the ``<@U…>`` that tags them in a post.
+Each attached file is downloaded to ``DIR/files/`` and named in
 the message that carries it; a file Slack refuses to serve is named
 with the HTTP status instead, and the thread is still written. The ts and the channel id it prints are
 what ``slack_post.py post CHANNEL FILE --thread TS`` needs to reply.
@@ -72,6 +74,8 @@ def render(channel, info, messages, names, saved):
     purpose = info.get('purpose', {}).get('value')
     if purpose:
         lines += [f'Purpose: {purpose}', '']
+    lines += ['People:'] + [f'- {names.get(u, u)} — <@{u}>'
+                            for u in authors(messages)] + ['']
     for msg in messages:
         who = names.get(msg.get('user'), msg.get('user', 'unknown'))
         text = MENTION.sub(lambda m: '@' + names.get(m[1], m[1]),
@@ -232,6 +236,8 @@ def self_test():
         check('authors include people only mentioned', ['U1', 'U2'],
               authors(msgs)),
         check('mentions render as names', True, 'Hi @Bo' in md),
+        check('each person is listed beside the id that tags them', True,
+              'People:\n- Ann — <@U1>\n- Bo — <@U2>\n' in md),
         check('each message is headed by author, ts and UTC time', True,
               '## Ann — ts 1792703410.430689 — 2026-10-22 21:10 UTC' in md),
         check('a file is named by where it was saved', True,

@@ -76,7 +76,12 @@ A script's own source is not read for references or probes: a path-shaped
 string in code may be a usage example or a fixture rather than a call. So
 `named by` counts the other items whose text contains the file name -- which
 a script calling another script does, whatever spelling it uses -- and a
-script named by nothing is named by nothing anywhere in the tree. A reference
+script named by nothing is named by nothing anywhere in the tree. A global
+script serves every project, so the items of every other project name it
+too, shown as <project folder>/<item>; a project that has a script of the
+same name means its own, so its items are not read for that name. Another
+project is a folder of ~/.claude/projects other than this one's, rooted
+where its first session started. A reference
 ends at a colon, so a cited line `tool.py:417` names tool.py, and one followed
 by a glob character names a pattern and no script.
 
@@ -109,9 +114,12 @@ timeout, source, ...). A heredoc body is data and is skipped, and a `cd` in the
 call moves the directory a relative path resolves against. The word must end
 in .sh or .py, and it counts for the item at that resolved path, so a `cat` or
 a `grep` of a script is no run and the two selftest.sh are told apart. A call
-asking for --self-test or --help tests or reads the script, so it is no run. A
-script nothing names is flagged as unused only when it has no run either:
-something a person runs by hand is named by nothing and still used.
+asking for --self-test or --help tests or reads the script, so it is no run.
+The runs in other projects' transcripts are read the same way and counted
+apart, in the same window, as `elsewhere` and the projects they were in. A
+script nothing names is flagged as unused only when it has no run in any
+project either: something a person runs by hand is named by nothing and still
+used.
 
 A script is tested when it offers `--self-test`. Both gates sweep for
 the flag and keep no list, so offering it is being covered from the moment
@@ -325,15 +333,22 @@ def item(name, scope, kind, entry, root) -> dict:
             "path": str(entry), "root": str(root)}
 
 
-def discover(home: Path, project: Path, transcripts: Path) -> list[dict]:
+def project_items(project: Path, transcripts: Path) -> list[dict]:
     pc = project / ".claude"
     return (skills_in(pc, "project") + commands_in(pc, "project")
             + scripts_in(pc, "project") + settings_in(pc, "project")
             + rules_in(project, "project") + readmes_in(pc, "project")
-            + memory_in(transcripts)
-            + skills_in(home, "global") + commands_in(home, "global")
+            + memory_in(transcripts))
+
+
+def global_items(home: Path) -> list[dict]:
+    return (skills_in(home, "global") + commands_in(home, "global")
             + scripts_in(home, "global") + settings_in(home, "global")
             + rules_in(home, "global"))
+
+
+def discover(home: Path, project: Path, transcripts: Path) -> list[dict]:
+    return project_items(project, transcripts) + global_items(home)
 
 
 # ----------------------------------------------------------------- identity
@@ -406,9 +421,9 @@ def identity(it: dict) -> dict:
 
 # -------------------------------------------------------------- transcripts
 
-def records(path: Path):
+def records(path: Path, keep=lambda line: True):
     with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
+        for line in (ln for ln in f if keep(ln)):
             try:
                 yield json.loads(line)
             except json.JSONDecodeError:
@@ -674,6 +689,78 @@ def scan_invocations(recs, sid: str, home: Path, acc: dict) -> None:
                     {"session": sid, "start": rec.get("timestamp", "")})
 
 
+# ----------------------------------------------------------- other projects
+# A global item serves every project, so whether it is used is asked of all
+# of them: another project's items may name it and its sessions may run it.
+
+def start_dir(transcripts: Path) -> Path | None:
+    """The directory a transcript folder's sessions started in. The folder's
+    name is that path with every other character a dash, so it cannot be read
+    back; the first record carrying a cwd states it."""
+    cwds = (r.get("cwd") for p in sorted(transcripts.glob("*.jsonl"))
+            for r in records(p))
+    return next((Path(c) for c in cwds if c), None)
+
+
+def others(home: Path, transcripts: Path) -> dict[Path, list[Path]]:
+    """Every other project's tree, with its transcript folders. A tree whose
+    .claude is the global one is no project: its items are the global items."""
+    dirs = sorted(d for d in transcripts.parent.glob("*/")
+                  if d != transcripts and any(d.glob("*.jsonl")))
+    trees: dict[Path, list[Path]] = {}
+    for d in dirs:
+        root = start_dir(d)
+        if root and (root / ".claude").resolve() != home.resolve():
+            trees.setdefault(root, []).append(d)
+    return trees
+
+
+def other_items(trees: dict[Path, list[Path]]) -> list[dict]:
+    """Every other project's items, each named with its tree's folder name,
+    so a reader of `named by` can tell work/jira from this tree's jira."""
+    return [{**it, "name": f"{root.name}/{it['name']}", "project": str(root)}
+            for root, dirs in trees.items()
+            for it in project_items(root, dirs[0])]
+
+
+def runs_elsewhere(trees: dict[Path, list[Path]], home: Path,
+                   names: set, since: str) -> dict:
+    """The Bash calls in every other project's transcripts, keyed by the file
+    each runs, each run naming its project. The folders hold gigabytes, so a
+    file last written before the window opened is not read, and a line is
+    parsed only when it holds a Bash call and a script's name, which every
+    run of one does."""
+    if not names or not since:
+        return {}
+    pattern = re.compile("|".join(map(re.escape, sorted(names))))
+    keep = lambda line: '"Bash"' in line and bool(pattern.search(line))
+    runs: dict[str, list] = {}
+    for root, dirs in trees.items():
+        for path, calls in tree_runs(dirs, home, keep, since).items():
+            runs.setdefault(path, []).extend(
+                {**c, "project": root.name} for c in calls)
+    return runs
+
+
+def tree_runs(dirs: list[Path], home: Path, keep, since: str) -> dict:
+    acc = {"invoked": {}, "calls": set()}
+    for d in dirs:
+        for path in written_since(d.glob("*.jsonl"), since):
+            scan_invocations(records(path, keep), path.stem, home, acc)
+        for path in written_since(d.glob("*/subagents/*.jsonl"), since):
+            scan_invocations(records(path, keep),
+                             path.parent.parent.name, home, acc)
+    return acc["invoked"]
+
+
+def written_since(paths, since: str) -> list[Path]:
+    """The files last written on or after the window's first day, in UTC as
+    the records' timestamps are."""
+    day = lambda p: dt.datetime.fromtimestamp(
+        p.stat().st_mtime, dt.timezone.utc).date().isoformat()
+    return sorted(p for p in paths if day(p) >= since[:10])
+
+
 # ------------------------------------------------------------- usage + cost
 
 def month_counts(runs: list[dict]) -> dict:
@@ -701,15 +788,22 @@ def usage(name: str, acc: dict) -> dict:
 
 def script_usage(path: str, acc: dict) -> dict:
     """A script's runs, in the window the procedures' runs use, so the two
-    compare. A script has no typed or loaded count: only a Bash call runs it."""
-    runs = [r for r in acc["invoked"].get(os.path.normpath(path), [])
-            if acc["since"] and r["start"][:10] >= acc["since"][:10]]
+    compare. A script has no typed or loaded count: only a Bash call runs it.
+    Runs in other projects are counted apart, in the same window, because
+    every other usage figure is this project's."""
+    windowed = lambda runs: [r for r in runs if acc["since"]
+                             and r["start"][:10] >= acc["since"][:10]]
+    key = os.path.normpath(path)
+    runs = windowed(acc["invoked"].get(key, []))
+    away = windowed(acc["elsewhere"].get(key, []))
     starts = sorted(r["start"] for r in runs)
     return {"runs": len(runs),
             "sessions": len({r["session"] for r in runs}),
             "first_run": starts[0][:10] if starts else None,
             "last_run": starts[-1][:10] if starts else None,
-            "runs_by_month": month_counts(runs)}
+            "runs_by_month": month_counts(runs),
+            "elsewhere": len(away),
+            "elsewhere_in": sorted({r["project"] for r in away})}
 
 
 def run_total(run: dict) -> float:
@@ -1207,12 +1301,15 @@ def journal(it: dict, entries: list[dict], todos: list[str]) -> dict:
 def inventory(home: Path, project: Path, transcripts: Path,
               today: dt.date) -> dict:
     items = discover(home, project, transcripts)
+    trees = others(home, transcripts)
     acc = scan_transcripts(transcripts, {i["name"] for i in items}, home)
+    scripts = {i["name"] for i in items if i["kind"] == "script"}
+    acc["elsewhere"] = runs_elsewhere(trees, home, scripts, acc["since"])
     hist = project / ".claude" / "session_history.md"
     entries, todos = journal_entries(hist), open_items(hist)
     rows = [describe(it, acc, entries, todos, home, project, today)
             for it in items]
-    fill_named_by(rows)
+    fill_named_by(rows, other_items(trees))
     fill_restates(rows)
     return {"generated": today.isoformat(), "project": str(project),
             "transcripts": str(transcripts),
@@ -1241,14 +1338,26 @@ def describe(it, acc, entries, todos, home, project, today) -> dict:
             "journal": journal(it, entries, todos)}
 
 
-def fill_named_by(rows: list[dict]) -> None:
-    """Fill each script's named_by: the items whose text names the file."""
+def fill_named_by(rows: list[dict], away: list[dict]) -> None:
+    """Fill each script's named_by: the items whose text names the file. A
+    global script is named from other projects too, except by a project that
+    has a script of that name, whose items mean their own."""
     texts = {r["path"]: Path(r["path"]).read_text(
-        encoding="utf-8", errors="replace") for r in rows}
+        encoding="utf-8", errors="replace") for r in rows + away}
     for row in (r for r in rows if r["kind"] == "script"):
+        namers = rows + (namers_away(row["name"], away)
+                         if row["scope"] == "global" else [])
         row["named_by"] = sorted(
-            r["name"] for r in rows if r["path"] != row["path"]
+            r["name"] for r in namers if r["path"] != row["path"]
             and row["name"] in texts[r["path"]])
+
+
+def namers_away(name: str, away: list[dict]) -> list[dict]:
+    """The other projects' items that could name the global script `name`:
+    those of every project with no script of its own by that name."""
+    shadowed = {i["project"] for i in away
+                if i["kind"] == "script" and Path(i["path"]).name == name}
+    return [i for i in away if i["project"] not in shadowed]
 
 
 def narrow(inv: dict, kind: str | None) -> dict:
@@ -1387,9 +1496,9 @@ def attention(items) -> list[list[str]]:
              for i in items for s in i["scripts"] if not s["exists"]]
     rows += [["no self-test", label(i), named_by(i["named_by"])]
              for i in items if i["kind"] == "script" and not i["tested"]]
-    rows += [["unused", label(i), "named by nothing, no run"]
-             for i in items
-             if i.get("named_by") == [] and not i["usage"]["runs"]]
+    rows += [["unused", label(i), "named by nothing, no run in any project"]
+             for i in items if i.get("named_by") == []
+             and not i["usage"]["runs"] and not i["usage"]["elsewhere"]]
     rows += [["probe", label(i), q] for i in items for q in i["probes"]]
     rows += [["restates", label(i), f"{len(r)} restatement{'s' * (len(r) > 1)};"
               f" /inventory {i['name']} lists them"]
@@ -1415,8 +1524,10 @@ def usage_line(u: dict) -> str:
         return "runs        not attributed for this kind"
     launched = (f"typed {u['typed']}, loaded {u['loaded']}; " if "typed" in u
                 else "Bash calls that run or source it; ")
+    away = (f"; {u['elsewhere']} more in {', '.join(u['elsewhere_in'])}"
+            if u.get("elsewhere") else "")
     return (f"runs        {u['runs']} in {u['sessions']} sessions; {launched}"
-            f"first {dash(u['first_run'])}, last {dash(u['last_run'])}")
+            f"first {dash(u['first_run'])}, last {dash(u['last_run'])}{away}")
 
 
 def cost_line(c: dict) -> str:
@@ -1665,12 +1776,33 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
     transcripts = tmp / "transcripts"
     transcript_fixture(transcripts)
     bash_fixture(transcripts, project)
+    other_fixture(tmp, home)
     write(transcripts / "memory/fact.md",
           "---\ndescription: A fact.\n---\nbody\n")
     # A colon forces the quotes, and the quotes must not reach the reader.
     write(home / "commands/quoted.md",
           "---\ndescription: 'Scope: it''s quoted.'\n---\nbody\n")
     return home, project, transcripts
+
+
+def other_fixture(tmp: Path, home: Path) -> None:
+    """Another project: its skill names one global script and a second that it
+    shadows with a script of its own, and its session runs a third."""
+    for name in ("named_there.sh", "run_there.sh", "shadowed.sh"):
+        write(home / "scripts" / name, f"#!/bin/sh\n# {name}\n--self-test\n")
+    other = tmp / "other"
+    write(other / ".claude/skills/w/SKILL.md",
+          "---\ndescription: W.\n---\nRun ~/.claude/scripts/named_there.sh"
+          " and .claude/scripts/shadowed.sh\n")
+    write(other / ".claude/scripts/shadowed.sh", "echo\n")
+    write(tmp / "other-transcripts/o1.jsonl", json.dumps(
+        bash("o1", "2026-05-20T00:00Z", str(other), "y1",
+             "~/.claude/scripts/run_there.sh go")) + "\n")
+    # A session that ended before the window opened is no run of selftest.sh.
+    old = write(tmp / "other-transcripts/o0.jsonl", json.dumps(
+        bash("o0", "2026-04-01T00:00Z", str(other), "y0",
+             "~/.claude/scripts/selftest.sh")) + "\n")
+    os.utime(old, (dt.datetime(2026, 4, 1).timestamp(),) * 2)
 
 
 def commit(repo: Path) -> None:
@@ -1829,7 +1961,10 @@ EXPECTED = {
                ("rules", "global", "x_guidelines.md"),
                ("rules", "project", "CLAUDE.md"),
                ("script", "global", "gated.sh"),
+               ("script", "global", "named_there.sh"),
+               ("script", "global", "run_there.sh"),
                ("script", "global", "selftest.sh"),
+               ("script", "global", "shadowed.sh"),
                ("script", "global", "tool.py"),
                ("script", "project", "probe.sh"),
                ("settings", "global", "settings.json"),
@@ -1850,8 +1985,12 @@ EXPECTED = {
              "global:quoted": "Scope: it's quoted.",
              "project:fact.md": "A fact."},
     "named_by": {"gated.sh": ["alpha"],
-                 "probe.sh": ["alpha"],
-                 "selftest.sh": [], "tool.py": ["alpha", "selftest.sh"]},
+                 "named_there.sh": ["other/w"],
+                 "probe.sh": ["alpha"], "run_there.sh": [],
+                 "selftest.sh": [], "shadowed.sh": [],
+                 "tool.py": ["alpha", "selftest.sh"]},
+    "elsewhere": {"run_there.sh": (1, ["other"])},
+    "elsewhere.line": "; 1 more in other",
     "alpha.usage": {"runs": 2, "sessions": 1, "typed": 1, "loaded": 1,
                     "first_run": "2026-05-01", "last_run": "2026-06-02",
                     "runs_by_month": {"2026-05": 1, "2026-06": 1}},
@@ -1874,16 +2013,20 @@ EXPECTED = {
     "mine.upkeep": {"tracked": "no repo"},
     "ignored.upkeep": {"tracked": "ignored"},
     "attention.untracked": ["CLAUDE.md (global)", "credo.md", "fact.md", "gated.sh",
-                            "mine", "quoted", "selftest.sh", "settings.json",
-                            "settings.local.json", "tool.py",
+                            "mine", "named_there.sh", "quoted",
+                            "run_there.sh", "selftest.sh", "settings.json",
+                            "settings.local.json", "shadowed.sh", "tool.py",
                             "x_guidelines.md"],
     "attention.missing": ["gone.sh"],
     "attention.untested": ["probe.sh", "tool.py"],
-    "attention.unused": ["selftest.sh"],
+    "attention.unused": ["selftest.sh", "shadowed.sh"],
     "unused.once_run": [],
     "script.runs": {"gated.sh": (1, 1, "2026-05-13"),
+                    "named_there.sh": (0, 0, None),
                     "probe.sh": (1, 1, "2026-05-12"),
+                    "run_there.sh": (0, 0, None),
                     "selftest.sh": (0, 0, None),
+                    "shadowed.sh": (0, 0, None),
                     "tool.py": (1, 1, "2026-05-02")},
     "attention.notes": [],
     "note.states": ["open 3d", "placed", "drained", "no id"],
@@ -2042,6 +2185,13 @@ def observed(inv: dict) -> dict:
                  for i in inv["items"]},
         "named_by": {i["name"]: i["named_by"] for i in inv["items"]
                      if i["kind"] == "script"},
+        "elsewhere": {i["name"]: (i["usage"]["elsewhere"],
+                                  i["usage"]["elsewhere_in"])
+                      for i in inv["items"]
+                      if i["kind"] == "script" and i["usage"]["elsewhere"]},
+        "elsewhere.line": next(
+            usage_line(i["usage"]) for i in inv["items"]
+            if i["name"] == "run_there.sh").split("last -", 1)[1],
         "alpha.usage": a["usage"],
         "script.runs": {i["name"]: (i["usage"]["runs"], i["usage"]["sessions"],
                                     i["usage"]["last_run"])

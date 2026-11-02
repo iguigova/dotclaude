@@ -18,7 +18,7 @@ jobs:
     outputs:
       site: ${{ steps.site.outcome }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Make this checkout ~/.claude
         run: rm -rf "$HOME/.claude" && ln -s "$GITHUB_WORKSPACE" "$HOME/.claude"
       # The tools the self-tests run on, at the versions they run on at home:
@@ -53,7 +53,7 @@ jobs:
             --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             '{commit: $commit, url: $url, time: $time}' > "$site/run/run.json"
       - id: site
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@v5
         if: always()
         with:
           path: ${{ runner.temp }}/site
@@ -74,4 +74,4 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
       - id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

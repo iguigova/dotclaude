@@ -273,7 +273,8 @@ const excerpt = (v) => {
 
 // A claim is the words a file holds (data-check, data-says) and, where a
 // self-test proves the behaviour, that test's case (data-test, data-proves):
-// its name in the test's source, and its line in what the run printed. Its
+// its name in quotes in the test's source, where the case is called, and its
+// line in what the run printed. Its
 // code is the worst of them, as page_claims.py judges a page: a contradiction
 // beats no answer, which beats holding.
 const worst = (codes) => (codes.includes(1) ? 1 : codes.includes(75) ? 75 : 0);
@@ -283,7 +284,7 @@ const parts = (claim) => {
   if (!test) return [said];
   const printed = `${RUN}${test.split('/').pop()}.txt`;
   return [said,
-    { path: test, says: proves, as: 'Tested by', judge: verdict, href: BLOB + test },
+    { path: test, says: `"${proves}"`, as: 'Tested by', judge: verdict, href: BLOB + test },
     { path: printed, says: proves, as: 'Passed in the run', judge: ran, href: printed }];
 };
 
@@ -337,7 +338,8 @@ const count = (codes, c) => codes.filter(x => x === c).length;
 const tally = (results) => {
   const codes = results.map(r => r.code);
   const said = [`${count(codes, 0)} hold`];
-  if (count(codes, 1)) said.push(`${count(codes, 1)} no longer hold and are struck out`);
+  const gone = count(codes, 1);
+  if (gone) said.push(gone === 1 ? '1 no longer holds and is struck out' : `${gone} no longer hold and are struck out`);
   if (count(codes, 75)) said.push(`${count(codes, 75)} got no answer`);
   const tested = results.filter(r => r.tested).length;
   return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${said.join(', ')}. ` +

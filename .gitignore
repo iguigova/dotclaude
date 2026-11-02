@@ -1,2 +1,4 @@
 # The clone's own session history, written by journal.sh; it never leaves the machine.
 .claude/
+# What Python leaves beside the scripts when the selftest runs them here.
+__pycache__/

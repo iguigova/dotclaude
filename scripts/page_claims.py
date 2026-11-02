@@ -83,7 +83,9 @@ class ClaimParser(HTMLParser):
     def handle_starttag(self, tag, attrs):
         a = dict(attrs)
         parts = tuple(
-            Part(a[path], a[words]) for path, words in PAIRS if path in a and words in a
+            Part(a[path], f'"{a[words]}"' if path == "data-test" else a[words])
+            for path, words in PAIRS
+            if path in a and words in a
         )
         if parts:
             self.claims.append(Claim(parts))
@@ -232,7 +234,9 @@ def self_test() -> int:
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        (root / "a.sh").write_text("# one\n# it never &amp; pushes\n")
+        (root / "a.sh").write_text(
+            '# one\n# it never &amp; pushes\n# a red case\ncheck "a red case" x\n'
+        )
         page = root / "index.html"
         holds = '<p data-check="a.sh" data-says="never &amp;amp; pushes">'
         page.write_text(holds)
@@ -247,12 +251,16 @@ def self_test() -> int:
         )
         expect(check(page, root) == 0, "a page whose claims hold exits 0")
         tested = '<p data-check="a.sh" data-says="one" data-test="a.sh" data-proves='
+        case = claims(tested + '"a red case">')
         expect(
-            claims(tested + '"it never">')
-            == [Claim((Part("a.sh", "one"), Part("a.sh", "it never")))],
+            case == [Claim((Part("a.sh", "one"), Part("a.sh", '"a red case"')))],
             "a claim and its self-test case are one claim",
         )
-        page.write_text(holds + tested + '"it never">')
+        expect(
+            judge(root, case[0].parts[1]) == Verdict(0, 4),
+            "a case is found where it is called, not where it is mentioned",
+        )
+        page.write_text(holds + tested + '"a red case">')
         said = io.StringIO()
         with contextlib.redirect_stdout(said):
             check(page, root)

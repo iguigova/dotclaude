@@ -69,7 +69,7 @@
     <p class="tag">My Claude Code setup keeps only what it can check. So does this page.</p>
     <p class="tally" id="tally" aria-live="polite">Your browser checks every claim marked like this one
       <span class="mark">✓ holds</span> against the file it names.</p>
-    <p class="tally" id="run" aria-live="polite">GitHub runs every self-test on each push. Asking it how the last run went…</p>
+    <p class="tally" id="ran" aria-live="polite">GitHub runs every self-test on each push and publishes this page with what they printed. Reading the last run…</p>
   </div>
 </header>
 <main>
@@ -83,8 +83,9 @@
       When this page loads, your browser reads those files and looks.
       Press any mark to see the line it found.</p>
     <p>Words alone are a modest check: they show the file says what the sentence says, not that the code does it.
-      So where a self-test proves the behaviour, the claim names that test too, and GitHub runs every self-test on each push.
-      The second line at the top says how the last run went.</p>
+      So where a self-test proves the behaviour, the claim names that test's case too.
+      GitHub runs every self-test on each push and publishes this page with what each one printed,
+      so the mark also says whether that case passed. The second line at the top says how the whole run went.</p>
   </div>
 </section>
 
@@ -98,7 +99,7 @@
         <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">One command runs every script's own self-test,</span>
         and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
-        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest" data-test="scripts/tooling_commit.sh" data-proves="check &quot;a red gate commits nothing&quot;">A change is committed only when every test passes,</span>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest" data-test="scripts/tooling_commit.sh" data-proves="a red gate commits nothing">A change is committed only when every test passes,</span>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">and never pushed by the script.</span></li>
       <li><b>4 · journal</b>
         <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Each turn that changed something gets an entry, from one writer.</span></li>
@@ -135,9 +136,9 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <div>
     <p>There are three answers a check can give, and each one does something different.</p>
     <ul>
-      <li><b>0, it holds.</b> <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now" data-test="scripts/memory_fact.sh" data-proves="check &quot;a fact whose verify does not pass is refused&quot;">A fact is only written when its check passes the day it's written.</span></li>
-      <li><b>1, it doesn't.</b> <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted" data-test="scripts/memory_check.sh" data-proves="check &quot;a contradicted fact is deleted&quot;">A fact its own check contradicts is deleted, file and index line.</span></li>
-      <li><b>75, no answer.</b> <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it" data-test="scripts/memory_check.sh" data-proves="check &quot;a check that got no answer deletes nothing&quot;">Nothing is learned, and nothing is deleted on a maybe.</span></li>
+      <li><b>0, it holds.</b> <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now" data-test="scripts/memory_fact.sh" data-proves="a fact whose verify does not pass is refused">A fact is only written when its check passes the day it's written.</span></li>
+      <li><b>1, it doesn't.</b> <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted" data-test="scripts/memory_check.sh" data-proves="a contradicted fact is deleted">A fact its own check contradicts is deleted, file and index line.</span></li>
+      <li><b>75, no answer.</b> <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it" data-test="scripts/memory_check.sh" data-proves="a check that got no answer deletes nothing">Nothing is learned, and nothing is deleted on a maybe.</span></li>
     </ul>
   </div>
 </section>
@@ -146,12 +147,12 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <h2 id="h-away">While I'm away</h2>
   <div>
     <ul>
-      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00" data-test="scripts/memory_schedule.sh" data-proves="ok &quot;the timer runs at 04:30 and catches up&quot;">Every night at 04:30, every fact is checked again,</span>
-        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true" data-test="scripts/memory_schedule.sh" data-proves="ok &quot;the timer runs at 04:30 and catches up&quot;">and a night the machine missed is caught up.</span></li>
-      <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes" data-test="scripts/session_start_notes.sh" data-proves="check &quot;three are listed by default&quot;">A session starts by hearing how many notes are open, and the three oldest.</span></li>
-      <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended" data-test="scripts/session_end_notes.sh" data-proves="check &quot;a project with one open note is a run&quot;">When it ends, what it noticed is placed without me.</span></li>
-      <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR" data-test="scripts/git_sweep.sh" data-proves="expect &quot;squash-merged branch → delete&quot;">Once a day, a branch whose pull request merged is deleted.</span></li>
-      <li><span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape" data-test="scripts/dotclaude_export.sh" data-proves="&quot;scripts/b.sh:1 \[token shape\]&quot; &quot;a GitHub token&quot;">Nothing reaches this public repo if it looks like a key, a token or a real email.</span></li>
+      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00" data-test="scripts/memory_schedule.sh" data-proves="the timer runs at 04:30 and catches up">Every night at 04:30, every fact is checked again,</span>
+        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true" data-test="scripts/memory_schedule.sh" data-proves="the timer runs at 04:30 and catches up">and a night the machine missed is caught up.</span></li>
+      <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes" data-test="scripts/session_start_notes.sh" data-proves="three are listed by default">A session starts by hearing how many notes are open, and the three oldest.</span></li>
+      <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended" data-test="scripts/session_end_notes.sh" data-proves="a project with one open note is a run">When it ends, what it noticed is placed without me.</span></li>
+      <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR" data-test="scripts/git_sweep.sh" data-proves="squash-merged branch → delete">Once a day, a branch whose pull request merged is deleted.</span></li>
+      <li><span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape" data-test="scripts/dotclaude_export.sh" data-proves="a GitHub token is refused">Nothing reaches this public repo if it looks like a key, a token or a real email.</span></li>
     </ul>
   </div>
 </section>
@@ -165,7 +166,7 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
       <div><dt data-live="skills">…</dt><dd>skills</dd></div>
       <div><dt data-live="hooks">…</dt><dd>hooks, at session start and end</dd></div>
     </dl>
-    <p class="note" id="live-note">From <a href="https://github.com/iguigova/dotclaude">the public repo</a> and its <code>settings.json</code>.</p>
+    <p class="note" id="live-note">From the files of <a href="https://github.com/iguigova/dotclaude">the public repo</a> this page was published with, and its <code>settings.json</code>.</p>
     <h3>Counted on my machine</h3>
     <dl class="stats">
       <div><dt data-count="commits">264</dt><dd>commits to my <code>~/.claude</code> since <span data-count="since">3 September 2026</span></dd></div>
@@ -200,7 +201,6 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
     <ul>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The nightly timer only runs while I'm logged in, so a missed night runs at my next login, not at 04:30.</span></li>
       <li>A claim with no self-test beside it is checked on its words alone. A file can say the right thing and do the wrong one.</li>
-      <li>GitHub's answers count toward a limit of 60 an hour for each reader. Past it, the live numbers and the run show a dash or no result, never a guess.</li>
     </ul>
   </div>
 </section>
@@ -217,8 +217,9 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
 // the way git_fact.sh checks a fact: 0 the words are there, 1 the file was read
 // and they are not, 75 the file could not be read, so nothing is learned.
 const BLOB = 'https://github.com/iguigova/dotclaude/blob/main/';
-const TREE = 'https://api.github.com/repos/iguigova/dotclaude/git/trees/main?recursive=1';
-const RUNS = 'https://api.github.com/repos/iguigova/dotclaude/actions/workflows/selftest.yml/runs?branch=main&per_page=1';
+// What GitHub's run of the self-tests printed, published with this page from
+// the same commit (.github/workflows/selftest.yml).
+const RUN = 'run/';
 const LIVE = {
   scripts: /^scripts\/[^/]+\.(sh|py)$/,
   skills: /^skills\/[^/]+\/SKILL\.md$/,
@@ -245,6 +246,17 @@ const verdict = (text, says) => {
   return i < 0 ? { code: 1 } : { code: 0, line: i + 1, text: lines[i], says };
 };
 
+// ran — how a case went in what its self-test printed: a line `ok <case>`
+// holds, `FAIL <case>` does not, and a case that never printed did not pass.
+const CASE = /^\s*(ok|FAIL)\s+(.*?)\s*$/;
+const ran = (text, name) => {
+  if (text === null) return { code: 75 };
+  const lines = text.split('\n');
+  const i = lines.findIndex(l => { const m = l.match(CASE); return m && m[2] === name; });
+  if (i < 0) return { code: 1 };
+  return { code: lines[i].match(CASE)[1] === 'ok' ? 0 : 1, line: i + 1, text: lines[i], says: name };
+};
+
 // excerpt — the words in bold, with a little of the line on either side.
 const AROUND = 40;
 const excerpt = (v) => {
@@ -260,28 +272,36 @@ const excerpt = (v) => {
 };
 
 // A claim is the words a file holds (data-check, data-says) and, where a
-// self-test proves the behaviour, that test's case (data-test, data-proves).
-// Its code is the worse of the two, as page_claims.py judges a page: a
-// contradiction beats no answer, which beats holding.
+// self-test proves the behaviour, that test's case (data-test, data-proves):
+// its name in the test's source, and its line in what the run printed. Its
+// code is the worst of them, as page_claims.py judges a page: a contradiction
+// beats no answer, which beats holding.
 const worst = (codes) => (codes.includes(1) ? 1 : codes.includes(75) ? 75 : 0);
-const parts = (claim) => [
-  { path: claim.dataset.check, says: claim.dataset.says, as: 'Says it' },
-  ...(claim.dataset.test
-    ? [{ path: claim.dataset.test, says: claim.dataset.proves, as: 'Tested by' }]
-    : []),
-];
+const parts = (claim) => {
+  const { check, says, test, proves } = claim.dataset;
+  const said = { path: check, says, as: 'Says it', judge: verdict, href: BLOB + check };
+  if (!test) return [said];
+  const printed = `${RUN}${test.split('/').pop()}.txt`;
+  return [said,
+    { path: test, says: proves, as: 'Tested by', judge: verdict, href: BLOB + test },
+    { path: printed, says: proves, as: 'Passed in the run', judge: ran, href: printed }];
+};
 
 // Marks: one button after each claim, opening the evidence it found.
 const NOTE = {
   1: (path) => `Read ${path}, and it no longer says this. I'd rather you saw it struck out than believed it.`,
   75: (path) => `Couldn't read ${path}, so this is neither true nor false yet.`,
 };
-const row = ({ path, as, v }) => {
+const UNRUN = (path) => `Read ${path}, and this case failed or never ran.`;
+const row = ({ path, as, judge, href, v }) => {
   const line = document.createElement('span');
   line.className = 'row';
-  if (v.code !== 0) { line.textContent = `${as}: ${NOTE[v.code](path)}`; return line; }
+  if (v.code !== 0) {
+    line.textContent = `${as}: ${(v.code === 1 && judge === ran ? UNRUN : NOTE[v.code])(path)}`;
+    return line;
+  }
   const link = document.createElement('a');
-  link.href = `${BLOB}${path}#L${v.line}`;
+  link.href = judge === ran ? href : `${href}#L${v.line}`;
   link.textContent = `${path}:${v.line}`;
   const code = document.createElement('code');
   code.append(...excerpt(v));
@@ -290,7 +310,7 @@ const row = ({ path, as, v }) => {
 };
 const mark = (claim, checked) => {
   const code = worst(checked.map(c => c.v.code));
-  const tested = checked.length > 1;
+  const tested = checked.some(c => c.judge === ran);
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'mark';
@@ -310,7 +330,7 @@ const mark = (claim, checked) => {
 };
 const checkClaim = async (claim) =>
   mark(claim, await Promise.all(parts(claim).map(async (part) =>
-    ({ ...part, v: verdict(await read(part.path), part.says) }))));
+    ({ ...part, v: part.judge(await read(part.path), part.says) }))));
 
 // The tally says what every check found.
 const count = (codes, c) => codes.filter(x => x === c).length;
@@ -321,54 +341,56 @@ const tally = (results) => {
   if (count(codes, 75)) said.push(`${count(codes, 75)} got no answer`);
   const tested = results.filter(r => r.tested).length;
   return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${said.join(', ')}. ` +
-    `${tested} of them also name the self-test that proves them.`;
+    `${tested} of them also name the self-test case that proves them, and how it went in the run.`;
 };
 const checkAll = async () => {
   const results = await Promise.all([...document.querySelectorAll('.claim')].map(checkClaim));
   document.getElementById('tally').textContent = tally(results);
 };
 
-// The self-tests' last run on GitHub, judged like a claim: passed 0, failed 1,
-// still running or no answer 75.
+// The run published with this page, judged like a claim by the verdict line
+// selftest.sh prints last: PASS 0, FAIL 1, none 75.
 const RAN = {
   0: '✓ every one passed',
   1: '✗ at least one failed',
-  75: '? no result yet',
+  75: '? no result',
 };
-const runCode = (run) => {
-  if (!run || run.status !== 'completed') return 75;
-  if (run.conclusion === 'success') return 0;
-  return run.conclusion === 'failure' ? 1 : 75;
+const runCode = (text) => {
+  const last = (text ?? '').trim().split('\n').pop();
+  return last === 'selftest: PASS' ? 0 : last === 'selftest: FAIL' ? 1 : 75;
+};
+const anchor = (href, text) => {
+  const a = document.createElement('a');
+  a.href = href;
+  a.textContent = text;
+  return a;
 };
 const checkRun = async () => {
-  const r = await fetch(RUNS).catch(() => null);
-  const run = r && r.ok ? (await r.json()).workflow_runs[0] : null;
-  const el = document.getElementById('run');
-  if (!run) { el.textContent = 'GitHub gave no answer about the self-tests just now, so I won\'t say how they went.'; return; }
-  const code = runCode(run);
+  const [about, printed] = await Promise.all([read(`${RUN}run.json`), read(`${RUN}selftest.txt`)]);
+  const run = about && JSON.parse(about);
+  const el = document.getElementById('ran');
+  if (!run) { el.textContent = 'This copy of the page was published without a run, so I won\'t say how the self-tests went.'; return; }
+  const code = runCode(printed);
   const badge = document.createElement('span');
   badge.className = 'mark';
   badge.dataset.code = code;
   badge.textContent = RAN[code];
-  const link = document.createElement('a');
-  link.href = run.html_url;
-  link.textContent = 'see the run';
-  const day = new Date(run.created_at).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
-  el.replaceChildren(`GitHub ran every self-test on the latest push, ${run.head_sha.slice(0, 7)} on ${day}: `, badge, ' · ', link);
+  const day = new Date(run.time).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
+  el.replaceChildren(`GitHub ran every self-test on this page's commit, ${run.commit.slice(0, 7)}, on ${day}: `,
+    badge, ' · ', anchor(run.url, 'see the run'), ' · ', anchor(`${RUN}selftest.txt`, 'what it printed'));
 };
 
 // Numbers counted live. No answer shows as a dash, never as a guess.
 const show = (key, n) => {
   document.querySelector(`[data-live="${key}"]`).textContent = n ?? '—';
 };
-const countTree = async () => {
-  const r = await fetch(TREE).catch(() => null);
-  const body = r && r.ok ? await r.json() : null;
-  const paths = body ? body.tree.map(t => t.path) : null;
+const countFiles = async () => {
+  const text = await read(`${RUN}files.txt`);
+  const paths = text && text.split('\n');
   Object.entries(LIVE).forEach(([key, re]) =>
     show(key, paths && paths.filter(p => re.test(p)).length));
   if (!paths) document.getElementById('live-note').textContent =
-    'GitHub gave no answer just now, so these show a dash rather than a guess.';
+    'This copy of the page was published without its file list, so these show a dash rather than a guess.';
 };
 const countHooks = async () => {
   const text = await read('settings.json');
@@ -415,7 +437,7 @@ document.getElementById('cut').addEventListener('click', () => runFact(true));
 
 checkAll();
 checkRun();
-countTree();
+countFiles();
 countHooks();
 </script>
 </body>

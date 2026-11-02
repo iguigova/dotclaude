@@ -1,6 +1,11 @@
 # Every push runs the self-tests on a clean machine, where this checkout is
-# ~/.claude, the tree the scripts were written for. The showcase page reads
-# this run's result and shows it beside the claims the tests prove.
+# ~/.claude, the tree the scripts were written for. A push to main then
+# publishes the site: this commit's files, and in run/ what the run printed,
+# so the page reads its claims, its counts and their tests from one commit.
+#   run/<script>.txt  what that script's self-test printed, a line per case
+#   run/selftest.txt  what selftest.sh printed; its last line is the verdict
+#   run/run.json      the commit, the run's page and when it ran
+#   run/files.txt     every file in the commit
 name: selftest
 on:
   push:
@@ -10,6 +15,8 @@ permissions:
 jobs:
   selftest:
     runs-on: ubuntu-24.04
+    outputs:
+      site: ${{ steps.site.outcome }}
     steps:
       - uses: actions/checkout@v4
       - name: Make this checkout ~/.claude
@@ -24,4 +31,47 @@ jobs:
           sudo apt-get install -y -qq python3-reportlab
           pipx install uv==0.10.3
       - name: Run every self-test
-        run: ~/.claude/scripts/selftest.sh --copy
+        id: tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/run"
+          set +e
+          ~/.claude/scripts/selftest.sh --copy --keep "$RUNNER_TEMP/run" | tee "$RUNNER_TEMP/run/selftest.txt"
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+      # The site is built whatever the tests said, so a failure is published
+      # too; a run whose tests never ran publishes no selftest.txt verdict.
+      - name: Build the site
+        if: always()
+        run: |
+          site="$RUNNER_TEMP/site"
+          mkdir -p "$site"
+          git archive HEAD | tar -x -C "$site"
+          mkdir -p "$RUNNER_TEMP/run"
+          cp -r "$RUNNER_TEMP/run" "$site/run"
+          git ls-files > "$site/run/files.txt"
+          jq -n --arg commit "$GITHUB_SHA" \
+            --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
+            --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{commit: $commit, url: $url, time: $time}' > "$site/run/run.json"
+      - id: site
+        uses: actions/upload-pages-artifact@v3
+        if: always()
+        with:
+          path: ${{ runner.temp }}/site
+      - name: Every self-test passed
+        run: exit "${{ steps.tests.outputs.status }}"
+  publish:
+    needs: selftest
+    if: always() && github.ref == 'refs/heads/main' && needs.selftest.outputs.site == 'success'
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - id: deploy
+        uses: actions/deploy-pages@v4

@@ -116,7 +116,7 @@ nl_held() {
   local found
   found=$(for p in "$@"; do printf '%s:%s\n' "$ref" "$p"; done \
     | git -C "$dir" cat-file --batch-check 2>/dev/null)
-  grep -qv ' missing$' <<<"$found" && { echo "$ref"; return 0; }
+  grep -qvE ' missing$|^$' <<<"$found" && { echo "$ref"; return 0; }
   return 1
 }
 
@@ -330,8 +330,8 @@ DOC
         == "name_lint: relative names resolve in '"$d"'/.claude '"$d"'" ]]'
   check "the report names the roots every verdict depends on" \
     'grep -q "^name_lint: relative names resolve in .*'"$d"'" <<<"$out"'
-  check "the same file and project lint the same from any cwd" \
-    '[[ "$(cd / && "'"$self"'" --project "'"$d"'" "'"$d"'/doc.md" 2>&1)" == "$out" ]]'
+  tap_is "the same file and project lint the same from any cwd" \
+    "$(cd / && "$self" --project "$d" "$d/doc.md" 2>&1)" "$out"
   check "the project is the linted file's, so no --project is needed from elsewhere" \
     'grep -q "^name_lint: relative names resolve in '"$d"' " \
        <<<"$(cd / && "'"$self"'" "'"$d"'/doc.md" 2>&1)"'

@@ -84,8 +84,9 @@
       Press any mark to see the line it found.</p>
     <p>Words alone are a modest check: they show the file says what the sentence says, not that the code does it.
       So where a self-test proves the behaviour, the claim names that test's case too.
-      GitHub runs every self-test on each push and publishes this page with what each one printed,
-      so the mark also says whether that case passed. The second line at the top says how the whole run went.</p>
+      GitHub runs every self-test on each push and publishes this page with what each one printed:
+      one line per case, in TAP, the standard plain-text test format.
+      So the mark also says whether that case passed. The second line at the top says how the whole run went.</p>
   </div>
 </section>
 
@@ -100,9 +101,9 @@
         and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest" data-test="scripts/tooling_commit.sh" data-proves="a red gate commits nothing">A change is committed only when every test passes,</span>
-        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">and never pushed by the script.</span></li>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes" data-test="scripts/tooling_commit.sh" data-proves="and the commit is never pushed">and never pushed by the script.</span></li>
       <li><b>4 · journal</b>
-        <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Each turn that changed something gets an entry, from one writer.</span></li>
+        <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history" data-test="scripts/journal.sh" data-proves="a new entry lands at the end, one blank line after the last">Each turn that changed something gets an entry, from one writer.</span></li>
       <li><b>5 · note</b>
         <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">What a session notices becomes a note, and each note is done, dropped or kept open.</span></li>
     </ol>
@@ -147,8 +148,8 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <h2 id="h-away">While I'm away</h2>
   <div>
     <ul>
-      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00" data-test="scripts/memory_schedule.sh" data-proves="the timer runs at 04:30 and catches up">Every night at 04:30, every fact is checked again,</span>
-        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true" data-test="scripts/memory_schedule.sh" data-proves="the timer runs at 04:30 and catches up">and a night the machine missed is caught up.</span></li>
+      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00" data-test="scripts/memory_schedule.sh" data-proves="the timer runs at 04:30">Every night at 04:30, every fact is checked again,</span>
+        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true" data-test="scripts/memory_schedule.sh" data-proves="a missed night runs at the next login">and a night the machine missed is caught up.</span></li>
       <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes" data-test="scripts/session_start_notes.sh" data-proves="three are listed by default">A session starts by hearing how many notes are open, and the three oldest.</span></li>
       <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended" data-test="scripts/session_end_notes.sh" data-proves="a project with one open note is a run">When it ends, what it noticed is placed without me.</span></li>
       <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR" data-test="scripts/git_sweep.sh" data-proves="squash-merged branch → delete">Once a day, a branch whose pull request merged is deleted.</span></li>
@@ -164,7 +165,7 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
     <dl class="stats">
       <div><dt data-live="scripts">…</dt><dd>scripts</dd></div>
       <div><dt data-live="skills">…</dt><dd>skills</dd></div>
-      <div><dt data-live="hooks">…</dt><dd>hooks, at session start and end</dd></div>
+      <div><dt data-live="hooks">…</dt><dd>hooks, at session start and end, and around a blocked call</dd></div>
     </dl>
     <p class="note" id="live-note">From the files of <a href="https://github.com/iguigova/dotclaude">the public repo</a> this page was published with, and its <code>settings.json</code>.</p>
     <h3>Counted on my machine</h3>
@@ -246,9 +247,10 @@ const verdict = (text, says) => {
   return i < 0 ? { code: 1 } : { code: 0, line: i + 1, text: lines[i], says };
 };
 
-// ran — how a case went in what its self-test printed: a line `ok <case>`
-// holds, `FAIL <case>` does not, and a case that never printed did not pass.
-const CASE = /^\s*(ok|FAIL)\s+(.*?)\s*$/;
+// ran — how a case went in the TAP its self-test printed: a line
+// `ok N - <case>` holds, `not ok N - <case>` does not, and a case that never
+// printed did not pass.
+const CASE = /^(ok|not ok) \d+ - (.*)$/;
 const ran = (text, name) => {
   if (text === null) return { code: 75 };
   const lines = text.split('\n');

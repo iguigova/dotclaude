@@ -148,10 +148,6 @@ HELPER_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SO
 self_test() {
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   arg() {  # ISSUE_JSON EFFORT [HPD] [DPW] — the argument alone
     local row; row=$(decide "$1" "$2" "${3:-8}" "${4:-5}") || return 2
     printf '%s' "${row%%$'\t'*}"
@@ -168,30 +164,30 @@ self_test() {
   local done='{"status":"Done","statusCategory":"done","timeOriginalEstimate":"8h","timeRemainingEstimate":"2h","timeSpent":"6h"}'
   local junk='{"status":"In Progress","statusCategory":"indeterminate","timeOriginalEstimate":"8h","timeRemainingEstimate":"about a day","timeSpent":"4h"}'
 
-  check "a ticket with no estimate omits the argument" "" "$(arg "$none" 2h)"
-  check "remaining already 0h on an open ticket omits it" "" "$(arg "$spent" 1h)"
-  check "and says the burndown is spent, with the overrun" \
-    "0h already — Testing is open but the burndown is spent (81h logged against an original of 8h). Argument omitted: any number would raise it. — OVER: 81h spent plus 1h exceeds the 8h original" \
-    "$(why "$spent" 1h)"
-  check "effort that exhausts what is left omits it" "" "$(arg "$live" 4h)"
-  check "an unreadable remaining omits it rather than guessing" "" "$(arg "$junk" 1h)"
-  check "an ordinary subtraction" "2h" "$(arg "$live" 2h)"
-  check "a decimal effort" "2h 30m" "$(arg "$live" 1.5h)"
-  check "days use this instance's working day, not 24h" "6h" "$(arg "$day" 2h)"
-  check "a six-hour working day gives a different answer" "5h" "$(arg "$day" 1h 6)"
-  check "weeks carry the working week" "4d 5h 30m" "$(arg "$week" 2.5h)"
-  check "a Done ticket closes the clock" "0h" "$(arg "$done" 1h)"
+  tap_is "a ticket with no estimate omits the argument" "$(arg "$none" 2h)" ""
+  tap_is "remaining already 0h on an open ticket omits it" "$(arg "$spent" 1h)" ""
+  tap_is "and says the burndown is spent, with the overrun" \
+    "$(why "$spent" 1h)" \
+    "0h already — Testing is open but the burndown is spent (81h logged against an original of 8h). Argument omitted: any number would raise it. — OVER: 81h spent plus 1h exceeds the 8h original"
+  tap_is "effort that exhausts what is left omits it" "$(arg "$live" 4h)" ""
+  tap_is "an unreadable remaining omits it rather than guessing" "$(arg "$junk" 1h)" ""
+  tap_is "an ordinary subtraction" "$(arg "$live" 2h)" "2h"
+  tap_is "a decimal effort" "$(arg "$live" 1.5h)" "2h 30m"
+  tap_is "days use this instance's working day, not 24h" "$(arg "$day" 2h)" "6h"
+  tap_is "a six-hour working day gives a different answer" "$(arg "$day" 1h 6)" "5h"
+  tap_is "weeks carry the working week" "$(arg "$week" 2.5h)" "4d 5h 30m"
+  tap_is "a Done ticket closes the clock" "$(arg "$done" 1h)" "0h"
   local big
   big=$(head -c 200000 /dev/zero | tr '\0' x \
     | jq -Rs --argjson l "$live" '$l + {description: .}')
-  check "an issue over 128 KiB is decided, not refused by the kernel" "2h" \
-    "$(arg "$big" 2h)"
-  check "the rendering names what it was and the original" \
-    "2h (was 4h; original 8h)" "$(why "$live" 2h)"
-  check "an effort that is not a duration is refused" 2 \
-    "$(decide "$live" "two hours" 8 5 >/dev/null 2>&1; echo $?)"
-  check "an unspaced compound is refused, as REST v3 refuses it" 2 \
-    "$(decide "$live" "2h30m" 8 5 >/dev/null 2>&1; echo $?)"
+  tap_is "an issue over 128 KiB is decided, not refused by the kernel" "$(arg "$big" 2h)" \
+    "2h"
+  tap_is "the rendering names what it was and the original" \
+    "$(why "$live" 2h)" "2h (was 4h; original 8h)"
+  tap_is "an effort that is not a duration is refused" "$(decide "$live" "two hours" 8 5 >/dev/null 2>&1; echo $?)" \
+    2
+  tap_is "an unspaced compound is refused, as REST v3 refuses it" "$(decide "$live" "2h30m" 8 5 >/dev/null 2>&1; echo $?)" \
+    2
 
   # The split matters as much as the decision: /timelog reads the argument off
   # stdout and shows the reasoning from stderr, so a line on the wrong stream
@@ -207,20 +203,20 @@ self_test() {
   printf '%s' "$live" > "$JR_ISSUE"
   printf '{"timeTrackingConfiguration":{"workingHoursPerDay":8,"workingDaysPerWeek":5}}' > "$JR_CONFIG"
 
-  check "the argument alone goes to stdout" '2h' "$("$self" ABC-1 2h 2>/dev/null)"
-  check "the reasoning goes to stderr" 'true' \
-    "$("$self" ABC-1 2h 2>&1 >/dev/null | grep -q 'was 4h; original 8h' && echo true || echo false)"
+  tap_is "the argument alone goes to stdout" "$("$self" ABC-1 2h 2>/dev/null)" '2h'
+  tap_like "the reasoning goes to stderr" "$("$self" ABC-1 2h 2>&1 >/dev/null)" \
+    '*was 4h; original 8h*'
   printf '%s' "$none" > "$JR_ISSUE"
-  check "a ticket with no estimate prints nothing on stdout" '' "$("$self" ABC-1 2h 2>/dev/null)"
-  check "and still explains itself on stderr" 'true' \
-    "$([ -n "$("$self" ABC-1 2h 2>&1 >/dev/null)" ] && echo true || echo false)"
-  check "the wrong number of arguments is a usage error" 1 \
-    "$("$self" ABC-1 >/dev/null 2>&1; echo $?)"
+  tap_is "a ticket with no estimate prints nothing on stdout" "$("$self" ABC-1 2h 2>/dev/null)" ''
+  tap_is "and still explains itself on stderr" "$([ -n "$("$self" ABC-1 2h 2>&1 >/dev/null)" ] && echo true || echo false)" \
+    'true'
+  tap_is "the wrong number of arguments is a usage error" "$("$self" ABC-1 >/dev/null 2>&1; echo $?)" \
+    1
   # Assuming an eight-hour day would silently rewrite a burndown on an instance
   # configured otherwise.
   printf '{"timeTrackingConfiguration":{}}' > "$JR_CONFIG"
-  check "a configuration with no working day is refused, not assumed" 1 \
-    "$("$self" ABC-1 2h >/dev/null 2>&1; echo $?)"
+  tap_is "a configuration with no working day is refused, not assumed" "$("$self" ABC-1 2h >/dev/null 2>&1; echo $?)" \
+    1
 }
 
 # ---------------------------------------------------------------- main

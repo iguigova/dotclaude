@@ -30,10 +30,6 @@ if [[ "${1:-}" == "--self-test" ]]; then
   command -v jq >/dev/null 2>&1 || { echo "memory_reconcile --self-test: needs jq" >&2; exit 2; }
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
 
   # Every store is a fixture — the project, HOME and the memory — so the run
   # never reads a real CLAUDE.md or skill, whose edits would move the counts.
@@ -56,33 +52,33 @@ if [[ "${1:-}" == "--self-test" ]]; then
   run() { HOME="$fx/home" MEM_PROJECT_ROOT="$fx/proj" MEMORY_FILE="$fx/mem/MEMORY.md" "$self" "$@"; }
   stores() { run --text "$RARE" | jq -r "[.[] | select(.store == \"$1\")] | length"; }
 
-  check "both facts are found" 2 "$(stores fact)"
-  check "the description outranks the body" '["zzq-b","description"]' \
-    "$(run --text "$RARE" | jq -c '[.[] | select(.store == "fact")][0] | [.fact, .field]')"
+  tap_is "both facts are found" "$(stores fact)" 2
+  tap_is "the description outranks the body" "$(run --text "$RARE" | jq -c '[.[] | select(.store == "fact")][0] | [.fact, .field]')" \
+    '["zzq-b","description"]'
   # A retriever that reads only the memory store cannot find the rule that
   # already covers a note, which is the question /notes asks it.
-  check "the project CLAUDE.md is searched" 1 "$(stores claude-project)"
-  check "the global CLAUDE.md is searched"  1 "$(stores claude-global)"
-  check "skills are searched"               1 "$(stores skill)"
-  check "commands are searched"             1 "$(stores command)"
+  tap_is "the project CLAUDE.md is searched" "$(stores claude-project)" 1
+  tap_is "the global CLAUDE.md is searched"  "$(stores claude-global)" 1
+  tap_is "skills are searched"               "$(stores skill)" 1
+  tap_is "commands are searched"             "$(stores command)" 1
 
-  check "a seed sharing nothing returns an empty array, not an error" '[]' \
-    "$(run --text 'snorglewip quxbarbaz zindlefop' | jq -c .)"
-  check "bare words are taken as the text" 2 \
-    "$(run wibblewobble frobnicate plughxyzzy | jq -r '[.[] | select(.store == "fact")] | length')"
+  tap_is "a seed sharing nothing returns an empty array, not an error" "$(run --text 'snorglewip quxbarbaz zindlefop' | jq -c .)" \
+    '[]'
+  tap_is "bare words are taken as the text" "$(run wibblewobble frobnicate plughxyzzy | jq -r '[.[] | select(.store == "fact")] | length')" \
+    2
   # A key is seeded two ways, and only the literal survives a short name:
   # mem_tokens drops anything under four characters, so "zzq" and "b" vanish.
-  check "--key seeds from the name's words" 'true' \
-    "$(test "$(run --key wibblewobble-frobnicate | jq 'length')" -gt 0 && echo true || echo false)"
-  check "--key also matches the literal name" 'claude-project' \
-    "$(run --key zzq-b | jq -r '.[0].store')"
-  check "--top caps the result" 1 "$(run --text "$RARE" --top 1 | jq 'length')"
+  tap_is "--key seeds from the name's words" "$(test "$(run --key wibblewobble-frobnicate | jq 'length')" -gt 0 && echo true || echo false)" \
+    'true'
+  tap_is "--key also matches the literal name" "$(run --key zzq-b | jq -r '.[0].store')" \
+    'claude-project'
+  tap_is "--top caps the result" "$(run --text "$RARE" --top 1 | jq 'length')" 1
   # The floor is what separates overlap from coincidence; without it every line
   # sharing one common word ranks.
-  check "--min raises the floor above a single shared token" 0 \
-    "$(run --text "$RARE plain" --min 4 | jq 'length')"
+  tap_is "--min raises the floor above a single shared token" "$(run --text "$RARE plain" --min 4 | jq 'length')" \
+    0
   run >/dev/null 2>&1 && st=0 || st=$?
-  check "a run with no seed is refused" 1 "$st"
+  tap_is "a run with no seed is refused" "$st" 1
 
   tap_end
 fi

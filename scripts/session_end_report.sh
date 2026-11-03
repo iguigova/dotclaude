@@ -88,10 +88,6 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp out run hist ids long_note
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$3" == "$2" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   jw() { JOURNAL_HIST="$hist" CLAUDE_CODE_SESSION_ID="$1" "$SCRIPTS_DIR/journal.sh" "${@:2}"; }
 
   DIR="$tmp/proj"; mkdir -p "$DIR/.claude"; hist="$DIR/.claude/session_history.md"
@@ -115,36 +111,36 @@ self_test() {
   NOTES=$(read_notes)
 
   out=$(compose_record)
-  check "placed is what the queue lost, not a number passed in" "1 placed by the run" \
-    "$(grep -o '[0-9]\+ placed by the run' <<<"$out")"
+  tap_is "placed is what the queue lost, not a number passed in" "$(grep -o '[0-9]\+ placed by the run' <<<"$out")" \
+    "1 placed by the run"
   # Each section is a table: its rows are read by cell — id, status, resolution,
   # note — and journal_lib.sh's self-test checks the table itself.
   rows_of() { sed -n "/^$1:\$/,/^[A-Z][a-z ]*:\$/p" <<<"$out" | grep -E '^  [|] [a-z0-9]{4} ' |
     awk -F' *[|] *' '{ print $2 " | " $4 " | " $5 " | " $3 }'; }
-  check "a note still open is listed with its whole text" \
-    "$(sed -n 2p <<<"$ids") | open | - | $long_note" "$(rows_of 'Still open')"
-  check "a note the run placed says where it went" \
-    "$(sed -n 1p <<<"$ids") | closed | skill:probe — the probe is a skill now | Probe script — list servers and spaces" \
-    "$(rows_of 'Placed by the run')"
-  check "a note the session placed is not counted as the run's" "closed | rules — stated in the rule" \
-    "$(rows_of 'Placed before the run' | grep -F "$(sed -n 3p <<<"$ids")" | awk -F' [|] ' '{print $2 " | " $3}')"
-  check "nor is one another session closed before the run" \
-    "$swept_id | closed | - — no longer there | Swept stash — gone before the run" \
-    "$(rows_of 'Placed before the run' | grep -F "$swept_id")"
-  check "and the run's section holds the run's note alone" "1" \
-    "$(rows_of 'Placed by the run' | wc -l)"
-  check "a commit line is carried through" "  /repo abc1234 chore: placed" \
-    "$(grep '/repo' <<<"$out")"
-  check "work left open names the command that reaches it" "1" \
-    "$(grep -c 'notes --session s-1' <<<"$out")"
-  check "a clean run names no log" "0" "$(grep -c '^Full log' <<<"$out")"
+  tap_is "a note still open is listed with its whole text" \
+    "$(rows_of 'Still open')" "$(sed -n 2p <<<"$ids") | open | - | $long_note"
+  tap_is "a note the run placed says where it went" \
+    "$(rows_of 'Placed by the run')" \
+    "$(sed -n 1p <<<"$ids") | closed | skill:probe — the probe is a skill now | Probe script — list servers and spaces"
+  tap_is "a note the session placed is not counted as the run's" "$(rows_of 'Placed before the run' | grep -F "$(sed -n 3p <<<"$ids")" | awk -F' [|] ' '{print $2 " | " $3}')" \
+    "closed | rules — stated in the rule"
+  tap_is "nor is one another session closed before the run" \
+    "$(rows_of 'Placed before the run' | grep -F "$swept_id")" \
+    "$swept_id | closed | - — no longer there | Swept stash — gone before the run"
+  tap_is "and the run's section holds the run's note alone" "$(rows_of 'Placed by the run' | wc -l)" \
+    "1"
+  tap_is "a commit line is carried through" "$(grep '/repo' <<<"$out")" \
+    "  /repo abc1234 chore: placed"
+  tap_is "work left open names the command that reaches it" "$(grep -c 'notes --session s-1' <<<"$out")" \
+    "1"
+  tap_is "a clean run names no log" "$(grep -c '^Full log' <<<"$out")" "0"
 
   RC=3 OPEN=(x) AFTER=1 COMMITS=() LEFT=("/repo: stray.txt")
   out=$(compose_record)
-  check "a path left uncommitted is named" "  /repo: stray.txt" "$(grep stray <<<"$out")"
-  check "a run that committed nothing has no Committed section" "0" \
-    "$(grep -c '^Committed' <<<"$out")"
-  check "and the record points at the log" "1" "$(grep -c '^Full log' <<<"$out")"
+  tap_is "a path left uncommitted is named" "$(grep stray <<<"$out")" "  /repo: stray.txt"
+  tap_is "a run that committed nothing has no Committed section" "$(grep -c '^Committed' <<<"$out")" \
+    "0"
+  tap_is "and the record points at the log" "$(grep -c '^Full log' <<<"$out")" "1"
 
   # Everything above tests the functions. These drive the script itself, which is
   # where the flags, the required-flag check and the write actually live — the
@@ -153,22 +149,22 @@ self_test() {
   out=$("$0" --session s-e2e --rc 0 --open a --open b --open c --after 1 --dir "$run" \
         --log "$tmp/e2e.log" --commit "/r abc (2 paths)" --dry-run)
   # three --open and --after 1 means 2 were placed, computed here and nowhere else.
-  check "a dry run prints the record, placed count and all" "3 open at the end, 2 placed" \
-    "$(grep -o '3 open at the end, 2 placed' <<<"$out")"
-  check "and leaves no file behind" "0" \
-    "$([[ -e "$run/.claude/session_end.last" ]] && echo 1 || echo 0)"
+  tap_is "a dry run prints the record, placed count and all" "$(grep -o '3 open at the end, 2 placed' <<<"$out")" \
+    "3 open at the end, 2 placed"
+  tap_is "and leaves no file behind" "$([[ -e "$run/.claude/session_end.last" ]] && echo 1 || echo 0)" \
+    "0"
 
   # The status is captured on the same line: read later, $? is the last check's.
   SESSION_END_LOG="$tmp/e2e.log" \
     "$0" --session s-e2e --rc 0 --open a --open b --open c --after 1 --dir "$run" >/dev/null 2>&1; local st=$?
-  check "a real run writes the record the next session reads" "1" \
-    "$(grep -c '^session_end ' "$run/.claude/session_end.last" 2>/dev/null || echo 0)"
-  check "and exits 0" "0" "$st"
+  tap_is "a real run writes the record the next session reads" "$(grep -c '^session_end ' "$run/.claude/session_end.last" 2>/dev/null || echo 0)" \
+    "1"
+  tap_is "and exits 0" "$st" "0"
 
-  check "a missing required flag is refused by name" "2" \
-    "$("$0" --session s --rc 0 --open a --after 0 >/dev/null 2>&1; echo $?)"
-  check "an unknown argument is refused" "2" \
-    "$("$0" --session s --rc 0 --open a --after 0 --dir "$run" --nope >/dev/null 2>&1; echo $?)"
+  tap_is "a missing required flag is refused by name" "$("$0" --session s --rc 0 --open a --after 0 >/dev/null 2>&1; echo $?)" \
+    "2"
+  tap_is "an unknown argument is refused" "$("$0" --session s --rc 0 --open a --after 0 --dir "$run" --nope >/dev/null 2>&1; echo $?)" \
+    "2"
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; tap_end; }

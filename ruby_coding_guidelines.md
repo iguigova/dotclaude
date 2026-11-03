@@ -42,10 +42,6 @@ disagree, the guide wins.
 > *Source: [Ruby Style Guide](https://rubystyle.guide/), `style_guidelines.md`*
 
 - **Two spaces per indent level, never tabs.**
-- **Line length is ~80 characters**, per `style_guidelines.md`. RuboCop's
-  `Layout/LineLength` default is 120; the house rule is narrower and wins.
-  Where a project's `.rubocop.yml` sets 120, treat it as the ceiling a tool
-  enforces, not the target.
 - **One expression per line.** No semicolons.
 - **`do ... end` for multi-line blocks, `{ ... }` for single-line blocks.**
 - **No trailing whitespace**, and end every file with a newline.

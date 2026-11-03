@@ -154,39 +154,35 @@ self_test() {
   fact() {  # NAME VERIFY
     printf -- '---\nname: %s\ndescription: "d"\nmetadata:\n  type: reference\n  verify: %s\n---\n\nbody\n' "$1" "$2"
   }
-  check() {  # DESCRIPTION CONDITION…
-    local t="$1"; shift
-    tap_run "$t" "$@"
-  }
 
   fact new true | run write new "when it matters" >/dev/null
-  check "a new fact writes its file"    test -f "$d/new.md"
-  check "and its pointer lands last"    \
+  tap_run "a new fact writes its file"    test -f "$d/new.md"
+  tap_run "and its pointer lands last"    \
     eval '[[ "$(tail -n1 "$d/MEMORY.md")" == "- [new](new.md) — when it matters" ]]'
 
   fact new 'test -e .' | run write new "a better hook" >/dev/null
-  check "a rewrite replaces the pointer in place, not a second one" \
+  tap_run "a rewrite replaces the pointer in place, not a second one" \
     eval '[[ $(grep -c "^- \[new\](" "$d/MEMORY.md") -eq 1 ]]'
-  check "and keeps the store at two pointers" \
+  tap_run "and keeps the store at two pointers" \
     eval '[[ $(grep -c "^- \[" "$d/MEMORY.md") -eq 2 ]]'
 
-  check "a body whose name disagrees is refused" \
+  tap_run "a body whose name disagrees is refused" \
     eval '! fact other true | run write new "hook" >/dev/null 2>&1'
-  check "a fact whose verify does not pass is refused" \
+  tap_run "a fact whose verify does not pass is refused" \
     eval '! fact failing false | run write failing "hook" >/dev/null 2>&1'
-  check "and it leaves no file behind"  test ! -e "$d/failing.md"
-  check "a fact whose verify cannot tell (75) is refused too" \
+  tap_run "and it leaves no file behind"  test ! -e "$d/failing.md"
+  tap_run "a fact whose verify cannot tell (75) is refused too" \
     eval '! fact tempfail "exit 75" | run write tempfail "hook" >/dev/null 2>&1'
-  check "a body with no verify is refused" \
+  tap_run "a body with no verify is refused" \
     eval '! printf -- "---\nname: v\ndescription: \"d\"\nmetadata:\n  type: reference\n---\n\nb\n" | run write v "hook" >/dev/null 2>&1'
-  check "a pointer with no hook is refused" \
+  tap_run "a pointer with no hook is refused" \
     eval '! fact h true | run write h "" >/dev/null 2>&1'
-  check "a refused write leaves no file behind" test ! -e "$d/v.md"
+  tap_run "a refused write leaves no file behind" test ! -e "$d/v.md"
 
   # The lint rejects an unknown type, so this exercises the rollback path itself.
   printf -- '---\nname: bad\ndescription: "d"\nmetadata:\n  type: nonsense\n  verify: true\n---\n\nb\n' \
     | run write bad "hook" >/dev/null 2>&1
-  check "a write the lint rejects is rolled back whole" \
+  tap_run "a write the lint rejects is rolled back whole" \
     eval '[[ ! -e "$d/bad.md" && $(grep -c "^- \[" "$d/MEMORY.md") -eq 2 ]]'
 
   # A project with no store yet: the first fact creates it, and a first fact
@@ -194,26 +190,26 @@ self_test() {
   local e="$d/empty/memory"
   mkdir -p "$d/empty" "$d/none"
   fact first true | MEMORY_FILE="$e/MEMORY.md" "$SELF" write first "hook" >/dev/null
-  check "a first fact creates the store, its file and its pointer" \
+  tap_run "a first fact creates the store, its file and its pointer" \
     eval '[[ -f "$e/first.md" && "$(cat "$e/MEMORY.md")" == "- [first](first.md) — hook" ]]'
   printf -- '---\nname: bad\ndescription: "d"\nmetadata:\n  type: nonsense\n  verify: true\n---\n\nb\n' \
     | MEMORY_FILE="$d/none/memory/MEMORY.md" "$SELF" write bad "hook" >/dev/null 2>&1
-  check "a rejected first fact leaves no store" test ! -e "$d/none/memory"
+  tap_run "a rejected first fact leaves no store" test ! -e "$d/none/memory"
   # A store's own folder as the working directory is how this one was misplaced.
-  check "a first fact outside any project folder is refused" \
+  tap_run "a first fact outside any project folder is refused" \
     eval '! fact stray true | MEMORY_FILE="$d/noproject/memory/MEMORY.md" "$SELF" write stray "hook" >/dev/null 2>&1'
-  check "and creates nothing" test ! -e "$d/noproject"
+  tap_run "and creates nothing" test ! -e "$d/noproject"
 
   out=$(run remove new 2>/dev/null)
-  check "a removal prints the fact it deleted" \
+  tap_run "a removal prints the fact it deleted" \
     eval '[[ "$out" == *"removed fact: new"* && "$out" == *"body"* ]]'
-  check "and takes the file and the pointer together" \
+  tap_run "and takes the file and the pointer together" \
     eval '[[ ! -e "$d/new.md" && $(grep -c "^- \[" "$d/MEMORY.md") -eq 1 ]]'
-  check "removing what is not there is refused" \
+  tap_run "removing what is not there is refused" \
     eval '! run remove nothing >/dev/null 2>&1'
-  check "verify runs a fact's check and exits as it did" \
+  tap_run "verify runs a fact's check and exits as it did" \
     eval '[[ "$(run verify keep)" == "verify: keep exited 0" ]]'
-  check "verifying what is not there is refused" \
+  tap_run "verifying what is not there is refused" \
     eval '! run verify nothing >/dev/null 2>&1'
 
   # mem_field reads one scalar: the document's own field or metadata's, with
@@ -222,29 +218,29 @@ self_test() {
   mkdir -p "$d/fixture"
   printf -- '---\nname: n\ndescription: "say \\"hi\\""\nhook: \047it\047\047s\047\nother:\n  verify: wrong\nmetadata:\n  type: reference\n  verify: test -n "a\\"b"\n---\n\nb\n' > "$d/fixture/f.md"
   field() { mem_field "$d/fixture/f.md" "$1"; }
-  check "a top-level field is read"           eval '[[ "$(field name)" == "n" ]]'
-  check "a metadata field is read"            eval '[[ "$(field type)" == "reference" ]]'
-  check "a field under any other block is not" \
+  tap_run "a top-level field is read"           eval '[[ "$(field name)" == "n" ]]'
+  tap_run "a metadata field is read"            eval '[[ "$(field type)" == "reference" ]]'
+  tap_run "a field under any other block is not" \
     eval '[[ "$(field verify)" != "wrong" ]]'
-  check "an unquoted scalar keeps its backslashes" \
+  tap_run "an unquoted scalar keeps its backslashes" \
     eval '[[ "$(field verify)" == '\''test -n "a\"b"'\'' ]]'
-  check "a double-quoted scalar unescapes its quotes" \
+  tap_run "a double-quoted scalar unescapes its quotes" \
     eval '[[ "$(field description)" == '\''say "hi"'\'' ]]'
-  check "a single-quoted scalar undoubles its quotes" \
+  tap_run "a single-quoted scalar undoubles its quotes" \
     eval '[[ "$(field hook)" == "it'\''s" ]]'
-  check "a single-line value is not a block scalar" \
+  tap_run "a single-line value is not a block scalar" \
     eval '[[ -z "$(mem_block_fields "$d/fixture/f.md")" ]]'
 
   # Unrefused, this fact stores the indicator itself as its description: a
   # non-empty value every other check accepts, and the text below it is lost.
   printf -- '---\nname: blk\ndescription: |\n  a description over\n  two lines\nmetadata:\n  type: reference\n  verify: true\n---\n\nb\n' \
     | run write blk "hook" >/dev/null 2>&1
-  check "a block scalar is refused, not read as its indicator" \
+  tap_run "a block scalar is refused, not read as its indicator" \
     eval '[[ ! -e "$d/blk.md" ]]'
 
   # The writer evals what it read, so the shape that broke it is tested whole.
   fact esc 'test -n "a\"b"' | run write esc "hook" >/dev/null 2>&1
-  check "a fact whose verify carries escaped quotes is written" test -f "$d/esc.md"
+  tap_run "a fact whose verify carries escaped quotes is written" test -f "$d/esc.md"
 }
 
 # ---------------------------------------------------------------- main

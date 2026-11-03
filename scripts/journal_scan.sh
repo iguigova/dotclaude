@@ -64,16 +64,12 @@ self_test() {
   scan() {  # JQ
     JOURNAL_HIST="$h" "$0" | jq -r "$1"
   }
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   w -t "XYZ-9999 round-trip" -b b
   w -t "chore: no ticket" -b "a bullet naming XYZ-1234 does not group the entry"
   w -t "chore: radar row R-31" -b b
   got=$(scan '[(.tickets|keys|join(",")), (.no_ticket|length)] | @tsv')
-  check "the header key groups; a key only mentioned in a bullet does not" \
-    $'XYZ-9999\t2' "$got"
+  tap_is "the header key groups; a key only mentioned in a bullet does not" \
+    "$got" $'XYZ-9999\t2'
   bill() {  # TOPIC MARK — journal it, then mark it billed, as a caller does
     local e
     e=$(env -u CLAUDE_CODE_SESSION_ID JOURNAL_HIST="$h" "$SCRIPTS_DIR/journal.sh" -t "$1" -b b \
@@ -83,29 +79,29 @@ self_test() {
   bill "PR Review: repo#1 (XYZ-9999 t)" "XYZ-9999 worklog 41233"
   bill "chore: billed, not billable" "skipped — chore work, not billed"
   got=$(scan '[(.tickets["XYZ-9999"]|length), (.no_ticket|length)] | @tsv')
-  check "a billed entry stays in its bucket, for the readers that are not billing" \
-    $'2\t3' "$got"
+  tap_is "a billed entry stays in its bucket, for the readers that are not billing" \
+    "$got" $'2\t3'
   got=$(scan '.tickets["XYZ-9999"] | map(.billed // "null") | join(",")')
-  check "each entry reports its own Billed line, or null" "null,XYZ-9999 worklog 41233" "$got"
+  tap_is "each entry reports its own Billed line, or null" "$got" "null,XYZ-9999 worklog 41233"
   got=$(scan '.tickets["XYZ-9999"] | map(.id | length) | join(",")')
-  check "each entry reports its id" "4,4" "$got"
+  tap_is "each entry reports its id" "$got" "4,4"
   ws s-1 -t "XYZ-9999 from a session" -b b
   got=$(scan '.tickets["XYZ-9999"] | map(.session // "null") | join(",")')
-  check "each entry reports the session that wrote it, or null" "null,null,s-1" "$got"
+  tap_is "each entry reports the session that wrote it, or null" "$got" "null,null,s-1"
   printf '<!-- timelog 2099-01-01 00:00Z — a watermark left by an older writer -->\n' >> "$h"
   got=$(scan '[(.tickets["XYZ-9999"]|length), (.no_ticket|length)] | @tsv')
-  check "a watermark left in the file is text, and cuts nothing off" $'3\t3' "$got"
+  tap_is "a watermark left in the file is text, and cuts nothing off" "$got" $'3\t3'
   # A history this scan cannot read must not read as a history with nothing in
   # it: every caller that bills takes an empty result as nothing left to bill.
   old=$(mktemp)
   printf '# Log\n\n## 2026-06-09 — an entry an older writer left\n\n- b\n' > "$old"
-  check "a heading this scan cannot read is an error, not an empty result" fail \
-    "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)"
+  tap_is "a heading this scan cannot read is an error, not an empty result" "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
   printf '# Log\n' > "$old"
-  check "a history with no entries yet scans clean" ok \
-    "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)"
-  check "--help answers without a history to resolve" ok \
-    "$(cd / && env -u JOURNAL_HIST "$SCRIPTS_DIR/journal_scan.sh" --help 2>/dev/null | grep -q '^Usage:' && echo ok || echo fail)"
+  tap_is "a history with no entries yet scans clean" "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)" \
+    ok
+  tap_like "--help answers without a history to resolve" "$(cd / && env -u JOURNAL_HIST "$SCRIPTS_DIR/journal_scan.sh" --help 2>/dev/null)" \
+    $'*\nUsage:*'
   rm -f "$old" "$h"
 }
 

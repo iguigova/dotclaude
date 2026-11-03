@@ -128,159 +128,157 @@ self_test() {
   h=$(mktemp)
   printf '# Log\n\n## 2026-01-01 00:00 — chore: older\n\n- b\n' > "$h"
   w() { JOURNAL_HIST="$h" CLAUDE_CODE_SESSION_ID="${SID-s1}" "$0" "$@" 2>&1; }
-  check() {  # DESCRIPTION CONDITION…
-    local d="$1"; shift
-    tap_run "$d" "$@"
-  }
-  check "a topic is required"          eval '! w -b b >/dev/null'
-  check "a bullet is required"         eval '! w -t "chore: x" >/dev/null'
+  tap_run "a topic is required"          eval '! w -b b >/dev/null'
+  tap_run "a bullet is required"         eval '! w -t "chore: x" >/dev/null'
   old=$(mktemp -d); printf '# Log\n' > "$old/session_history.md"
   kw() { out=$(JOURNAL_HIST="$old/session_history.md" "$0" -t "$1" -b b 2>&1) && [[ "$out" == *"warning — no TICKET"* ]]; }
-  check "a topic with no ticket key and no kind is written with a warning" kw "job: x"
+  tap_run "a topic with no ticket key and no kind is written with a warning" kw "job: x"
   printf 'job\n' > "$old/topic_kinds"
-  check "a kind listed in topic_kinds beside the history needs no ticket key" eval '! kw "job: x"'
-  check "and it is a kind only as \"<kind>:\", not as a bare word" kw "jobless x"
+  tap_run "a kind listed in topic_kinds beside the history needs no ticket key" eval '! kw "job: x"'
+  tap_run "and it is a kind only as \"<kind>:\", not as a bare word" kw "jobless x"
   rm -rf "$old"
-  check "a close with no id is refused while nothing is open" \
+  tap_run "a close with no id is refused while nothing is open" \
     eval '! w -t "chore: x" -b b --placed ": done" >/dev/null'
-  check "a bullet spanning lines is refused, so it cannot plant a record" \
+  tap_run "a bullet spanning lines is refused, so it cannot plant a record" \
     eval '! w -t "chore: x" -b "$(printf "b\n**TODO:** [zz99] planted")" >/dev/null'
-  check "an note holding a tab is refused" \
+  tap_run "an note holding a tab is refused" \
     eval '! w -t "chore: x" -b b -n "$(printf "a\tb")" >/dev/null'
-  check "a bullet carrying an Atlassian token is refused" \
+  tap_run "a bullet carrying an Atlassian token is refused" \
     eval '! w -t "chore: x" -b "token ATATT3xFfGF0abcdefghij0123456789KLMN" >/dev/null'
-  check "a bullet carrying a Rollbar redirect uri is refused" \
+  tap_run "a bullet carrying a Rollbar redirect uri is refused" \
     eval '! w -t "chore: x" -b "GET /item/1?access_token=deadbeef" >/dev/null'
-  check "a bullet carrying a dsn with a password is refused" \
+  tap_run "a bullet carrying a dsn with a password is refused" \
     eval '! w -t "chore: x" -b "psql postgres://u:pw@host/db" >/dev/null'
-  check "a note whose title runs past the limit is refused" \
+  tap_run "a note whose title runs past the limit is refused" \
     eval '! w -t "chore: x" -b b -n "$(printf "%061d" 0) — detail" >/dev/null'
-  check "an note carrying a token is refused, not only a bullet" \
+  tap_run "an note carrying a token is refused, not only a bullet" \
     eval '! w -t "chore: x" -b b -n "key AKIAIOSFODNN7EXAMPLE" >/dev/null'
   # The refusal must name the shape and nothing else: echoing the field to explain
   # the refusal would write the secret to the terminal and the transcript instead.
   out=$(w -t "chore: x" -b "token ATATT3xFfGF0abcdefghij0123456789KLMN" || true)
-  check "the refusal names the shape and never echoes the value" \
+  tap_run "the refusal names the shape and never echoes the value" \
     eval '[[ "$out" == *"credential shape"* && "$out" != *"ATATT3xFfGF0"* ]]'
   # The refusal cases that pass and write get their own history:
   # the positional checks below count lines in $h, and a passing write shifts them.
   h2=$(mktemp); printf '# Log\n' > "$h2"
-  check "the bare vendor prefix is a word, not a token, so it is written" \
+  tap_run "the bare vendor prefix is a word, not a token, so it is written" \
     eval 'JOURNAL_HIST="$h2" CLAUDE_CODE_SESSION_ID=s1 "$0" -t "chore: x" -b "the token has an ATATT prefix" >/dev/null'
-  check "a note's title may run to the limit" \
+  tap_run "a note's title may run to the limit" \
     eval 'JOURNAL_HIST="$h2" "$0" -t "chore: x" -b b -n "$(printf "%060d" 0) — detail" >/dev/null'
   rm -f "$h2"
-  check "a topic naming a via is refused, so the header can never carry two" \
+  tap_run "a topic naming a via is refused, so the header can never carry two" \
     eval '! w -t "chore: x (via /inventory)" -b b --via /inventory >/dev/null'
   out=$(w -t "XYZ-7 topic" -b b -n "one" -n "two" -n "alpha" -n "beta")
-  check "a new entry lands at the end, one blank line after the last" \
+  tap_run "a new entry lands at the end, one blank line after the last" \
     eval '[[ -z "$(sed -n 6p "$h")" && "$(sed -n 7p "$h")" == "## "*" — XYZ-7 topic" ]]'
-  check "the header carries a minted id" \
+  tap_run "the header carries a minted id" \
     eval '[[ "$(sed -n 7p "$h")" =~ ^\#\#\ [0-9-]{10}\ [0-9:]{5}\ \[[a-z0-9]{4}\]\ —\ XYZ-7\ topic$ ]]'
-  check "an entry ends with its session" \
+  tap_run "an entry ends with its session" \
     eval '[[ "$(tail -n1 "$h")" == "**Session:** s1" ]]'
   SID="" w -t "chore: outside" -b b >/dev/null
-  check "an entry written outside a session has no session line" \
+  tap_run "an entry written outside a session has no session line" \
     eval '[[ "$(tail -n1 "$h")" == "- b" ]]'
-  check "a session id holding a space is refused" \
+  tap_run "a session id holding a space is refused" \
     eval '! SID="a b" w -t "chore: x" -b b >/dev/null'
-  check "each note is its own line, carrying a minted id" \
+  tap_run "each note is its own line, carrying a minted id" \
     eval '[[ $(grep -cE "^\*\*TODO:\*\* \[[a-z0-9]{4}\] (one|two|alpha|beta)$" "$h") -eq 4 ]]'
   opened=$(grep -c '^note opened: [a-z0-9]\{4\} XYZ-7 \(one\|two\|alpha\|beta\)$' <<<"$out")
-  check "each opened note prints with its ticket and text, so its id reaches the caller" \
+  tap_run "each opened note prints with its ticket and text, so its id reaches the caller" \
     test "$opened" -eq 4
-  id=$(JOURNAL_HIST="$h" "$SCRIPTS_DIR/journal_queue.sh" --ids | head -1)
+  id=$(JOURNAL_HIST="$h" "$SCRIPTS_DIR/journal_queue.sh" --ids | sed -n 1p)
   # The message is asserted, not only the exit: any refusal exits non-zero, so an
   # exit check alone passes on a misspelt flag without reaching the id lookup.
   out=$(w -t "chore: x" -b b --placed "zzzz: - — nothing to author" || true)
-  check "an unknown id is refused" \
+  tap_run "an unknown id is refused" \
     eval '[[ "$out" == *"no open note with id"*zzzz* ]]'
-  check "a placement outside the set is refused" \
+  tap_run "a placement outside the set is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: promoted — x" >/dev/null'
-  check "a kind that is not one of ours is refused" \
+  tap_run "a kind that is not one of ours is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: wiki:page — x" >/dev/null'
-  check "a close with no space after the colon is refused" \
+  tap_run "a close with no space after the colon is refused" \
     eval '! w -t "chore: x" -b b --placed "$id:rules — x" >/dev/null'
-  check "a placement that merely starts with a kind is refused" \
+  tap_run "a placement that merely starts with a kind is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: rules_ish — x" >/dev/null'
-  check "a reason following anything but an em-dash is refused" \
+  tap_run "a reason following anything but an em-dash is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: rules - raised XYZ-8" >/dev/null'
-  check "a placement with no reason is refused" \
+  tap_run "a placement with no reason is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: rules" >/dev/null'
-  check "a reason with no placement is refused" \
+  tap_run "a reason with no placement is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: fixed it" >/dev/null'
-  check "a ticket key too short for the reader to recognise is refused" \
+  tap_run "a ticket key too short for the reader to recognise is refused" \
     eval '! w -t "chore: x" -b b --placed "$id: ticket:R-31 — x" >/dev/null'
   out=$(w -t "chore: x" -b b --placed "$id: - — a" --placed "$id: - — b" || true)
-  check "one id closed twice in one call is refused as such" \
+  tap_run "one id closed twice in one call is refused as such" \
     eval '[[ "$out" == *"closed twice in this call"* ]]'
   w -t "chore: x" -b b --placed "$id: ticket:XYZ-8 — raised as its own ticket" >/dev/null
-  check "a note tracked elsewhere names the ticket" \
+  tap_run "a note tracked elsewhere names the ticket" \
     grep -qxF "**TODO-DONE:** [$id] ticket:XYZ-8 — raised as its own ticket" "$h"
-  check "a closed id cannot be closed again" \
+  tap_run "a closed id cannot be closed again" \
     eval '! w -t "chore: x" -b b --placed "$id: - — x" >/dev/null'
 
   # Each placement takes a fresh open id, because a closed one cannot be closed
   # again.
-  nextid() { JOURNAL_HIST="$h" "$SCRIPTS_DIR/journal_queue.sh" --ids | head -1; }
+  # sed reads to the end, so the writer is never cut off by SIGPIPE, which
+  # pipefail and set -e would turn into the end of the test.
+  nextid() { JOURNAL_HIST="$h" "$SCRIPTS_DIR/journal_queue.sh" --ids | sed -n 1p; }
   id2=$(nextid)
   w -t "chore: x" -b b --placed "$id2: memory:aws-profile — checked and written" >/dev/null
-  check "a note placed as a memory fact records which fact" \
+  tap_run "a note placed as a memory fact records which fact" \
     grep -qxF "**TODO-DONE:** [$id2] memory:aws-profile — checked and written" "$h"
-  check "and it leaves the queue" eval '[[ "$(nextid)" != "$id2" ]]'
+  tap_run "and it leaves the queue" eval '[[ "$(nextid)" != "$id2" ]]'
   id2=$(nextid)
   w -t "chore: x" -b b --placed "$id2: skill:review:pr — the trap is in the skill now" >/dev/null
-  check "a placement can name a skill, colon in the name and all" \
+  tap_run "a placement can name a skill, colon in the name and all" \
     grep -qxF "**TODO-DONE:** [$id2] skill:review:pr — the trap is in the skill now" "$h"
   id2=$(nextid)
   w -t "chore: x" -b b --placed "$id2: rules — the sweep is the rename gate" >/dev/null
-  check "a kind needs no name, only a reason" \
+  tap_run "a kind needs no name, only a reason" \
     grep -qxF "**TODO-DONE:** [$id2] rules — the sweep is the rename gate" "$h"
   w -t "chore: x" -b b -n "an operation nothing will hold" >/dev/null
   id2=$(nextid)
   w -t "chore: x" -b b --placed "$id2: - — 214 tables freed, 218 slots now open" >/dev/null
-  check "work that produced nothing we author closes as -" \
+  tap_run "work that produced nothing we author closes as -" \
     grep -qxF "**TODO-DONE:** [$id2] - — 214 tables freed, 218 slots now open" "$h"
 
   # A commit is taken or suggested. The two fields are separate so a reader can
   # tell which, and so a committed round can be checked for recording its sha.
   w -t "chore: took one" -b b --sha 54509c8 >/dev/null
-  check "a taken commit records its sha" grep -qxF '**Committed:** `54509c8`' "$h"
+  tap_run "a taken commit records its sha" grep -qxF '**Committed:** `54509c8`' "$h"
   w -t "chore: took two" -b b --sha 54509c8 --sha 325c74d >/dev/null
-  check "a round that committed twice names both, on one line" \
+  tap_run "a round that committed twice names both, on one line" \
     grep -qxF '**Committed:** `54509c8` `325c74d`' "$h"
   w -t "chore: suggest one" -b b -c "XYZ-7: do the thing" >/dev/null
-  check "a suggested commit records its message" \
+  tap_run "a suggested commit records its message" \
     grep -qxF '**Suggested commit:** `XYZ-7: do the thing`' "$h"
-  check "a sha that is not one is refused" eval '! w -t "chore: x" -b b --sha deadbeefz >/dev/null'
-  check "a sha too short to name a commit is refused" \
+  tap_run "a sha that is not one is refused" eval '! w -t "chore: x" -b b --sha deadbeefz >/dev/null'
+  tap_run "a sha too short to name a commit is refused" \
     eval '! w -t "chore: x" -b b --sha abc123 >/dev/null'
-  check "a commit cannot be both taken and suggested" \
+  tap_run "a commit cannot be both taken and suggested" \
     eval '! w -t "chore: x" -b b --sha 54509c8 -c "XYZ-7: x" >/dev/null'
-  check "--sha alongside a bill is refused" \
+  tap_run "--sha alongside a bill is refused" \
     eval '! w --bill "zzzz: skipped — x" --sha 54509c8 >/dev/null'
 
   # Billing writes into an entry already in the file, so what it must not do is
   # as important as what it does: every other line survives, byte for byte.
   entry=$(w -t "XYZ-7 bill me" -b b | sed -nE 's/^journaled → ## [0-9: -]+ \[([a-z0-9]+)\].*/\1/p')
   cp "$h" "$h.before"
-  check "an entry id is printed in the header line" eval '[[ -n "$entry" ]]'
-  check "an unknown entry id is refused"  eval '! w --bill "zzzz: XYZ-7 worklog 1" >/dev/null'
-  check "a mark that names no worklog is refused" \
+  tap_run "an entry id is printed in the header line" eval '[[ -n "$entry" ]]'
+  tap_run "an unknown entry id is refused"  eval '! w --bill "zzzz: XYZ-7 worklog 1" >/dev/null'
+  tap_run "a mark that names no worklog is refused" \
     eval '! w --bill "$entry: XYZ-7 2h" >/dev/null'
-  check "a refused bill leaves the history untouched" cmp -s "$h.before" "$h"
-  check "--bill alongside an entry field is refused" \
+  tap_run "a refused bill leaves the history untouched" cmp -s "$h.before" "$h"
+  tap_run "--bill alongside an entry field is refused" \
     eval '! w --bill "$entry: XYZ-7 worklog 1" -t "chore: x" -b b >/dev/null'
   w --bill "$entry: XYZ-7 worklog 41233" >/dev/null
-  check "the mark lands in the entry it names" \
+  tap_run "the mark lands in the entry it names" \
     eval '[[ "$(grep -A4 "\[$entry\]" "$h" | tail -n1)" == "**Billed:** XYZ-7 worklog 41233" ]]'
-  check "billing adds one line and changes nothing else" \
+  tap_run "billing adds one line and changes nothing else" \
     eval '[[ "$(diff "$h.before" "$h" | grep -c "^[<>]")" -eq 1 ]]'
-  check "an entry cannot be billed twice" \
+  tap_run "an entry cannot be billed twice" \
     eval '! w --bill "$entry: XYZ-7 worklog 9" >/dev/null'
   entry=$(w -t "chore: not billable" -b b | sed -nE 's/^journaled → ## [0-9: -]+ \[([a-z0-9]+)\].*/\1/p')
   w --bill "$entry: skipped — chore work, not billed" >/dev/null
-  check "skipped is a mark like any other" \
+  tap_run "skipped is a mark like any other" \
     grep -qxF "**Billed:** skipped — chore work, not billed" "$h"
   # An unwritten mark is work that gets billed twice, so one bad mark in a call
   # must not cancel the good ones.
@@ -290,15 +288,15 @@ self_test() {
     ! w --bill "$1" --bill "$good: XYZ-7 worklog 777" >/dev/null 2>&1 &&
       [[ "$(grep -A4 "\[$good\]" "$h" | tail -n1)" == "**Billed:** XYZ-7 worklog 777" ]]
   }
-  check "an already-billed entry beside a good mark: the good one still lands" \
+  tap_run "an already-billed entry beside a good mark: the good one still lands" \
     bill_pair "$entry: XYZ-7 worklog 8"
-  check "a malformed mark beside a good mark: the good one still lands" \
+  tap_run "a malformed mark beside a good mark: the good one still lands" \
     bill_pair "zzzz: XYZ-7 worklog"
-  check "an unknown id beside a good mark: the good one still lands" \
+  tap_run "an unknown id beside a good mark: the good one still lands" \
     bill_pair "zzzz: XYZ-7 worklog 8"
   entry=$(w -t "XYZ-7 twice" -b b | sed -nE 's/^journaled → ## [0-9: -]+ \[([a-z0-9]+)\].*/\1/p')
   out=$(w --bill "$entry: XYZ-7 worklog 1" --bill "$entry: XYZ-7 worklog 2" 2>&1 || true)
-  check "one id marked twice in one call is written once, from the first mark" \
+  tap_run "one id marked twice in one call is written once, from the first mark" \
     eval '[[ "$out" == *"marked twice in this call"* &&
              "$(grep -c "^\*\*Billed:\*\* XYZ-7 worklog 1$" "$h")" -eq 1 &&
              "$(grep -c "worklog 2$" "$h")" -eq 0 ]]'
@@ -311,21 +309,21 @@ self_test() {
     | sed -nE 's/^journaled → ## [0-9: -]+ \[([a-z0-9]+)\].*/\1/p')
   printf '\n## 2026-06-09 — an entry an older writer left\n\n- b\n' >> "$old"
   cp "$old" "$old.before"
-  check "a heading this writer cannot parse refuses the bill" \
+  tap_run "a heading this writer cannot parse refuses the bill" \
     eval '! JOURNAL_HIST="$old" "$0" --bill "$entry: XYZ-7 worklog 1" >/dev/null 2>&1'
-  check "and leaves the history exactly as it was" cmp -s "$old.before" "$old"
+  tap_run "and leaves the history exactly as it was" cmp -s "$old.before" "$old"
   rm -f "$old" "$old.before"
   rm -f "$h.before"
   for i in $(seq 10); do w -t "chore: race $i" -b b >/dev/null & done
   wait
   n=$(grep -c -e '^## .* — chore: race ' "$h")
-  check "ten entries written at once all land" test "$n" -eq 10
+  tap_run "ten entries written at once all land" test "$n" -eq 10
   # Minted ids: entry headers and note openings, which share one namespace. A
   # close repeats the id it closes, so only openings are counted.
   minted_ids() {
     grep -hoE '^(## [0-9-]{10} [0-9:]{5}|\*\*TODO:\*\*) \[[a-z0-9]{4}\]' "$h" | tr -dc 'a-z0-9\n'
   }
-  check "every id is still unique after a race" \
+  tap_run "every id is still unique after a race" \
     eval '[[ $(minted_ids | sort -u | wc -l) -eq $(minted_ids | wc -l) ]]'
   rm -f "$h"
 
@@ -341,25 +339,25 @@ self_test() {
   printf 'b\n' > "$repo/dirty"
   head0=$(git -C "$repo" rev-parse HEAD)
   out=$( (cd "$repo" && CLAUDE_CODE_SESSION_ID=s1 "$me" -t "XYZ-7 committed" -b b) 2>&1)
-  check "an entry is committed, and the commit is reported" \
+  tap_run "an entry is committed, and the commit is reported" \
     eval '[[ "$(git -C "$repo" rev-parse HEAD)" != "$head0" && "$out" == *"committed → "* ]]'
-  check "the commit holds the history and nothing else" \
+  tap_run "the commit holds the history and nothing else" \
     eval '[[ "$(git -C "$repo" show --name-only --format= HEAD)" == ".claude/session_history.md" ]]'
-  check "the commit subject names the topic" \
+  tap_run "the commit subject names the topic" \
     eval '[[ "$(git -C "$repo" log -1 --format=%s)" == "chore(journal): XYZ-7 committed" ]]'
-  check "the history is clean after the write" \
+  tap_run "the history is clean after the write" \
     eval '[[ -z "$(git -C "$repo" status --porcelain -- .claude/session_history.md)" ]]'
-  check "a staged path stays staged and uncommitted" \
+  tap_run "a staged path stays staged and uncommitted" \
     eval '[[ "$(git -C "$repo" diff --cached --name-only)" == "staged" ]]'
-  check "a dirty path stays dirty and unstaged" \
+  tap_run "a dirty path stays dirty and unstaged" \
     eval '[[ "$(git -C "$repo" diff --name-only)" == "dirty" ]]'
   (cd "$repo" && "$me" -t "chore: tidy" -b b >/dev/null 2>&1)
-  check "a chore topic is not prefixed twice" \
+  tap_run "a chore topic is not prefixed twice" \
     eval '[[ "$(git -C "$repo" log -1 --format=%s)" == "chore(journal): tidy" ]]'
   entry=$(sed -nE 's/^journaled → ## [0-9: -]+ \[([a-z0-9]+)\].*/\1/p' <<<"$out")
   head0=$(git -C "$repo" rev-parse HEAD)
   (cd "$repo" && "$me" --bill "$entry: XYZ-7 worklog 5" >/dev/null 2>&1)
-  check "a bill is committed too" \
+  tap_run "a bill is committed too" \
     eval '[[ "$(git -C "$repo" rev-parse HEAD)" != "$head0" &&
              "$(git -C "$repo" log -1 --format=%s)" == "chore(journal): bill $entry" ]]'
   # A held index lock is what a concurrent git command looks like: the entry
@@ -367,17 +365,17 @@ self_test() {
   : > "$repo/.git/index.lock"
   head0=$(git -C "$repo" rev-parse HEAD)
   out=$( (cd "$repo" && "$me" -t "XYZ-7 locked" -b b) 2>&1) && i=0 || i=$?
-  check "a refused commit leaves the entry written, warns, and exits 0" \
+  tap_run "a refused commit leaves the entry written, warns, and exits 0" \
     eval '[[ $i -eq 0 && "$out" == *"not committed"* && "$(git -C "$repo" rev-parse HEAD)" == "$head0" ]] &&
           grep -q "XYZ-7 locked" "$repo/.claude/session_history.md"'
   rm -f "$repo/.git/index.lock"
   (cd "$repo" && "$me" -t "XYZ-7 after" -b b >/dev/null 2>&1)
-  check "the next write commits the entry the refused one left" \
-    eval 'git -C "$repo" show HEAD -- .claude/session_history.md | grep -q "^+.*XYZ-7 locked"'
+  tap_run "the next write commits the entry the refused one left" \
+    eval 'grep -q "^+.*XYZ-7 locked" <<<"$(git -C "$repo" show HEAD -- .claude/session_history.md)"'
   git -C "$repo" remote add origin https://example.invalid/r.git
   head0=$(git -C "$repo" rev-parse HEAD)
   out=$( (cd "$repo" && "$me" -t "XYZ-7 remote" -b b) 2>&1)
-  check "a repo with a remote is not committed, and the reason is named" \
+  tap_run "a repo with a remote is not committed, and the reason is named" \
     eval '[[ "$(git -C "$repo" rev-parse HEAD)" == "$head0" && "$out" == *"has a remote"* ]]'
   git -C "$repo" remote remove origin
   printf '.claude/session_history.md\n' > "$repo/.git/info/exclude"
@@ -386,7 +384,7 @@ self_test() {
   # shellcheck disable=SC2034  # read inside the check below, which shellcheck cannot see
   head0=$(git -C "$repo" rev-parse HEAD)
   out=$( (cd "$repo" && "$me" -t "XYZ-7 ignored" -b b) 2>&1)
-  check "an ignored history is written and not committed, without a warning" \
+  tap_run "an ignored history is written and not committed, without a warning" \
     eval '[[ "$(git -C "$repo" rev-parse HEAD)" == "$head0" && "$out" != *"not committed"* ]]'
   rm -rf "$repo"
 }

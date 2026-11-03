@@ -162,75 +162,71 @@ J
 
   sync() { HOME="$d/home" "$self" sync "$acct" >/dev/null 2>&1; echo $?; }
   json() { python3 -c "import json,sys;d=json.load(open('$acct/.claude.json'));print($1)"; }
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
 
-  check "a first sync is clean" 0 "$(sync)"
-  check "a shared entry is linked" "$d/home/.claude/CLAUDE.md" "$(readlink "$acct/CLAUDE.md")"
-  check "a shared directory is linked" "$d/home/.claude/skills" "$(readlink "$acct/skills")"
-  check "the credentials are not linked" absent "$([[ -e $acct/.credentials.json ]] && echo present || echo absent)"
-  check "the login is not seeded" False "$(json "'oauthAccount' in d")"
-  check "the user-scope MCP servers are mirrored" "['pw']" "$(json "list(d['mcpServers'])")"
-  check "no project entry is copied" "{}" "$(json "d.get('projects', {})")"
-  check "a second sync is clean" 0 "$(sync)"
+  tap_is "a first sync is clean" "$(sync)" 0
+  tap_is "a shared entry is linked" "$(readlink "$acct/CLAUDE.md")" "$d/home/.claude/CLAUDE.md"
+  tap_is "a shared directory is linked" "$(readlink "$acct/skills")" "$d/home/.claude/skills"
+  tap_is "the credentials are not linked" "$([[ -e $acct/.credentials.json ]] && echo present || echo absent)" absent
+  tap_is "the login is not seeded" "$(json "'oauthAccount' in d")" False
+  tap_is "the user-scope MCP servers are mirrored" "$(json "list(d['mcpServers'])")" "['pw']"
+  tap_is "no project entry is copied" "$(json "d.get('projects', {})")" "{}"
+  tap_is "a second sync is clean" "$(sync)" 0
 
   python3 -c "import json;p='$acct/.claude.json';d=json.load(open(p));d['mcpServers']={'stale':{}};d['projects']={'P':{'t':3}};json.dump(d,open(p,'w'))"
   sed -i 's/"pw"/"pw2"/' "$d/home/.claude.json"
-  check "a re-sync is clean" 0 "$(sync)"
-  check "and mirrors the source's servers over a stale copy" "['pw2']" "$(json "list(d['mcpServers'])")"
-  check "and keeps the account's own project entries" "{'P': {'t': 3}}" "$(json "d['projects']")"
+  tap_is "a re-sync is clean" "$(sync)" 0
+  tap_is "and mirrors the source's servers over a stale copy" "$(json "list(d['mcpServers'])")" "['pw2']"
+  tap_is "and keeps the account's own project entries" "$(json "d['projects']")" "{'P': {'t': 3}}"
 
   mkdir "$d/home/.claude/plans"; echo own > "$acct/plans"
-  check "a real entry in the way is a conflict" 1 "$(sync)"
-  check "and the entry in the way is kept" own "$(cat "$acct/plans")"
+  tap_is "a real entry in the way is a conflict" "$(sync)" 1
+  tap_is "and the entry in the way is kept" "$(cat "$acct/plans")" own
   rm "$acct/plans"
 
   mkdir "$acct/agents"
   HOME="$d/home" "$self" sync "$acct" >/dev/null 2>"$d/err"; local orc=$?
-  check "an entry only the account has is reported" 1 "$orc"
-  check "and named on stderr" 0 "$(grep -q 'agents is only in this account' "$d/err" && echo 0 || echo 1)"
-  check "and the account's own entry is kept" present "$([[ -d $acct/agents ]] && echo present || echo absent)"
+  tap_is "an entry only the account has is reported" "$orc" 1
+  tap_is "and named on stderr" "$(grep -q 'agents is only in this account' "$d/err" && echo 0 || echo 1)" 0
+  tap_is "and the account's own entry is kept" "$([[ -d $acct/agents ]] && echo present || echo absent)" present
   mkdir "$acct/sessions"; touch "$acct/policy-limits.json.signature.json"
   HOME="$d/home" "$self" sync "$acct" 2>"$d/err" >/dev/null
-  check "an account-bound entry is not reported" 1 "$(grep -q 'sessions' "$d/err" && echo 0 || echo 1)"
-  check "nor one a bound pattern matches" 1 "$(grep -q 'policy-limits' "$d/err" && echo 0 || echo 1)"
+  tap_is "an account-bound entry is not reported" "$(grep -q 'sessions' "$d/err" && echo 0 || echo 1)" 1
+  tap_is "nor one a bound pattern matches" "$(grep -q 'policy-limits' "$d/err" && echo 0 || echo 1)" 1
   rmdir "$acct/agents" "$acct/sessions"; rm "$acct/policy-limits.json.signature.json"
 
   rm -r "$d/home/.claude/skills"
   sync >/dev/null
-  check "a link whose target is gone is removed" absent "$([[ -L $acct/skills ]] && echo present || echo absent)"
+  tap_is "a link whose target is gone is removed" "$([[ -L $acct/skills ]] && echo present || echo absent)" absent
 
   rm -r "$acct"
   out=$(cd "$d/proj/api/x" && HOME="$d/home" "$self" dir 2>&1)
-  check "dir under a project prints its account" "$acct" "$out"
-  check "and builds it" "$d/home/.claude/CLAUDE.md" "$(readlink "$acct/CLAUDE.md")"
+  tap_is "dir under a project prints its account" "$out" "$acct"
+  tap_is "and builds it" "$(readlink "$acct/CLAUDE.md")" "$d/home/.claude/CLAUDE.md"
   rm "$acct/plans"; echo own > "$acct/plans"
   out=$(cd "$d/proj" && HOME="$d/home" "$self" dir 2>"$d/err")
-  check "a conflict still prints the account" "$acct" "$out"
-  check "and names the conflict on stderr" 0 "$(grep -q 'plans is a real entry' "$d/err" && echo 0 || echo 1)"
+  tap_is "a conflict still prints the account" "$out" "$acct"
+  tap_is "and names the conflict on stderr" "$(grep -q 'plans is a real entry' "$d/err" && echo 0 || echo 1)" 0
   out=$(cd "$d/other" && HOME="$d/home" "$self" dir 2>&1)
-  check "dir outside a project prints nothing" "" "$out"
+  tap_is "dir outside a project prints nothing" "$out" ""
   out=$(cd "$d/proj" && CLAUDE_CONFIG_DIR=/set HOME="$d/home" "$self" dir 2>&1)
-  check "dir prints nothing when a config dir is already set" "" "$out"
+  tap_is "dir prints nothing when a config dir is already set" "$out" ""
 
   mkdir -p "$d/blank/.claude"; echo '  ' > "$d/blank/.claude/config_dir"
   out=$(cd "$d/blank" && HOME="$d/home" "$self" dir 2>"$d/err"); local brc=$?
-  check "a blank config_dir is refused" "1:" "$brc:$out"
-  check "and says it is blank" 0 "$(grep -q 'is blank' "$d/err" && echo 0 || echo 1)"
+  tap_is "a blank config_dir is refused" "$brc:$out" "1:"
+  tap_is "and says it is blank" "$(grep -q 'is blank' "$d/err" && echo 0 || echo 1)" 0
 
   hook() { printf '{"cwd":"%s"}' "$1" | HOME="$d/home" "$self" check 2>&1; }
-  check "check is quiet on the account the project names" "" "$(CLAUDE_CONFIG_DIR="$acct" hook "$d/proj/api/x")"
-  check "check is quiet on the default outside a project" "" "$(hook "$d/other")"
+  tap_is "check is quiet on the account the project names" "$(CLAUDE_CONFIG_DIR="$acct" hook "$d/proj/api/x")" ""
+  tap_is "check is quiet on the default outside a project" "$(hook "$d/other")" ""
   out=$(hook "$d/proj")
-  check "check names a project run on the default account" 0 \
-    "$([[ "$out" == *systemMessage*"runs on $d/home/.claude"*"uses $acct"* ]] && echo 0 || echo 1)"
+  tap_is "check names a project run on the default account" "$([[ "$out" == *systemMessage*"runs on $d/home/.claude"*"uses $acct"* ]] && echo 0 || echo 1)" \
+    0
   out=$(CLAUDE_CONFIG_DIR="$acct" hook "$d/other")
-  check "check names a plain dir run on a project's account" 0 \
-    "$([[ "$out" == *"runs on $acct"*"uses $d/home/.claude"* ]] && echo 0 || echo 1)"
-  check "check emits JSON the harness can read" 0 \
-    "$(python3 -c 'import json,sys;json.loads(sys.argv[1])' "$out" >/dev/null 2>&1 && echo 0 || echo 1)"
+  tap_is "check names a plain dir run on a project's account" "$([[ "$out" == *"runs on $acct"*"uses $d/home/.claude"* ]] && echo 0 || echo 1)" \
+    0
+  tap_is "check emits JSON the harness can read" "$(python3 -c 'import json,sys;json.loads(sys.argv[1])' "$out" >/dev/null 2>&1 && echo 0 || echo 1)" \
+    0
 }
 
 # ---------------------------------------------------------------- main

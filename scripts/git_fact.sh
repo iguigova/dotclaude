@@ -58,34 +58,30 @@ self_test() {
   git -C "$d/repo" -c user.email=t@t -c user.name=t commit -qm init
 
   run() { "$self" "$@" >/dev/null 2>&1; echo $?; }
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
 
-  check "a matching pattern holds" 0 \
-    "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE: dict')"
-  check "two pairs both matching hold" 0 \
-    "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE' kept.py 'peak_count')"
-  check "a parenthesised pattern is literal, not a group" 0 \
-    "$(run "$d/repo" HEAD kept.py 'MAX(t.peak_count)')"
-  check "a file read whose pattern is absent contradicts" 1 \
-    "$(run "$d/repo" HEAD kept.py 'NOT_IN_THE_FILE')"
-  check "a path absent at the ref learns nothing" 75 \
-    "$(run "$d/repo" HEAD gone.py 'anything')"
-  check "a second pair whose path is gone learns nothing" 75 \
-    "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE' gone.py 'x')"
-  check "an unknown ref learns nothing" 75 \
-    "$(run "$d/repo" origin/nope kept.py 'x')"
-  check "a missing repository learns nothing" 75 \
-    "$(run "$d/nosuchrepo" HEAD kept.py 'x')"
-  check "too few arguments is a usage error" 2 "$(run "$d/repo" HEAD kept.py)"
-  check "an odd trailing argument is a usage error" 2 \
-    "$(run "$d/repo" HEAD kept.py 'x' extra)"
+  tap_is "a matching pattern holds" "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE: dict')" \
+    0
+  tap_is "two pairs both matching hold" "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE' kept.py 'peak_count')" \
+    0
+  tap_is "a parenthesised pattern is literal, not a group" "$(run "$d/repo" HEAD kept.py 'MAX(t.peak_count)')" \
+    0
+  tap_is "a file read whose pattern is absent contradicts" "$(run "$d/repo" HEAD kept.py 'NOT_IN_THE_FILE')" \
+    1
+  tap_is "a path absent at the ref learns nothing" "$(run "$d/repo" HEAD gone.py 'anything')" \
+    75
+  tap_is "a second pair whose path is gone learns nothing" "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE' gone.py 'x')" \
+    75
+  tap_is "an unknown ref learns nothing" "$(run "$d/repo" origin/nope kept.py 'x')" \
+    75
+  tap_is "a missing repository learns nothing" "$(run "$d/nosuchrepo" HEAD kept.py 'x')" \
+    75
+  tap_is "too few arguments is a usage error" "$(run "$d/repo" HEAD kept.py)" 2
+  tap_is "an odd trailing argument is a usage error" "$(run "$d/repo" HEAD kept.py 'x' extra)" \
+    2
 
   out=$("$self" "$d/repo" HEAD gone.py 'x' 2>&1)
-  check "and says which path was not there" 0 \
-    "$([[ "$out" == *"gone.py is not at HEAD"* ]] && echo 0 || echo 1)"
+  tap_is "and says which path was not there" "$([[ "$out" == *"gone.py is not at HEAD"* ]] && echo 0 || echo 1)" \
+    0
 }
 
 # ---------------------------------------------------------------- main

@@ -70,45 +70,41 @@ csu_self_test() {
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local got st
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
 
   local fx; fx=$(mktemp -d)
   printf '<p>x</p>' > "$fx/42.storage.html"; printf '7\n' > "$fx/42.version"
-  check "a fetched body names its page and version" "42 7" "$(csu_source "$fx/42.storage.html")"
+  tap_is "a fetched body names its page and version" "$(csu_source "$fx/42.storage.html")" "42 7"
   cp "$fx/42.storage.html" "$fx/page.html"
   got=$(csu_source "$fx/page.html" 2>/dev/null) && st=0 || st=$?
-  check "a body not named <id>.storage.html is refused" '2/' "$st/$got"
+  tap_is "a body not named <id>.storage.html is refused" "$st/$got" '2/'
   printf '<p>y</p>' > "$fx/43.storage.html"
   got=$(csu_source "$fx/43.storage.html" 2>/dev/null) && st=0 || st=$?
-  check "a body with no version beside it is refused" '2/' "$st/$got"
+  tap_is "a body with no version beside it is refused" "$st/$got" '2/'
   printf 'v7\n' > "$fx/43.version"
   got=$(csu_source "$fx/43.storage.html" 2>/dev/null) && st=0 || st=$?
-  check "a version that is not a number is refused" '2/' "$st/$got"
+  tap_is "a version that is not a number is refused" "$st/$got" '2/'
   got=$(csu_source "$fx/44.storage.html" 2>/dev/null) && st=0 || st=$?
-  check "a body that does not exist is refused" '2/' "$st/$got"
+  tap_is "a body that does not exist is refused" "$st/$got" '2/'
   rm -rf "$fx"
 
-  check "the fetched version, still current, sends the next" 8 "$(csu_next_version 7 7)"
+  tap_is "the fetched version, still current, sends the next" "$(csu_next_version 7 7)" 8
 
   # The case the version file exists for: someone else's edit has already taken v8.
   got=$(csu_next_version 7 8 2>/dev/null) && st=0 || st=$?
-  check "a page that moved on is refused, not overwritten" '4/' "$st/$got"
+  tap_is "a page that moved on is refused, not overwritten" "$st/$got" '4/'
 
   # Guarding only the low side would still clobber a page rolled back by hand.
   got=$(csu_next_version 9 8 2>/dev/null) && st=0 || st=$?
-  check "an expectation ahead of the page is refused too" '4/' "$st/$got"
+  tap_is "an expectation ahead of the page is refused too" "$st/$got" '4/'
 
   local body payload
   body=$(mktemp)
   printf '<p>a & b</p>' > "$body"
   payload=$(csu_payload "T" "SP" "$body" 8)
-  check "the body is carried verbatim, unescaped by the shell" '<p>a & b</p>' \
-    "$(jq -r '.body.storage.value' <<<"$payload")"
-  check "the version is a number, not a string" 'number' \
-    "$(jq -r '.version.number | type' <<<"$payload")"
+  tap_is "the body is carried verbatim, unescaped by the shell" "$(jq -r '.body.storage.value' <<<"$payload")" \
+    '<p>a & b</p>'
+  tap_is "the version is a number, not a string" "$(jq -r '.version.number | type' <<<"$payload")" \
+    'number'
 
   # The whole script, over a stubbed page read and a curl that records the PUT and
   # answers with $STUB_CODE: what is sent, and what the version file holds after.
@@ -139,12 +135,12 @@ STUB
     printf '%s/%s/%s' "$st" "$(cat "$run/page/42.version")" \
       "$( [[ -f "$sent" ]] && jq -c '[.version.number, .body.storage.value]' "$sent")"
   }
-  check "a write sends the file at the next version and records it" \
-    '0/8/[8,"<p>new</p>"]' "$(live 7 200)"
-  check "a 409 keeps the fetched version" '4/7/[8,"<p>new</p>"]' "$(live 7 409)"
-  check "a page that moved on sends nothing" '4/7/' "$(live 8 200)"
+  tap_is "a write sends the file at the next version and records it" \
+    "$(live 7 200)" '0/8/[8,"<p>new</p>"]'
+  tap_is "a 409 keeps the fetched version" "$(live 7 409)" '4/7/[8,"<p>new</p>"]'
+  tap_is "a page that moved on sends nothing" "$(live 8 200)" '4/7/'
   printf '<p>new' > "$run/page/42.storage.html"
-  check "a malformed body sends nothing" '2/7/' "$(live 7 200)"
+  tap_is "a malformed body sends nothing" "$(live 7 200)" '2/7/'
 }
 
 [[ "${1:-}" == --self-test ]] && { csu_self_test; tap_end; }

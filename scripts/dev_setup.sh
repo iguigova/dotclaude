@@ -142,12 +142,12 @@ self_test() {
   cli "unknown argument → exit 2" 2 --bogus
   cli "a path that is not a repo → exit 2" 2 "$tmp"
   cli "a path argument is honoured" 0 "$w" --dry-run
-  if "$0" "$w" --dry-run 2>/dev/null | grep -q '(local refs; --dry-run)'; then
-    tap_ok "--dry-run says the refs are local"
-  else tap_not_ok "--dry-run says the refs are local"; fi
-  if "$0" "$w" 2>/dev/null | grep -q '(local refs'; then
-    tap_not_ok "a fetching run does not claim local refs"
-  else tap_ok "a fetching run does not claim local refs"; fi
+  # Captured, then matched: piped into grep -q under pipefail, the writer is cut
+  # off by SIGPIPE when grep stops reading, and the case fails on a match.
+  out=$("$0" "$w" --dry-run 2>/dev/null)
+  tap_like "--dry-run says the refs are local" "$out" "*(local refs; --dry-run)*"
+  out=$("$0" "$w" 2>/dev/null)
+  tap_fails "a fetching run does not claim local refs" grep -qF '(local refs' <<<"$out"
   local got want
   got=$("$0" "$w" --dry-run 2>/dev/null | sed -n 's/^repo  *//p')
   want=$(git -C "$w" rev-parse --show-toplevel)

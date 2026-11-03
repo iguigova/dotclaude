@@ -92,7 +92,9 @@ probe() {  # <runs> <url>...
   rm -rf "$dir"
   printf '%s\n' "$rows"
   summarise <<<"$rows"
-  ! awk -F'\t' '$2 == "000"' <<<"$rows" | grep -q .
+  # Empty, not piped into grep -q: under pipefail a SIGPIPE to awk would read
+  # as "no failed request".
+  [[ -z "$(awk -F'\t' '$2 == "000"' <<<"$rows")" ]]
 }
 
 self_test() {

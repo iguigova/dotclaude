@@ -207,93 +207,89 @@ self_test() {
   local h old
   h=$(mktemp)
   printf '%s' "$FIXTURE" > "$h"
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
-  check "oldest opened first, whole days old, capture order within an entry, closed left out" \
-    "$EXPECTED" "$(list_items 0 "$h" "$NOW")"
-  check "--ids lists the same open set" \
-    "$(cut -f1 <<<"$EXPECTED")" "$(list_items 1 "$h" "$NOW")"
+  tap_is "oldest opened first, whole days old, capture order within an entry, closed left out" \
+    "$(list_items 0 "$h" "$NOW")" "$EXPECTED"
+  tap_is "--ids lists the same open set" \
+    "$(list_items 1 "$h" "$NOW")" "$(cut -f1 <<<"$EXPECTED")"
   # `cccc` closes as a bare `done`: a shape the writer refuses and the history holds.
-  check "a session lists what it opened, open or not, a close predating the grammar included" \
-    $'bbbb\t2026-01-01 00:00\t-\topened\topen\tsecond\ncccc\t2026-01-01 00:00\t-\topened\tdone\tthird' \
-    "$(list_items 0 "$h" "$NOW" s1)"
-  check "a session lists what it closed, with the close as written" \
-    "$EXPECTED_S2" "$(list_items 0 "$h" "$NOW" s2)"
-  check "a session that wrote nothing lists nothing" "" "$(list_items 0 "$h" "$NOW" s9)"
-  check "a close naming the placement is listed as that" \
-    $'gggg\t2026-01-02 12:00\t-\topened, closed\tmemory:aws-profile — checked and written\tseventh' \
-    "$(list_items 0 "$h" "$NOW" s3)"
-  check "and it is no longer open" "" \
-    "$(list_items 1 "$h" "$NOW" | grep -x gggg || true)"
+  tap_is "a session lists what it opened, open or not, a close predating the grammar included" \
+    "$(list_items 0 "$h" "$NOW" s1)" \
+    $'bbbb\t2026-01-01 00:00\t-\topened\topen\tsecond\ncccc\t2026-01-01 00:00\t-\topened\tdone\tthird'
+  tap_is "a session lists what it closed, with the close as written" \
+    "$(list_items 0 "$h" "$NOW" s2)" "$EXPECTED_S2"
+  tap_is "a session that wrote nothing lists nothing" "$(list_items 0 "$h" "$NOW" s9)" ""
+  tap_is "a close naming the placement is listed as that" \
+    "$(list_items 0 "$h" "$NOW" s3)" \
+    $'gggg\t2026-01-02 12:00\t-\topened, closed\tmemory:aws-profile — checked and written\tseventh'
+  tap_is "and it is no longer open" "$(list_items 1 "$h" "$NOW" | grep -x gggg || true)" \
+    ""
   # The two filters narrow the open listing and compose. Each is checked against a
   # match and against a miss, because a filter that always returns nothing looks
   # exactly like a filter that works until the day something should have matched.
-  check "--opened-by lists only what that session opened, and only what is open" \
-    $'bbbb\t2026-01-01 00:00\t2d\t-\tsecond' "$(list_items 0 "$h" "$NOW" "" s1)"
-  check "a session whose notes were all closed lists nothing" "" \
-    "$(list_items 0 "$h" "$NOW" "" s2)"
-  check "an entry with no session line is nobody's, so --opened-by skips it" "" \
-    "$(list_items 0 "$h" "$NOW" "" s-none)"
-  check "--ticket lists the open notes captured under that ticket" \
-    $'dddd\t2026-01-02 00:00\t1d\tXYZ-2\tfourth\neeee\t2026-01-02 00:00\t1d\tXYZ-2\tfifth' \
-    "$(list_items 0 "$h" "$NOW" "" "" XYZ-2)"
-  check "a ticket nothing was captured under lists nothing" "" \
-    "$(list_items 0 "$h" "$NOW" "" "" NOPE-9)"
-  check "the two filters compose, and an empty intersection is empty" "" \
-    "$(list_items 0 "$h" "$NOW" "" s1 XYZ-2)"
-  check "--ids narrows with them" $'dddd\neeee' "$(list_items 1 "$h" "$NOW" "" "" XYZ-2)"
-  check "--topic lists the open notes captured under a topic opening the prefix" \
-    $'dddd\t2026-01-02 00:00\t1d\tXYZ-2\tfourth\neeee\t2026-01-02 00:00\t1d\tXYZ-2\tfifth' \
-    "$(list_items 0 "$h" "$NOW" "" "" "" "R-31 ")"
-  check "a prefix found later in a topic, not at its start, lists nothing" "" \
-    "$(list_items 0 "$h" "$NOW" "" "" "" "note for")"
-  check "--topic composes with --ticket" "" "$(list_items 0 "$h" "$NOW" "" "" NOPE-9 "R-31 ")"
-  check "--session with --topic is refused rather than silently narrowed" fail \
-    "$(JOURNAL_HIST="$h" "$0" --session s1 --topic x >/dev/null 2>&1 && echo ok || echo fail)"
-  check "--closed lists the closed notes, oldest opened first, each close as written" \
-    $'cccc\t2026-01-01 00:00\t-\t-\tdone\tthird\ngggg\t2026-01-02 12:00\t-\t-\tmemory:aws-profile — checked and written\tseventh\nffff\t2026-01-03 01:00\t-\t-\tdropped — superseded\tsixth' \
-    "$(list_items 0 "$h" "$NOW" "" "" "" "" 1)"
-  check "--closed composes with --topic, matching and missing" \
-    $'ffff\t2026-01-03 01:00\t-\t-\tdropped — superseded\tsixth' \
-    "$(list_items 0 "$h" "$NOW" "" "" "" "chore: opens" 1)"
-  check "--closed with a topic no closed note has lists nothing" "" \
-    "$(list_items 0 "$h" "$NOW" "" "" "" "R-31 " 1)"
-  check "--closed --ids lists the closed ids" $'cccc\ngggg\nffff' "$(list_items 1 "$h" "$NOW" "" "" "" "" 1)"
-  check "--session with --closed is refused rather than silently narrowed" fail \
-    "$(JOURNAL_HIST="$h" "$0" --session s1 --closed >/dev/null 2>&1 && echo ok || echo fail)"
-  check "--session with --opened-by is refused rather than silently narrowed" fail \
-    "$(JOURNAL_HIST="$h" "$0" --session s1 --opened-by s1 >/dev/null 2>&1 && echo ok || echo fail)"
+  tap_is "--opened-by lists only what that session opened, and only what is open" \
+    "$(list_items 0 "$h" "$NOW" "" s1)" $'bbbb\t2026-01-01 00:00\t2d\t-\tsecond'
+  tap_is "a session whose notes were all closed lists nothing" "$(list_items 0 "$h" "$NOW" "" s2)" \
+    ""
+  tap_is "an entry with no session line is nobody's, so --opened-by skips it" "$(list_items 0 "$h" "$NOW" "" s-none)" \
+    ""
+  tap_is "--ticket lists the open notes captured under that ticket" \
+    "$(list_items 0 "$h" "$NOW" "" "" XYZ-2)" \
+    $'dddd\t2026-01-02 00:00\t1d\tXYZ-2\tfourth\neeee\t2026-01-02 00:00\t1d\tXYZ-2\tfifth'
+  tap_is "a ticket nothing was captured under lists nothing" "$(list_items 0 "$h" "$NOW" "" "" NOPE-9)" \
+    ""
+  tap_is "the two filters compose, and an empty intersection is empty" "$(list_items 0 "$h" "$NOW" "" s1 XYZ-2)" \
+    ""
+  tap_is "--ids narrows with them" "$(list_items 1 "$h" "$NOW" "" "" XYZ-2)" $'dddd\neeee'
+  tap_is "--topic lists the open notes captured under a topic opening the prefix" \
+    "$(list_items 0 "$h" "$NOW" "" "" "" "R-31 ")" \
+    $'dddd\t2026-01-02 00:00\t1d\tXYZ-2\tfourth\neeee\t2026-01-02 00:00\t1d\tXYZ-2\tfifth'
+  tap_is "a prefix found later in a topic, not at its start, lists nothing" "$(list_items 0 "$h" "$NOW" "" "" "" "note for")" \
+    ""
+  tap_is "--topic composes with --ticket" "$(list_items 0 "$h" "$NOW" "" "" NOPE-9 "R-31 ")" ""
+  tap_is "--session with --topic is refused rather than silently narrowed" "$(JOURNAL_HIST="$h" "$0" --session s1 --topic x >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
+  tap_is "--closed lists the closed notes, oldest opened first, each close as written" \
+    "$(list_items 0 "$h" "$NOW" "" "" "" "" 1)" \
+    $'cccc\t2026-01-01 00:00\t-\t-\tdone\tthird\ngggg\t2026-01-02 12:00\t-\t-\tmemory:aws-profile — checked and written\tseventh\nffff\t2026-01-03 01:00\t-\t-\tdropped — superseded\tsixth'
+  tap_is "--closed composes with --topic, matching and missing" \
+    "$(list_items 0 "$h" "$NOW" "" "" "" "chore: opens" 1)" \
+    $'ffff\t2026-01-03 01:00\t-\t-\tdropped — superseded\tsixth'
+  tap_is "--closed with a topic no closed note has lists nothing" "$(list_items 0 "$h" "$NOW" "" "" "" "R-31 " 1)" \
+    ""
+  tap_is "--closed --ids lists the closed ids" "$(list_items 1 "$h" "$NOW" "" "" "" "" 1)" $'cccc\ngggg\nffff'
+  tap_is "--session with --closed is refused rather than silently narrowed" "$(JOURNAL_HIST="$h" "$0" --session s1 --closed >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
+  tap_is "--session with --opened-by is refused rather than silently narrowed" "$(JOURNAL_HIST="$h" "$0" --session s1 --opened-by s1 >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
   # --show is the TSV through journal_note_lines, so these check the wiring by
   # the cells of each row and journal_lib.sh's self-test checks the table. The
   # age column is left out because the script ages a note against the real clock.
   cells() { tail -n +3 | awk -F' *[|] *' -v f="$1" '{ n = split(f, k, ","); o = $k[1]
     for (i = 2; i <= n; i++) o = o " | " $k[i]; print o }'; }
-  check "--show prints the open listing as id and whole text" \
-    $'dddd | XYZ-2 | fourth\neeee | XYZ-2 | fifth' \
-    "$(JOURNAL_HIST="$h" "$0" --show --ticket XYZ-2 | cells 2,3,5)"
-  check "--show prints a session's notes with where each went" \
-    $'cccc | closed | done | third\nffff | closed | dropped — superseded | sixth' \
-    "$(JOURNAL_HIST="$h" "$0" --session s2 --show | cells 2,4,5,3)"
-  check "--show --closed prints each closed note with where it went" \
-    $'ffff | closed | dropped — superseded | sixth' \
-    "$(JOURNAL_HIST="$h" "$0" --show --closed --topic "chore: opens" | cells 2,4,5,3)"
-  check "--show with --ids is refused" fail \
-    "$(JOURNAL_HIST="$h" "$0" --show --ids >/dev/null 2>&1 && echo ok || echo fail)"
+  tap_is "--show prints the open listing as id and whole text" \
+    "$(JOURNAL_HIST="$h" "$0" --show --ticket XYZ-2 | cells 2,3,5)" \
+    $'dddd | XYZ-2 | fourth\neeee | XYZ-2 | fifth'
+  tap_is "--show prints a session's notes with where each went" \
+    "$(JOURNAL_HIST="$h" "$0" --session s2 --show | cells 2,4,5,3)" \
+    $'cccc | closed | done | third\nffff | closed | dropped — superseded | sixth'
+  tap_is "--show --closed prints each closed note with where it went" \
+    "$(JOURNAL_HIST="$h" "$0" --show --closed --topic "chore: opens" | cells 2,4,5,3)" \
+    $'ffff | closed | dropped — superseded | sixth'
+  tap_is "--show with --ids is refused" "$(JOURNAL_HIST="$h" "$0" --show --ids >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
 
   # A heading this reader cannot parse is refused rather than listed: its rows
   # would carry no opened time, and an empty time sorts first: the row would head
   # every oldest-first slice.
   old=$(mktemp)
   printf '# Log\n\n## 2026-06-09 — an entry an older writer left\n\n- b\n**TODO:** [aaaa] work\n' > "$old"
-  check "a heading this reader cannot parse is an error, not a row with no date" fail \
-    "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)"
-  check "--ids refuses it too, so a close cannot be validated against a short list" fail \
-    "$(JOURNAL_HIST="$old" "$0" --ids >/dev/null 2>&1 && echo ok || echo fail)"
+  tap_is "a heading this reader cannot parse is an error, not a row with no date" "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
+  tap_is "--ids refuses it too, so a close cannot be validated against a short list" "$(JOURNAL_HIST="$old" "$0" --ids >/dev/null 2>&1 && echo ok || echo fail)" \
+    fail
   printf '# Log\n' > "$old"
-  check "a history with no entries yet lists nothing and succeeds" ok \
-    "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)"
+  tap_is "a history with no entries yet lists nothing and succeeds" "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)" \
+    ok
   rm -f "$old" "$h"
 }
 

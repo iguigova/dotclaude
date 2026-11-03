@@ -413,16 +413,12 @@ mc_self_test() {
 # argument handling, --dry-run, and the report that is the deleted text's only
 # remaining copy.
 mc_e2e_test() {
-  local rc=0 fx out st
+  local fx out st
   fx=$(mktemp -d) || return 2
   mkdir -p "$fx/proj" "$fx/mem" "$fx/home"
   local self="$SCRIPTS_DIR/memory_check.sh"
   local report="$fx/proj/.claude/memory_check.last"
 
-  check2() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; rc=1; fi
-  }
   # HOME is redirected so the journal call on a deletion cannot reach the real
   # history; it is silenced and non-fatal, and a test must not write one.
   mc() { HOME="$fx/home" MEM_PROJECT_ROOT="$fx/proj" MEMORY_FILE="$fx/mem/MEMORY.md" "$self" "$@"; }
@@ -436,37 +432,37 @@ mc_e2e_test() {
 
   seed with-bad
   out=$(mc --dry-run 2>&1); st=$?
-  check2 "a dry run exits 0" 0 "$st"
-  check2 "a dry run deletes nothing" 'true' "$([[ -f "$fx/mem/e2egone.md" ]] && echo true || echo false)"
-  check2 "a dry run leaves the index alone" 'true' \
-    "$(grep -q '(e2egone.md)' "$fx/mem/MEMORY.md" && echo true || echo false)"
-  check2 "a dry run writes no report" 'true' "$([[ ! -f "$report" ]] && echo true || echo false)"
-  check2 "and it still reports the counts it would apply" 'true' \
-    "$(grep -q '1 held, 1 deleted, 0 unchecked' <<<"$out" && echo true || echo false)"
+  tap_is "a dry run exits 0" "$st" 0
+  tap_is "a dry run deletes nothing" "$([[ -f "$fx/mem/e2egone.md" ]] && echo true || echo false)" 'true'
+  tap_is "a dry run leaves the index alone" "$(grep -q '(e2egone.md)' "$fx/mem/MEMORY.md" && echo true || echo false)" \
+    'true'
+  tap_is "a dry run writes no report" "$([[ ! -f "$report" ]] && echo true || echo false)" 'true'
+  tap_is "and it still reports the counts it would apply" "$(grep -q '1 held, 1 deleted, 0 unchecked' <<<"$out" && echo true || echo false)" \
+    'true'
 
   out=$(mc 2>&1); st=$?
-  check2 "a real run exits 0" 0 "$st"
-  check2 "the contradicted fact is gone" 'true' "$([[ ! -f "$fx/mem/e2egone.md" ]] && echo true || echo false)"
-  check2 "the fact that holds is untouched" 'true' "$([[ -f "$fx/mem/e2eholds.md" ]] && echo true || echo false)"
-  check2 "the index line goes with it" 'true' \
-    "$(grep -q '(e2egone.md)' "$fx/mem/MEMORY.md" && echo false || echo true)"
+  tap_is "a real run exits 0" "$st" 0
+  tap_is "the contradicted fact is gone" "$([[ ! -f "$fx/mem/e2egone.md" ]] && echo true || echo false)" 'true'
+  tap_is "the fact that holds is untouched" "$([[ -f "$fx/mem/e2eholds.md" ]] && echo true || echo false)" 'true'
+  tap_is "the index line goes with it" "$(grep -q '(e2egone.md)' "$fx/mem/MEMORY.md" && echo false || echo true)" \
+    'true'
   # The report is the only place a deleted fact's text survives.
-  check2 "the report records what was deleted" 'true' \
-    "$(grep -q 'e2egone' "$report" 2>/dev/null && echo true || echo false)"
+  tap_is "the report records what was deleted" "$(grep -q 'e2egone' "$report" 2>/dev/null && echo true || echo false)" \
+    'true'
 
   seed
   mc >/dev/null 2>&1
-  check2 "a run that deletes nothing clears the stale report" 'true' \
-    "$([[ ! -f "$report" ]] && echo true || echo false)"
+  tap_is "a run that deletes nothing clears the stale report" "$([[ ! -f "$report" ]] && echo true || echo false)" \
+    'true'
 
   rm -f "$fx"/mem/*.md; echo "# empty" > "$fx/mem/MEMORY.md"
   out=$(mc 2>&1); st=$?
-  check2 "an empty store is not an error" 0 "$st"
-  check2 "and it says the store is not mounted rather than deleting" 'true' \
-    "$(grep -q 'not mounted' <<<"$out" && echo true || echo false)"
+  tap_is "an empty store is not an error" "$st" 0
+  tap_is "and it says the store is not mounted rather than deleting" "$(grep -q 'not mounted' <<<"$out" && echo true || echo false)" \
+    'true'
 
   mc --bogus >/dev/null 2>&1; st=$?
-  check2 "an unknown argument is refused" 2 "$st"
+  tap_is "an unknown argument is refused" "$st" 2
 
   # --all finds the store from HOME alone, and its project from a session's cwd.
   local folder; folder="$fx/home/.claude/projects/${fx//[^a-zA-Z0-9]/-}-proj"
@@ -476,58 +472,57 @@ mc_e2e_test() {
   mc_fixture "$folder/memory" allheld 'true'
   echo "# none" > "$fx/home/.claude/projects/-orphan/memory/MEMORY.md"
   out=$(HOME="$fx/home" "$self" --all --dry-run 2>&1); st=$?
-  check2 "--all exits 0" 0 "$st"
-  check2 "--all checks a store under the project its session names" 'true' \
-    "$(grep -q "== $fx/proj" <<<"$out" && grep -q '1 held, 0 deleted' <<<"$out" && echo true || echo false)"
-  check2 "--all skips a store no session names, and says so" 'true' \
-    "$(grep -q 'orphan names its project; skipped' <<<"$out" && echo true || echo false)"
+  tap_is "--all exits 0" "$st" 0
+  tap_is "--all checks a store under the project its session names" "$(grep -q "== $fx/proj" <<<"$out" && grep -q '1 held, 0 deleted' <<<"$out" && echo true || echo false)" \
+    'true'
+  tap_is "--all skips a store no session names, and says so" "$(grep -q 'orphan names its project; skipped' <<<"$out" && echo true || echo false)" \
+    'true'
   local all_report="$fx/home/.claude/memory_check.last"
-  check2 "a dry run of --all writes no report" 'true' "$([[ ! -f "$all_report" ]] && echo true || echo false)"
+  tap_is "a dry run of --all writes no report" "$([[ ! -f "$all_report" ]] && echo true || echo false)" 'true'
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "--all reports the store it skipped where a session reads" 'true' \
-    "$(grep -q 'skipped .*-orphan — no session names its project' "$all_report" 2>/dev/null && echo true || echo false)"
+  tap_is "--all reports the store it skipped where a session reads" "$(grep -q 'skipped .*-orphan — no session names its project' "$all_report" 2>/dev/null && echo true || echo false)" \
+    'true'
   rm -rf "$fx/home/.claude/projects/-orphan"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "an --all run with nothing to say removes the stale report" 'true' \
-    "$([[ ! -f "$all_report" ]] && echo true || echo false)"
+  tap_is "an --all run with nothing to say removes the stale report" "$([[ ! -f "$all_report" ]] && echo true || echo false)" \
+    'true'
 
   ln -s "$fx/unmounted/data" "$fx/home/.claude/projects/-unmounted"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "--all reports a store linked to a volume that is not mounted" 'true' \
-    "$(grep -q 'skipped .*-unmounted — its store is not mounted' "$all_report" 2>/dev/null && echo true || echo false)"
+  tap_is "--all reports a store linked to a volume that is not mounted" "$(grep -q 'skipped .*-unmounted — its store is not mounted' "$all_report" 2>/dev/null && echo true || echo false)" \
+    'true'
   rm "$fx/home/.claude/projects/-unmounted"
 
   mc_fixture "$folder/memory" allwait 'exit 75'
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "--all reports an unchecked fact from tonight" 'true' \
-    "$(grep -q "^unchecked since $(date -u +%F): allwait in $fx/proj — its verify got no answer" "$all_report" 2>/dev/null && echo true || echo false)"
+  tap_is "--all reports an unchecked fact from tonight" "$(grep -q "^unchecked since $(date -u +%F): allwait in $fx/proj — its verify got no answer" "$all_report" 2>/dev/null && echo true || echo false)" \
+    'true'
   sed -i 's/^unchecked since [0-9-]*:/unchecked since 2026-01-01:/' "$all_report"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "and keeps the night it was first unchecked" 'true' \
-    "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)"
+  tap_is "and keeps the night it was first unchecked" "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)" \
+    'true'
   sed -i 's/ — .*/ — a reason — with a dash in it/' "$all_report"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "a reason holding a dash keeps the night too" 'true' \
-    "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj — its verify" "$all_report" 2>/dev/null && echo true || echo false)"
+  tap_is "a reason holding a dash keeps the night too" "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj — its verify" "$all_report" 2>/dev/null && echo true || echo false)" \
+    'true'
   mv "$folder" "$fx/store"; ln -s "$fx/unmounted/data" "$folder"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "a store skipped tonight keeps last night's unchecked lines" 'true' \
-    "$(grep -q "skipped .* — its store is not mounted" "$all_report" && grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)"
+  tap_is "a store skipped tonight keeps last night's unchecked lines" "$(grep -q "skipped .* — its store is not mounted" "$all_report" && grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)" \
+    'true'
   rm "$folder"; mv "$fx/store" "$folder"
   rm "$folder/memory/allwait.md"; sed -i '/(allwait.md)/d' "$folder/memory/MEMORY.md"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
-  check2 "a fact checked again leaves the report" 'true' \
-    "$([[ ! -f "$all_report" ]] && echo true || echo false)"
+  tap_is "a fact checked again leaves the report" "$([[ ! -f "$all_report" ]] && echo true || echo false)" \
+    'true'
 
   rm -rf "$fx"
-  return $rc
 }
 
 # --- Main -------------------------------------------------------------------
 
 if [[ "$SELFTEST" -eq 1 ]]; then
   mc_self_test || :
-  mc_e2e_test  || :
+  mc_e2e_test
   tap_end
 fi
 

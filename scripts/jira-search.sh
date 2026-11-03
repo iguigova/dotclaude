@@ -60,25 +60,21 @@ js_self_test() {
       "status":{"name":"Done","statusCategory":{"key":"done"}},
       "assignee":null}}
   ]}'
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   got=$(jq -c "$SHAPE" <<<"$fixture")
-  check "every issue is shaped, in order" 'ABC-1,ABC-2' "$(jq -r 'map(.key)|join(",")' <<<"$got")"
-  check "the workflow name and the stable category both survive" \
-    'In Progress/indeterminate' "$(jq -r '.[0] | "\(.status)/\(.statusCategory)"' <<<"$got")"
-  check "an unassigned issue is null, not the string null" 'true' \
-    "$(jq -r '.[1].assignee == null' <<<"$got")"
-  check "no result is an empty array, not an error" '[]' \
-    "$(jq -c "$SHAPE" <<<'{"isLast":true,"issues":[]}')"
+  tap_is "every issue is shaped, in order" "$(jq -r 'map(.key)|join(",")' <<<"$got")" 'ABC-1,ABC-2'
+  tap_is "the workflow name and the stable category both survive" \
+    "$(jq -r '.[0] | "\(.status)/\(.statusCategory)"' <<<"$got")" 'In Progress/indeterminate'
+  tap_is "an unassigned issue is null, not the string null" "$(jq -r '.[1].assignee == null' <<<"$got")" \
+    'true'
+  tap_is "no result is an empty array, not an error" "$(jq -c "$SHAPE" <<<'{"isLast":true,"issues":[]}')" \
+    '[]'
   # A missing field must not become the string "null": /timelog and friends test
   # for null, and a string is truthy everywhere they look.
-  check "an absent assignee key behaves the same as an explicit null" 'true' \
-    "$(jq -r '.[0].assignee == null' <<<"$(jq -c "$SHAPE" <<<'{"issues":[{"key":"P-1","fields":{"summary":"s","updated":"u","status":{"name":"n","statusCategory":{"key":"new"}}}}]}')")"
+  tap_is "an absent assignee key behaves the same as an explicit null" "$(jq -r '.[0].assignee == null' <<<"$(jq -c "$SHAPE" <<<'{"issues":[{"key":"P-1","fields":{"summary":"s","updated":"u","status":{"name":"n","statusCategory":{"key":"new"}}}}]}')")" \
+    'true'
   local flag_rc=0
   "$0" --max >/dev/null 2>&1 </dev/null || flag_rc=$?
-  check "a leading flag is refused offline with the usage, not sent as JQL" 2 "$flag_rc"
+  tap_is "a leading flag is refused offline with the usage, not sent as JQL" "$flag_rc" 2
 }
 
 [[ "${1:-}" == --self-test ]] && { js_self_test; tap_end; }

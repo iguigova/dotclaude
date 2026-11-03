@@ -40,10 +40,6 @@ ssn_self_test() {
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local fx out
-  check() {  # DESCRIPTION WANT GOT
-    if [ "$2" = "$3" ]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
 
   {
@@ -55,35 +51,35 @@ ssn_self_test() {
     printf '**TODO:** [cccc] third thing\n**TODO:** [dddd] fourth thing\n**Session:** s1\n'
   } > "$fx/open.md"
   out=$(JOURNAL_HIST="$fx/open.md" ssn_report)
-  check "the count is every open note, not the listed ones" 'notes: 4 open' \
-    "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')"
-  check "the oldest age is reported as whole days" 'true' \
-    "$(printf '%s\n' "$out" | head -1 | grep -Eq 'oldest [0-9]+d ' && echo true || echo false)"
+  tap_is "the count is every open note, not the listed ones" "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')" \
+    'notes: 4 open'
+  tap_is "the oldest age is reported as whole days" "$(printf '%s\n' "$out" | head -1 | grep -Eq 'oldest [0-9]+d ' && echo true || echo false)" \
+    'true'
   # Line 1 is the count, lines 2 and 3 the table's header and rule, then a row a note.
-  check "three are listed by default" 3 "$(printf '%s\n' "$out" | tail -n +4 | wc -l)"
-  check "the oldest is listed first" 'aaaa' \
-    "$(printf '%s\n' "$out" | sed -n '4p' | awk -F' *[|] *' '{print $2}')"
-  check "a long note is listed whole, never cut to a paraphrase" 'true' \
-    "$(printf '%s\n' "$out" | sed -n '5p' | grep -Eq 'x{200} [|]$' && echo true || echo false)"
-  check "the count is honoured" 1 \
-    "$(SESSION_START_NOTES_N=1 JOURNAL_HIST="$fx/open.md" ssn_report | tail -n +4 | wc -l)"
+  tap_is "three are listed by default" "$(printf '%s\n' "$out" | tail -n +4 | wc -l)" 3
+  tap_is "the oldest is listed first" "$(printf '%s\n' "$out" | sed -n '4p' | awk -F' *[|] *' '{print $2}')" \
+    'aaaa'
+  tap_is "a long note is listed whole, never cut to a paraphrase" "$(printf '%s\n' "$out" | sed -n '5p' | grep -Eq 'x{200} [|]$' && echo true || echo false)" \
+    'true'
+  tap_is "the count is honoured" "$(SESSION_START_NOTES_N=1 JOURNAL_HIST="$fx/open.md" ssn_report | tail -n +4 | wc -l)" \
+    1
 
   # Silence, not noise, is the answer to every unhappy path: a session must start.
   printf '# Log\n\n## 2026-01-01 00:00 — chore: none\n\n- b\n**Session:** s1\n' > "$fx/empty.md"
-  check "an empty queue prints nothing" '' "$(JOURNAL_HIST="$fx/empty.md" ssn_report)"
-  check "a missing history prints nothing" '' "$(JOURNAL_HIST="$fx/gone.md" ssn_report)"
+  tap_is "an empty queue prints nothing" "$(JOURNAL_HIST="$fx/empty.md" ssn_report)" ''
+  tap_is "a missing history prints nothing" "$(JOURNAL_HIST="$fx/gone.md" ssn_report)" ''
   printf 'not a session history at all\n' > "$fx/junk.md"
-  check "an unreadable history prints nothing" '' "$(JOURNAL_HIST="$fx/junk.md" ssn_report)"
-  check "and still exits 0, so the session starts" 0 \
-    "$(JOURNAL_HIST="$fx/junk.md" ssn_report >/dev/null 2>&1; echo $?)"
+  tap_is "an unreadable history prints nothing" "$(JOURNAL_HIST="$fx/junk.md" ssn_report)" ''
+  tap_is "and still exits 0, so the session starts" "$(JOURNAL_HIST="$fx/junk.md" ssn_report >/dev/null 2>&1; echo $?)" \
+    0
 
   # The hook is handed a cwd and must report that project, not the one it is
   # installed in — the whole point of a per-project queue.
   mkdir -p "$fx/proj/.claude"
   cp "$fx/open.md" "$fx/proj/.claude/session_history.md"
   out=$(printf '{"cwd":"%s","source":"startup"}' "$fx/proj" | bash "$SELF_DIR/session_start_notes.sh")
-  check "the payload's cwd selects the project" 'notes: 4 open' \
-    "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')"
+  tap_is "the payload's cwd selects the project" "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')" \
+    'notes: 4 open'
 }
 
 [ "${1:-}" = "--self-test" ] && { ssn_self_test; tap_end; }

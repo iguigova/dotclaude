@@ -111,9 +111,12 @@ nl_held() {
   local dir="$1" ref="$2" p; shift 2
   for p in "$@"; do [[ -e "$dir/$p" ]] && { echo tree; return 0; }; done
   [[ -n "$ref" ]] || return 1
-  for p in "$@"; do printf '%s:%s\n' "$ref" "$p"; done \
-    | git -C "$dir" cat-file --batch-check 2>/dev/null \
-    | grep -qv ' missing$' && { echo "$ref"; return 0; }
+  # Captured, not piped into grep -q: under pipefail, grep stopping at the first
+  # hit cuts git off by SIGPIPE, and a held name would read as missing.
+  local found
+  found=$(for p in "$@"; do printf '%s:%s\n' "$ref" "$p"; done \
+    | git -C "$dir" cat-file --batch-check 2>/dev/null)
+  grep -qv ' missing$' <<<"$found" && { echo "$ref"; return 0; }
   return 1
 }
 

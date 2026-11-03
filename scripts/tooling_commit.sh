@@ -178,10 +178,6 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp out
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$3" == "$2" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   mkrepo() {  # DIR [GATE] — a repo with one commit, gated by GATE when given
     mkdir -p "$1"; git -C "$1" init -q
     git -C "$1" config user.email t@t; git -C "$1" config user.name t
@@ -201,104 +197,105 @@ self_test() {
   echo a > "$r/a.txt"; echo theirs > "$r/theirs.txt"
   echo staged > "$r/staged.txt"; git -C "$r" add staged.txt
   out=$(tc -m "chore: a" -- "$r/a.txt")
-  check "prints the sha of the commit it made" "$(head_of "$r")" "$out"
-  check "commits the named path alone" "a.txt" "$(files_of_head "$r")"
-  check "leaves another session's staged path staged" "A  staged.txt" \
-    "$(git -C "$r" status --porcelain -- staged.txt)"
-  check "leaves another session's untracked path untracked" "?? theirs.txt" \
-    "$(git -C "$r" status --porcelain -- theirs.txt)"
-  check "the message is the one given" "chore: a" "$(git -C "$r" log -1 --format=%B)"
+  tap_is "prints the sha of the commit it made" "$out" "$(head_of "$r")"
+  tap_is "commits the named path alone" "$(files_of_head "$r")" "a.txt"
+  tap_is "leaves another session's staged path staged" "$(git -C "$r" status --porcelain -- staged.txt)" \
+    "A  staged.txt"
+  tap_is "leaves another session's untracked path untracked" "$(git -C "$r" status --porcelain -- theirs.txt)" \
+    "?? theirs.txt"
+  tap_is "the message is the one given" "$(git -C "$r" log -1 --format=%B)" "chore: a"
 
   git -C "$r" rm -q --cached staged.txt; rm "$r/staged.txt"
   (cd "$r" && rm base.txt && echo "c d" > "c d.txt" && "$SELF" -m "chore: del" -- base.txt "c d.txt" >/dev/null)
-  check "a relative path, a deletion and a space are committed whole" "base.txt
-c d.txt" "$(files_of_head "$r")"
+  tap_is "a relative path, a deletion and a space are committed whole" "$(files_of_head "$r")" "base.txt
+c d.txt"
 
   git -C "$r" mv "c d.txt" moved.txt
   tc -m "chore: mv" -- "$r/c d.txt" "$r/moved.txt" >/dev/null
-  check "a git mv commits both its paths" "c d.txt
-moved.txt" "$(files_of_head "$r")"
+  tap_is "a git mv commits both its paths" "$(files_of_head "$r")" "c d.txt
+moved.txt"
 
   local h; h=$(head_of "$r")
   echo b > "$r/b.txt"; touch "$r/.claude/scripts/RED"
   out=$(tc -m "chore: red" -- "$r/b.txt")
-  check "a red gate commits nothing" "$h" "$(head_of "$r")"
-  check "and says the gate was red" "1" "$(grep -c 'is red; nothing committed' <<<"$out")"
+  tap_is "a red gate commits nothing" "$(head_of "$r")" "$h"
+  tap_is "and says the gate was red" "$(grep -c 'is red; nothing committed' <<<"$out")" "1"
   rm "$r/.claude/scripts/RED"
 
   mkdir -p "$r/.claude"; echo "## entry" > "$r/.claude/session_history.md"
   touch "$r/.claude/scripts/RED"
   out=$(tc -m "chore: hist" -- "$r/.claude/session_history.md")
-  check "the session history alone commits past a red gate" ".claude/session_history.md" \
-    "$(files_of_head "$r")"
-  check "and says no gate reads it" "1" "$(grep -c 'no gate reads it' <<<"$out")"
+  tap_is "the session history alone commits past a red gate" "$(files_of_head "$r")" \
+    ".claude/session_history.md"
+  tap_is "and says no gate reads it" "$(grep -c 'no gate reads it' <<<"$out")" "1"
   echo "## more" >> "$r/.claude/session_history.md"; echo c > "$r/code.sh"
   h=$(head_of "$r")
   tc -m "chore: mixed" -- "$r/.claude/session_history.md" "$r/code.sh" >/dev/null
-  check "the history beside any other path is gated" "$h" "$(head_of "$r")"
+  tap_is "the history beside any other path is gated" "$(head_of "$r")" "$h"
   git -C "$r" checkout -q -- .claude/session_history.md; rm "$r/code.sh" "$r/.claude/scripts/RED"
 
   local ng2="$tmp/nogate-hist"; mkrepo "$ng2"; mkdir -p "$ng2/.claude"
   echo "## e" > "$ng2/.claude/session_history.md"
   tc -m "chore: h" -- "$ng2/.claude/session_history.md" >/dev/null
-  check "a history-only commit needs no selftest" ".claude/session_history.md" \
-    "$(files_of_head "$ng2")"
+  tap_is "a history-only commit needs no selftest" "$(files_of_head "$ng2")" \
+    ".claude/session_history.md"
 
   local g="$tmp/global"; mkrepo "$g" scripts/selftest.sh
   echo x > "$g/x.txt"
-  check "a gate at scripts/selftest.sh is found too" "$(tc -m "chore: x" -- "$g/x.txt")" "$(head_of "$g")"
+  out=$(tc -m "chore: x" -- "$g/x.txt")
+  tap_is "a gate at scripts/selftest.sh is found too" "$out" "$(head_of "$g")"
 
   ln -s "$g" "$tmp/link"; echo y > "$g/y.txt"
   tc -m "chore: y" -- "$tmp/link/y.txt" >/dev/null
-  check "a path through a symlink commits in the repo holding the file" "y.txt" "$(files_of_head "$g")"
+  tap_is "a path through a symlink commits in the repo holding the file" "$(files_of_head "$g")" "y.txt"
 
   local rm_="$tmp/remote"; mkrepo "$rm_" scripts/selftest.sh
   # A remote a push would reach, so a push the script made would show there.
   git init -q --bare "$tmp/origin.git"
   git -C "$rm_" remote add origin "$tmp/origin.git"; echo z > "$rm_/z.txt"
   out=$(tc -m "chore: z" -- "$rm_/z.txt")
-  check "a repo with a remote is refused" "1" "$(grep -c 'has a remote' <<<"$out")"
+  tap_is "a repo with a remote is refused" "$(grep -c 'has a remote' <<<"$out")" "1"
   git -C "$rm_" config tooling.commit true
   out=$(tc -m "chore: z" -- "$rm_/z.txt")
-  check "a repo with a remote commits once the clone opts in" "$(head_of "$rm_")" "$out"
-  check "and the commit is never pushed" "" "$(git -C "$tmp/origin.git" for-each-ref)"
+  tap_is "a repo with a remote commits once the clone opts in" "$out" "$(head_of "$rm_")"
+  tap_is "and the commit is never pushed" "$(git -C "$tmp/origin.git" for-each-ref)" ""
 
   local ng="$tmp/nogate"; mkrepo "$ng"; echo z > "$ng/z.txt"
   out=$(tc -m "chore: z" -- "$ng/z.txt")
-  check "a repo with no selftest is refused" "1" "$(grep -c 'carries no selftest' <<<"$out")"
+  tap_is "a repo with no selftest is refused" "$(grep -c 'carries no selftest' <<<"$out")" "1"
 
   echo p > "$r/p.txt"; echo q > "$g/q.txt"
   out=$(tc -m "chore: pq" -- "$r/p.txt" "$g/q.txt")
-  check "paths in two repos are refused" "1" "$(grep -c 'one call is one repo' <<<"$out")"
+  tap_is "paths in two repos are refused" "$(grep -c 'one call is one repo' <<<"$out")" "1"
 
   out=$(tc -m "chore: none" -- "$r/a.txt")
-  check "an unchanged path is refused, not an empty commit" "1" \
-    "$(grep -c 'nothing changed' <<<"$out")"
+  tap_is "an unchanged path is refused, not an empty commit" "$(grep -c 'nothing changed' <<<"$out")" \
+    "1"
 
   echo w > "$g/scripts/w.sh"
   out=$(cd "$r" && "$SELF" -m "chore: w" -- scripts/w.sh 2>&1)
-  check "a path named from the wrong directory is refused as unknown" "1" \
-    "$(grep -c 'neither on disk nor tracked' <<<"$out")"
+  tap_is "a path named from the wrong directory is refused as unknown" "$(grep -c 'neither on disk nor tracked' <<<"$out")" \
+    "1"
   rm "$g/scripts/w.sh"
 
   echo n > "$r/n.txt"; h=$(head_of "$r")
   out=$(tc -m "Update the notes" -- "$r/n.txt")
-  check "a subject in neither form commits nothing" "$h" "$(head_of "$r")"
-  check "and says which forms it takes" "1" "$(grep -c 'neither Conventional Commits' <<<"$out")"
+  tap_is "a subject in neither form commits nothing" "$(head_of "$r")" "$h"
+  tap_is "and says which forms it takes" "$(grep -c 'neither Conventional Commits' <<<"$out")" "1"
   out=$(tc -m "credo: n" -- "$r/n.txt")
-  check "a type outside TYPES is refused" "1" "$(grep -c 'neither Conventional Commits' <<<"$out")"
+  tap_is "a type outside TYPES is refused" "$(grep -c 'neither Conventional Commits' <<<"$out")" "1"
   out=$(tc -m "chore:n" -- "$r/n.txt")
-  check "a subject with no space after the colon is refused" "1" \
-    "$(grep -c 'neither Conventional Commits' <<<"$out")"
+  tap_is "a subject with no space after the colon is refused" "$(grep -c 'neither Conventional Commits' <<<"$out")" \
+    "1"
   tc -m "XYZ-7: n" -- "$r/n.txt" >/dev/null
-  check "a ticket-first subject commits" "XYZ-7: n" "$(git -C "$r" log -1 --format=%s)"
+  tap_is "a ticket-first subject commits" "$(git -C "$r" log -1 --format=%s)" "XYZ-7: n"
   echo m > "$r/n.txt"
   tc -m $'feat(tc)!: n\n\nthe body is free' -- "$r/n.txt" >/dev/null
-  check "a scoped breaking subject commits, and only the first line is judged" \
-    "feat(tc)!: n" "$(git -C "$r" log -1 --format=%s)"
+  tap_is "a scoped breaking subject commits, and only the first line is judged" \
+    "$(git -C "$r" log -1 --format=%s)" "feat(tc)!: n"
 
   "$SELF" -- "$r/p.txt" >/dev/null 2>&1
-  check "no message is a usage error" "2" "$?"
+  tap_is "no message is a usage error" "$?" "2"
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; tap_end; }

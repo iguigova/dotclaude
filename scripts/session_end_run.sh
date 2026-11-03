@@ -107,10 +107,6 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp repo out
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-  check() {  # DESCRIPTION WANT GOT
-    if [[ "$3" == "$2" ]]; then tap_ok "$1"
-    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
-  }
   mkrepo() {  # DIR
     mkdir -p "$1/.claude"; git -C "$1" init -q
     git -C "$1" config user.email t@t; git -C "$1" config user.name t
@@ -120,14 +116,14 @@ self_test() {
   repo="$tmp/r"; mkrepo "$repo"
   echo theirs > "$repo/theirs.txt"
   local before h; before=$(dirty "$repo"); h=$(head_of "$repo")
-  check "an untracked file counts as dirty, so it is seen before the run" "theirs.txt" "$before"
+  tap_is "an untracked file counts as dirty, so it is seen before the run" "$before" "theirs.txt"
 
   echo ours > "$repo/ours.txt"; echo left > "$repo/left.txt"
   git -C "$repo" add ours.txt; git -C "$repo" commit -q -m "chore: ours"
-  check "a commit the run made is reported with its subject" "$repo $(git -C "$repo" rev-parse --short HEAD) chore: ours" \
-    "$(commits_since "$repo" "$h")"
-  check "a path the run left uncommitted is reported, another session's is not" "$repo: left.txt" \
-    "$(left_since "$repo" "$before")"
+  tap_is "a commit the run made is reported with its subject" "$(commits_since "$repo" "$h")" \
+    "$repo $(git -C "$repo" rev-parse --short HEAD) chore: ours"
+  tap_is "a path the run left uncommitted is reported, another session's is not" "$(left_since "$repo" "$before")" \
+    "$repo: left.txt"
 
   # End to end through main, as the hook invokes it — the half no other case
   # reaches, and the half where a real run once died silently.
@@ -146,19 +142,19 @@ self_test() {
     "$0" "$tmp/e2e.lock" "$tmp/e2e.log" "$e2e" "reason=other session=sid-e2e" \
     bash -c 'echo I-RAN; echo placed > placed.txt; git add placed.txt; git commit -qm "chore: placed"; echo stray > stray.txt'
   out=$(<"$tmp/e2e.log")
-  check "main runs the command and its output reaches the log" "1" "$(grep -c I-RAN <<<"$out")"
-  check "main records the run finishing" "1" "$(grep -c 'run finished rc=0' <<<"$out")"
-  check "main commits nothing itself" "1" \
-    "$(git -C "$e2e" rev-list --count "$h0..HEAD")"
-  check "the report names the run's commit" "1" \
-    "$(grep -c 'chore: placed' "$e2e/.claude/session_end.last" 2>/dev/null || echo 0)"
-  check "and the path the run left uncommitted" "1" \
-    "$(grep -c 'stray.txt' "$e2e/.claude/session_end.last" 2>/dev/null || echo 0)"
-  check "the report counts only the notes open when the run started" \
-    "1 open at the end, 0 placed by the run, 1 still open. Run exit 0." \
-    "$(sed -n 2p "$e2e/.claude/session_end.last" 2>/dev/null)"
-  check "and lists a note closed before the run as placed before it" "1" \
-    "$(sed -n '/^Placed before the run:/,$p' "$e2e/.claude/session_end.last" | grep -c "^  | $gone ")"
+  tap_is "main runs the command and its output reaches the log" "$(grep -c I-RAN <<<"$out")" "1"
+  tap_is "main records the run finishing" "$(grep -c 'run finished rc=0' <<<"$out")" "1"
+  tap_is "main commits nothing itself" "$(git -C "$e2e" rev-list --count "$h0..HEAD")" \
+    "1"
+  tap_is "the report names the run's commit" "$(grep -c 'chore: placed' "$e2e/.claude/session_end.last" 2>/dev/null || echo 0)" \
+    "1"
+  tap_is "and the path the run left uncommitted" "$(grep -c 'stray.txt' "$e2e/.claude/session_end.last" 2>/dev/null || echo 0)" \
+    "1"
+  tap_is "the report counts only the notes open when the run started" \
+    "$(sed -n 2p "$e2e/.claude/session_end.last" 2>/dev/null)" \
+    "1 open at the end, 0 placed by the run, 1 still open. Run exit 0."
+  tap_is "and lists a note closed before the run as placed before it" "$(sed -n '/^Placed before the run:/,$p' "$e2e/.claude/session_end.last" | grep -c "^  | $gone ")" \
+    "1"
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; tap_end; }

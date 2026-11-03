@@ -205,27 +205,26 @@ FACT
   printf -- '---\nname: b\nhook: >-\n---\n' > "$MEM_DIR/b.md"
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
-  check() { tap_is "$1" "$3" "$2"; }
-  check 'mem_field reads a top-level key' a "$(mem_field "$MEM_DIR/a.md" name)"
-  check 'mem_field undoes double quotes' 'say "hi"' "$(mem_field "$MEM_DIR/a.md" description)"
-  check 'mem_field reads metadata, not another block' reference "$(mem_field "$MEM_DIR/a.md" type)"
-  check 'mem_field undoes single quotes' "it's here" "$(mem_field "$MEM_DIR/a.md" verify)"
-  check 'mem_field reads an absent key as empty' '' "$(mem_field "$MEM_DIR/a.md" nothing)"
-  check 'mem_block_fields names a | value' 'body' "$(mem_block_fields "$MEM_DIR/a.md")"
-  check 'mem_block_fields names a >- value' 'hook' "$(mem_block_fields "$MEM_DIR/b.md")"
-  check 'mem_facts skips the index' "$MEM_DIR/a.md $MEM_DIR/b.md" "$(mem_facts | paste -sd' ')"
-  check 'mem_tokens lowercases and drops short and stop words' 'platform rails' "$(mem_tokens 'This Rails platform: rails PLATFORM, with an API' | paste -sd' ')"
-  check 'mem_stores lists facts, both CLAUDE.md, skills and commands' "fact a.md|fact b.md|claude-project proj/CLAUDE.md|claude-global home/.claude/CLAUDE.md|skill proj/.claude/skills/s/SKILL.md|command home/.claude/commands/c.md" \
-    "$(mem_stores | sed "s#$fx/##; s#mem/##" | tr '\t' ' ' | paste -sd'|')"
+  tap_is 'mem_field reads a top-level key' "$(mem_field "$MEM_DIR/a.md" name)" a
+  tap_is 'mem_field undoes double quotes' "$(mem_field "$MEM_DIR/a.md" description)" 'say "hi"'
+  tap_is 'mem_field reads metadata, not another block' "$(mem_field "$MEM_DIR/a.md" type)" reference
+  tap_is 'mem_field undoes single quotes' "$(mem_field "$MEM_DIR/a.md" verify)" "it's here"
+  tap_is 'mem_field reads an absent key as empty' "$(mem_field "$MEM_DIR/a.md" nothing)" ''
+  tap_is 'mem_block_fields names a | value' "$(mem_block_fields "$MEM_DIR/a.md")" 'body'
+  tap_is 'mem_block_fields names a >- value' "$(mem_block_fields "$MEM_DIR/b.md")" 'hook'
+  tap_is 'mem_facts skips the index' "$(mem_facts | paste -sd' ')" "$MEM_DIR/a.md $MEM_DIR/b.md"
+  tap_is 'mem_tokens lowercases and drops short and stop words' "$(mem_tokens 'This Rails platform: rails PLATFORM, with an API' | paste -sd' ')" 'platform rails'
+  tap_is 'mem_stores lists facts, both CLAUDE.md, skills and commands' "$(mem_stores | sed "s#$fx/##; s#mem/##" | tr '\t' ' ' | paste -sd'|')" \
+    "fact a.md|fact b.md|claude-project proj/CLAUDE.md|claude-global home/.claude/CLAUDE.md|skill proj/.claude/skills/s/SKILL.md|command home/.claude/commands/c.md"
   mkdir -p "$fx/proj/sub/deeper" "$(mem_project_folder "$fx/proj")"
-  check 'mem_project_folder names the folder the harness keeps' "$HOME/.claude/projects/-a-b-c-d" "$(mem_project_folder /a/b.c_d)"
-  check 'mem_find_root walks up from a subdirectory to its project' "$fx/proj" "$(mem_find_root "$fx/proj/sub/deeper")"
-  check 'mem_find_root with no folder answers the directory it was given' "$fx/none" "$(mem_find_root "$fx/none")"
+  tap_is 'mem_project_folder names the folder the harness keeps' "$(mem_project_folder /a/b.c_d)" "$HOME/.claude/projects/-a-b-c-d"
+  tap_is 'mem_find_root walks up from a subdirectory to its project' "$(mem_find_root "$fx/proj/sub/deeper")" "$fx/proj"
+  tap_is 'mem_find_root with no folder answers the directory it was given' "$(mem_find_root "$fx/none")" "$fx/none"
   export MEM_LEAK=x
-  mem_verify 'test -z "${MEM_LEAK:-}"'; check 'mem_verify passes none of the caller environment' 0 "$?"
+  mem_verify 'test -z "${MEM_LEAK:-}"'; tap_is 'mem_verify passes none of the caller environment' "$?" 0
   mem_verify "test \"\$PATH\" = '$MEM_VERIFY_PATH' && test \"\$PWD\" = '$MEM_PROJECT_ROOT'"
-  check 'mem_verify runs on the declared PATH from the project root' 0 "$?"
-  mem_verify 'exit 75'; check 'mem_verify returns the exit status' 75 "$?"
-  mem_verify 'yes | head -1 | grep -q y'; check 'mem_verify runs without pipefail' 0 "$?"
+  tap_is 'mem_verify runs on the declared PATH from the project root' "$?" 0
+  mem_verify 'exit 75'; tap_is 'mem_verify returns the exit status' "$?" 75
+  mem_verify 'yes | head -1 | grep -q y'; tap_is 'mem_verify runs without pipefail' "$?" 0
   tap_end
 fi

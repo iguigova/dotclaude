@@ -218,7 +218,6 @@ instructed otherwise.
 
 ### Line Width
 
-- 80 characters max per line
 - Find logical break points for long lines
 - Don't let one line stick out from a block of shorter lines
 

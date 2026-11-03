@@ -111,43 +111,47 @@ EOF
   chmod +x "$tmp/comments" "$tmp/score"
   ref=Org/repo#7
   dir="$GH_PR_WORKDIR_BASE/Org-repo-7"
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   run() { : > "$tmp/polls"; out=$(fetch "$@" 2>"$tmp/err") && code=0 || code=$?; }
   temps() { compgen -G "$dir/*.json.*" >/dev/null; }
 
   # Without --wait: one poll, both files written, a stale score said so.
   echo 3 > "$tmp/current_at"
   run "$ref" greptile
-  [[ $code == 0 ]] || fails+=("plain fetch: exit $code: $(cat "$tmp/err")")
-  [[ "$(cat "$tmp/polls")" == 1 ]] || fails+=("plain fetch polled $(cat "$tmp/polls") times, want 1")
-  [[ "$(jq -r .args "$dir/bot.json")" == "$ref greptile" ]] || fails+=("the comment fetch was not given the ref and the bot substring")
-  [[ "$(tail -1 "$tmp/score.log")" == "$ref greptile" ]] || fails+=("the score fetch was not given the ref and the bot substring")
-  [[ "$out" == *"bot:   $dir/bot.json -- 2 bot threads, 1 human threads open; 1 human notes unanswered; own review unanswered, 1 own threads open"* ]] \
-    || fails+=("no bot line: $out")
-  [[ "$out" == *"score: $dir/score.json -- 4/5 (below max) for h1, stale; 1 out-of-diff"* ]] \
-    || fails+=("no stale score line: $out")
+  tap_is "a plain fetch exits 0" "$code" 0
+  tap_is "a plain fetch polls once" "$(cat "$tmp/polls")" 1
+  tap_is "the comment fetch is given the ref and the bot substring" \
+    "$(jq -r .args "$dir/bot.json")" "$ref greptile"
+  tap_is "the score fetch is given the ref and the bot substring" \
+    "$(tail -1 "$tmp/score.log")" "$ref greptile"
+  tap_like "the bot line counts the open threads and the unanswered notes" "$out" \
+    "*bot:   $dir/bot.json -- 2 bot threads, 1 human threads open; 1 human notes unanswered; own review unanswered, 1 own threads open*"
+  tap_like "a stale score says so" "$out" \
+    "*score: $dir/score.json -- 4/5 (below max) for h1, stale; 1 out-of-diff*"
 
   # --wait: polls until the score is for the head, then fetches the threads after it.
   : > "$tmp/comments.log"
   run "$ref" --wait
-  [[ $code == 0 && "$(cat "$tmp/polls")" == 3 ]] || fails+=("--wait: exit $code after $(cat "$tmp/polls") polls, want 0 after 3")
-  [[ "$out" == *"5/5 (at max) for h2, current"* ]] || fails+=("--wait: no current score line: $out")
-  [[ "$(cat "$tmp/comments.log")" == "$ref after poll 3" ]] \
-    || fails+=("--wait did not fetch the threads once, after the current score: $(cat "$tmp/comments.log")")
-  [[ "$(tail -1 "$tmp/score.log")" == "$ref" ]] || fails+=("no substring given, yet one reached the score fetch")
+  tap_is "--wait polls until the score is for the head" "$code $(cat "$tmp/polls")" "0 3"
+  tap_like "and then reports the current score" "$out" "*5/5 (at max) for h2, current*"
+  tap_is "and fetches the threads once, after the current score" \
+    "$(cat "$tmp/comments.log")" "$ref after poll 3"
+  tap_is "no substring given, none reaches the score fetch" "$(tail -1 "$tmp/score.log")" "$ref"
 
   # --wait running out: exit 3, the previous files whole, no temp file left.
   echo 99 > "$tmp/current_at"
   GH_PR_BOT_FETCH_WAIT=0 run "$ref" --wait
-  [[ $code == 3 ]] || fails+=("--wait timeout: exit $code, want 3")
-  grep -q 'still for h1, not the head h2' "$tmp/err" || fails+=("--wait timeout does not name both commits: $(cat "$tmp/err")")
-  [[ "$(jq -r .score "$dir/score.json")" == 5 ]] || fails+=("a timed-out wait overwrote score.json")
-  temps && fails+=("a timed-out wait left a temp file")
+  tap_is "a --wait that times out exits 3" "$code" 3
+  tap_run "and names both commits" grep -q 'still for h1, not the head h2' "$tmp/err"
+  tap_is "and leaves score.json whole" "$(jq -r .score "$dir/score.json")" 5
+  tap_fails "and leaves no temp file" temps
 
   # A bot that gives no score has nothing to wait for.
   touch "$tmp/no_score"
   GH_PR_BOT_FETCH_WAIT=0 run "$ref" --wait
-  [[ $code == 0 && "$out" == *"none from this bot; 0 out-of-diff"* ]] || fails+=("no score: exit $code: $out")
+  tap_is "a bot with no score is not waited on" "$code" 0
+  tap_like "and says it gave none" "$out" "*none from this bot; 0 out-of-diff*"
   rm "$tmp/no_score"
 
   # A failed fetch on either side keeps both previous files and leaves no temp file.
@@ -158,22 +162,17 @@ EOF
     flag="$tmp/${side}_fails"; [[ $side == *_garbage ]] && flag="$tmp/$side"
     touch "$flag"
     run "$ref"
-    [[ $code == 1 ]] || fails+=("failed $side fetch: exit $code, want 1")
-    [[ "$(cat "$dir/bot.json" "$dir/score.json")" == "$before" ]] || fails+=("a failed $side fetch changed a file")
-    temps && fails+=("a failed $side fetch left a temp file")
+    tap_is "a failed $side fetch exits 1" "$code" 1
+    tap_is "a failed $side fetch changes no file" "$(cat "$dir/bot.json" "$dir/score.json")" "$before"
+    tap_fails "a failed $side fetch leaves no temp file" temps
     rm "$flag"
   done
 
   run
-  [[ $code == 1 ]] || fails+=("no ref: exit $code, want 1")
+  tap_is "no ref exits 1" "$code" 1
   run "$ref" --bogus
-  [[ $code == 1 ]] || fails+=("unknown option: exit $code, want 1")
-
-  if ((${#fails[@]})); then
-    printf 'gh-pr-bot-fetch self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-bot-fetch self-test: PASS (both files whole or not at all, substrings forwarded, --wait polls to the head then fetches, timeout exit 3, no-score bot not waited on)"
-  exit 0
+  tap_is "an unknown option exits 1" "$code" 1
+  tap_end
 fi
 
 fetch "$@"

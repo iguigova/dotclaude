@@ -85,60 +85,57 @@ if [[ "${1:-}" == "--self-test" ]]; then
     > "$tmp/fetch"
   chmod +x "$tmp/fetch"
   url=https://github.com/Org/repo/pull/7
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   run() { out=$(start "$@" 2>"$tmp/err") && code=0 || code=$?; }
 
   # No argument and no title naming a PR: ask, and fetch nothing.
   run
-  [[ $code == 2 ]] || fails+=("no ref, unnamed session: exit $code, want 2")
-  grep -q 'ask the user which PR' "$tmp/err" || fails+=("no ref: stderr does not say to ask")
+  tap_is "no ref in an unnamed session exits 2" "$code" 2
+  tap_run "and says to ask the user" grep -q 'ask the user which PR' "$tmp/err"
 
   # A slug is resolved to the URL every later step takes; the title follows the fetch.
   run Org/repo#7
-  [[ $code == 0 ]] || fails+=("slug ref: exit $code, want 0: $(cat "$tmp/err")")
-  [[ "$out" == *"pr:    $url (from the argument)"* ]] || fails+=("slug ref: no canonical URL line: $out")
+  tap_is "a slug ref exits 0" "$code" 0
+  tap_like "a slug ref is resolved to its URL" "$out" "*pr:    $url (from the argument)*"
   dir="$GH_PR_WORKDIR_BASE/Org-repo-7"
-  [[ "$out" == *"dir:   $dir"* ]] || fails+=("slug ref: no dir line: $out")
-  [[ "$(jq -r .ref "$dir/pr.json")" == "$url" ]] || fails+=("the fetch was not given the URL")
-  [[ "$out" == *"at abc123, ticket ABC-1"* ]] || fails+=("no fetch line with head and ticket: $out")
-  [[ "$(tail -1 "$SESSION_RENAME_TRANSCRIPT" | jq -r .customTitle)" == "ABC-1 PR $url" ]] \
-    || fails+=("the title record does not carry the fetched ticket")
+  tap_like "the run names its directory" "$out" "*dir:   $dir*"
+  tap_is "the fetch is given the URL" "$(jq -r .ref "$dir/pr.json")" "$url"
+  tap_like "the fetch line names the head and the ticket" "$out" "*at abc123, ticket ABC-1*"
+  tap_is "the title record carries the fetched ticket" \
+    "$(tail -1 "$SESSION_RENAME_TRANSCRIPT" | jq -r .customTitle)" "ABC-1 PR $url"
 
   # No argument in a session named after a PR: that PR, said to come from the title.
   run --suffix BOT
-  [[ $code == 0 && "$out" == *"(from the session title)"* ]] \
-    || fails+=("no ref, named session: exit $code: $out")
-  [[ "$(tail -1 "$SESSION_RENAME_TRANSCRIPT" | jq -r .customTitle)" == "ABC-1 BOT $url" ]] \
-    || fails+=("--suffix BOT did not reach the title")
+  tap_is "no ref in a named session exits 0" "$code" 0
+  tap_like "and takes the PR from the session title" "$out" "*(from the session title)*"
+  tap_is "--suffix BOT reaches the title" \
+    "$(tail -1 "$SESSION_RENAME_TRANSCRIPT" | jq -r .customTitle)" "ABC-1 BOT $url"
 
   # --no-name writes no record and says so.
   before=$(wc -l < "$SESSION_RENAME_TRANSCRIPT")
   run "$url" --no-name
-  [[ $code == 0 && "$out" == *"title: not written (--no-name)"* ]] || fails+=("--no-name: exit $code: $out")
-  [[ "$(wc -l < "$SESSION_RENAME_TRANSCRIPT")" == "$before" ]] || fails+=("--no-name wrote a title record")
+  tap_like "--no-name says the title was not written" "$out" "*title: not written (--no-name)*"
+  tap_is "--no-name writes no title record" "$(wc -l < "$SESSION_RENAME_TRANSCRIPT")" "$before"
 
   # A failed fetch leaves the previous pr.json whole and exits 1.
   printf '#!/bin/sh\necho partial; exit 1\n' > "$tmp/fetch"
   run "$url"
-  [[ $code == 1 ]] || fails+=("failed fetch: exit $code, want 1")
-  [[ "$(jq -r .head_sha "$dir/pr.json")" == abc123 ]] || fails+=("a failed fetch overwrote pr.json")
-  compgen -G "$dir/pr.json.*" >/dev/null && fails+=("a failed fetch left its temp file")
+  tap_is "a failed fetch exits 1" "$code" 1
+  tap_is "a failed fetch leaves pr.json whole" "$(jq -r .head_sha "$dir/pr.json")" abc123
+  tap_fails "a failed fetch leaves no temp file" compgen -G "$dir/pr.json.*"
 
   # A title that cannot be written after a good fetch is exit 4, with the reason.
   printf '#!/bin/sh\necho "{\\"head_sha\\":\\"def456\\",\\"ticket\\":\\"\\"}"\n' > "$tmp/fetch"
   CLAUDE_CODE_SESSION_ID='' SESSION_RENAME_TRANSCRIPT='' run "$url"
-  [[ $code == 4 && "$out" == *"title: not written -- "*"not inside a session"*" -- the review can go on" ]] \
-    || fails+=("rename outside a session: exit $code: $out")
-  [[ "$out" == *"ticket none"* ]] || fails+=("an empty ticket is not shown as none: $out")
+  tap_is "a rename outside a session exits 4" "$code" 4
+  tap_like "and says the review can go on" "$out" \
+    "*title: not written -- *not inside a session* -- the review can go on"
+  tap_like "an empty ticket shows as none" "$out" "*ticket none*"
 
   run "$url" "$url"
-  [[ $code == 1 ]] || fails+=("two refs: exit $code, want 1")
-
-  if ((${#fails[@]})); then
-    printf 'gh-pr-start self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-start self-test: PASS (ref from argument and from session title, ask when neither, whole-or-nothing fetch, ticketed title, suffix, --no-name, rename failure exit 4)"
-  exit 0
+  tap_is "two refs exit 1" "$code" 1
+  tap_end
 fi
 
 start "$@"

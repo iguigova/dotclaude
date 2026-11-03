@@ -447,7 +447,9 @@ main() {
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local tmp fail=0 out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp out
   tmp=$(mktemp -d) || return 2
   trap 'rm -rf "$tmp"' RETURN
   local -a G=(-c user.email=t@t -c user.name=t -c commit.gpgsign=false)
@@ -462,15 +464,13 @@ self_test() {
   }
   fork() { printf '%s\tstranger\n' "$2" >"$tmp/prs/$1"; }
   expect() {  # <description> <ERE over the output>
-    if grep -qE -- "$2" <<<"$out"; then echo "  ok  $1"
-    else echo "  FAIL $1: no line matches /$2/"; fail=1; fi
+    if grep -qE -- "$2" <<<"$out"; then tap_ok "$1"
+    else tap_not_ok "$1" "no line matches /$2/"; fi
   }
   check() {  # <description> <command…>
-    if "${@:2}" >/dev/null 2>&1; then echo "  ok  $1"
-    else echo "  FAIL $1"; fail=1; fi
+    tap_run "$@" 2>/dev/null
   }
 
-  echo "== git_sweep self-test =="
   mkdir -p "$tmp/root/.claude" "$tmp/prs"
   : >"$tmp/root/.claude/session_history.md"
   git init -q -b main "$tmp/root"
@@ -641,10 +641,7 @@ EOF
     bash -c "! grep -qE 'sweep:repo/(branch/(nopr|closed)|stash/)' <<<'$open'"
   check "the still-noted item's note is open" grep -q 'sweep:repo/branch/after' <<<"$open"
   check "the foreign note is open" grep -q 'sweep:elsewhere/branch/x' <<<"$open"
-
-  (( fail == 0 )) && echo "git_sweep self-test: PASS"
-  return "$fail"
 }
 
-[[ "${1:-}" == --self-test ]] && { self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { self_test; tap_end; }
 main "$@"

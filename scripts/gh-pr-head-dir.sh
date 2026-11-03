@@ -62,57 +62,56 @@ stamped_dir() {  # <dir> <sha> -> "<sha>\t<dir>", the dir emptied unless it is t
 if [[ "${1:-}" == "--self-test" ]]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   dir="$tmp/head"
 
   # pr.json absent or at the live head gives the live head; at another commit
   # it is refused, and the refusal names both.
-  [[ "$(pinned_head "" bbb)" == bbb ]] || fails+=("no pr.json: did not take the live head")
-  [[ "$(pinned_head bbb bbb)" == bbb ]] || fails+=("pr.json at the live head: not accepted")
-  if pinned_head aaa bbb >/dev/null 2>"$tmp/err"; then
-    fails+=("pr.json at another commit was served instead of refused")
-  fi
-  grep -q 'aaa.*bbb' "$tmp/err" || fails+=("the refusal does not name both commits: $(cat "$tmp/err")")
+  tap_is "with no pr.json the live head is taken" "$(pinned_head "" bbb)" bbb
+  tap_is "a pr.json at the live head is accepted" "$(pinned_head bbb bbb)" bbb
+  stale() { pinned_head aaa bbb 2>"$tmp/err"; }
+  tap_fails "a pr.json at another commit is refused" stale
+  tap_run "and the refusal names both commits" grep -q 'aaa.*bbb' "$tmp/err"
 
   IFS=$'\t' read -r sha got <<<"$(stamped_dir "$dir" aaa)"
-  [[ "$sha" == aaa && "$got" == "$dir" ]] || fails+=("first call: got '$sha' '$got'")
-  [[ "$(cat "$dir/.sha")" == aaa ]] || fails+=("stamp not written")
+  tap_is "a first call prints the commit and the directory" "$sha $got" "aaa $dir"
+  tap_is "and writes the stamp" "$(cat "$dir/.sha")" aaa
 
   # Same commit: a file fetched by one caller survives the next caller.
   mkdir -p "$dir/lib"; echo x > "$dir/lib/a.dart"
   stamped_dir "$dir" aaa >/dev/null
-  [[ -f "$dir/lib/a.dart" ]] || fails+=("same commit dropped a cached file")
+  tap_run "the same commit keeps a cached file" test -f "$dir/lib/a.dart"
 
   # Moved commit: the old commit's files go, and the stamp names the new one.
   stamped_dir "$dir" bbb >/dev/null
-  [[ ! -e "$dir/lib/a.dart" ]] || fails+=("moved commit kept the old commit's file")
-  [[ "$(cat "$dir/.sha")" == bbb ]] || fails+=("moved commit: stamp not rewritten")
+  tap_run "a moved commit drops the old commit's files" test ! -e "$dir/lib/a.dart"
+  tap_is "and rewrites the stamp" "$(cat "$dir/.sha")" bbb
 
   # An unstamped directory, as an older version of this helper left one, holds
   # files of no known commit and is dropped rather than adopted.
   mkdir -p "$tmp/old/lib"; echo z > "$tmp/old/lib/b.py"; echo bbb > "$tmp/old/.head_sha"
   stamped_dir "$tmp/old" bbb >/dev/null
-  [[ ! -e "$tmp/old/lib/b.py" ]] || fails+=("an unstamped directory was adopted with its files")
+  tap_run "an unstamped directory is dropped, not adopted" test ! -e "$tmp/old/lib/b.py"
 
   # A file written at the new commit after the stamp was refreshed must
   # survive a later call at that same commit.
   echo y > "$dir/README.md"
   stamped_dir "$dir" bbb >/dev/null
-  [[ -f "$dir/README.md" ]] || fails+=("file fetched at the current commit was dropped by the next caller")
+  tap_run "a file fetched at the current commit survives the next caller" \
+    test -f "$dir/README.md"
 
   for caller in gh-pr-file.sh gh-pr-grep.sh; do
-    grep -q 'gh-pr-head-dir.sh' "$HERE/$caller" || fails+=("$caller does not resolve its directory through gh-pr-head-dir.sh")
+    tap_run "$caller resolves its directory through gh-pr-head-dir.sh" \
+      grep -q 'gh-pr-head-dir.sh' "$HERE/$caller"
   done
-  grep -q 'merge_base_commit' "${BASH_SOURCE[0]}" || fails+=("--base does not read compare's merge_base_commit")
+  tap_run "--base reads compare's merge_base_commit" \
+    grep -q 'merge_base_commit' "${BASH_SOURCE[0]}"
   # The base branch's name moves past a merged PR's head; only the recorded
   # base commit keeps a merged PR's merge base where the PR started.
-  grep -qF 'compare/$base_oid...' "${BASH_SOURCE[0]}" || fails+=("--base compares the base branch's name, not the recorded base commit")
-
-  if ((${#fails[@]})); then
-    printf 'gh-pr-head-dir self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-head-dir self-test: PASS (stale pr.json refused, live head taken, stamp written, kept at the same commit, dropped whole on a moved one or with no stamp, both callers routed through it, the merge base taken from the recorded base commit)"
-  exit 0
+  tap_run "--base compares the recorded base commit, not the branch's name" \
+    grep -qF 'compare/$base_oid...' "${BASH_SOURCE[0]}"
+  tap_end
 fi
 
 MODE="head"

@@ -28,12 +28,12 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # everything passes the first alone.
 if [[ "${1:-}" == "--self-test" ]]; then
   command -v jq >/dev/null 2>&1 || { echo "memory_reconcile --self-test: needs jq" >&2; exit 2; }
-  rc=0
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "memory_reconcile.sh --self-test"
 
   # Every store is a fixture — the project, HOME and the memory — so the run
   # never reads a real CLAUDE.md or skill, whose edits would move the counts.
@@ -84,8 +84,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   run >/dev/null 2>&1 && st=0 || st=$?
   check "a run with no seed is refused" 1 "$st"
 
-  [[ $rc == 0 ]] && echo "memory_reconcile.sh: self-test PASS" || echo "memory_reconcile.sh: self-test FAIL" >&2
-  exit $rc
+  tap_end
 fi
 
 TEXT="" ; KEY="" ; TOPN=12 ; MIN=0

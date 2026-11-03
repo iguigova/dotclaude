@@ -193,6 +193,8 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+from tap import Tap
+
 SCRIPTS = Path(__file__).resolve().parent
 HOME = Path.home() / ".claude"
 INVENTORY_SKILL = SCRIPTS.parent / "skills/inventory/SKILL.md"
@@ -2364,20 +2366,16 @@ def self_test() -> int:
     # A dict keeps the last of two equal keys without a word, so a check that
     # reuses a key replaces the older one and both still read as passing.
     twice = sorted(set(seen) & set(extra) | set(repeated_keys()))
-    for k in twice:
-        print(f"FAIL {k}: the key is used twice, so one of its checks never runs")
+    t = Tap()
+    t.check(not twice, "no check reuses a key, so every check runs", *twice)
     # An assertion is only an assertion once EXPECTED names it, so a key on one
     # side and not the other fails: otherwise a new check passes without running.
     only_got, only_exp = sorted(set(got) - set(EXPECTED)), sorted(set(EXPECTED) - set(got))
-    for k in only_got:
-        print(f"FAIL {k}: computed but absent from EXPECTED, so it was never checked")
-    for k in only_exp:
-        print(f"FAIL {k}: expected but never computed")
-    bad = twice + only_got + only_exp + [k for k in EXPECTED if k in got and got[k] != EXPECTED[k]]
-    for k in dict.fromkeys(k for k in bad if k not in twice):
-        print(f"FAIL {k}: expected {EXPECTED[k]!r} got {got[k]!r}")
-    print("skill_inventory self-test: " + ("FAIL" if bad else "ok"))
-    return 1 if bad else 0
+    t.check(not only_got, "every answer computed is in EXPECTED", *only_got)
+    t.check(not only_exp, "every answer in EXPECTED is computed", *only_exp)
+    for k, want in EXPECTED.items():
+        t.check(got.get(k) == want, k, f"expected {want!r}", f"got {got.get(k)!r}")
+    return t.end()
 
 
 # --------------------------------------------------------------------- main

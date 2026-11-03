@@ -44,21 +44,20 @@ persona_line() {  # <gh-pr-file rc> <printed path> <repo> -> line, or return 2
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
-  [[ "$(persona_line 0 /w/head/.claude/agents/security.md o/r)" == "persona: /w/head/.claude/agents/security.md" ]] \
-    || fails+=("a fetched persona is not printed as its path")
-  [[ "$(persona_line 1 '' o/r)" == "persona: none — o/r has no $PERSONA_PATH at head" ]] \
-    || fails+=("an absent persona is not reported as none")
-  persona_line 2 '' o/r >/dev/null && fails+=("a failed persona fetch reads as an answer")
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  tap_is "a fetched persona is printed as its path" \
+    "$(persona_line 0 /w/head/.claude/agents/security.md o/r)" \
+    "persona: /w/head/.claude/agents/security.md"
+  tap_is "an absent persona is reported as none" \
+    "$(persona_line 1 '' o/r)" "persona: none — o/r has no $PERSONA_PATH at head"
+  tap_fails "a failed persona fetch is not an answer" persona_line 2 '' o/r
   # The classes must come from one named commit, raw, or a large file comes
   # back base64-capped and the line cited is not the line read.
-  grep -q 'contents/\$CLASSES_PATH?ref=\$MSHA' "${BASH_SOURCE[0]}" || fails+=("the classes fetch does not pin ?ref=")
-  grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}" || fails+=("not requesting the raw media type")
-  if ((${#fails[@]})); then
-    printf 'gh-pr-security self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-security self-test: PASS (persona present, absent and failed told apart; classes pinned to one commit, raw)"
-  exit 0
+  tap_run "the classes fetch pins ?ref=" \
+    grep -q 'contents/\$CLASSES_PATH?ref=\$MSHA' "${BASH_SOURCE[0]}"
+  tap_run "the raw media type is requested" grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}"
+  tap_end
 fi
 
 if [[ $# -ne 1 ]]; then

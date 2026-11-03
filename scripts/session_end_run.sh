@@ -103,18 +103,19 @@ main() {
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local rc=0 tmp repo out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp repo out
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$3" == "$2" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$3" == "$2" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
   mkrepo() {  # DIR
     mkdir -p "$1/.claude"; git -C "$1" init -q
     git -C "$1" config user.email t@t; git -C "$1" config user.name t
     echo base > "$1/base.txt"; git -C "$1" add -A; git -C "$1" commit -q -m base
   }
-  echo "session_end_run.sh --self-test"
 
   repo="$tmp/r"; mkrepo "$repo"
   echo theirs > "$repo/theirs.txt"
@@ -158,8 +159,7 @@ self_test() {
     "$(sed -n 2p "$e2e/.claude/session_end.last" 2>/dev/null)"
   check "and lists a note closed before the run as placed before it" "1" \
     "$(sed -n '/^Placed before the run:/,$p' "$e2e/.claude/session_end.last" | grep -c "^  | $gone ")"
-  return $rc
 }
 
-[[ "${1:-}" == --self-test ]] && { self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { self_test; tap_end; }
 main "$@"; exit $?

@@ -23,17 +23,14 @@ if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   mkdir -p "$fx/p/.claude" "$fx/p/api/repo/.claude" "$fx/p/api/repo/src"
   : > "$fx/p/.claude/atlassian_site"
-  fails=()
-  [[ "$(find_up "$fx/p/api/repo/src" atlassian_site)" == "$fx/p/.claude/atlassian_site" ]] \
-    || fails+=("a nearer .claude/ without the file is passed over")
-  [[ "$(find_up "$fx/p" atlassian_site)" == "$fx/p/.claude/atlassian_site" ]] \
-    || fails+=("the start directory itself is searched")
-  find_up "$fx" atlassian_site >/dev/null && fails+=("a file only below the start is not found")
-  if ((${#fails[@]})); then
-    printf 'project_file self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "project_file self-test: PASS (nearest copy above \$PWD, nearer .claude/ without it skipped, never below)"
-  exit 0
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  tap_is "a nearer .claude/ without the file is passed over" \
+    "$(find_up "$fx/p/api/repo/src" atlassian_site)" "$fx/p/.claude/atlassian_site"
+  tap_is "the start directory itself is searched" \
+    "$(find_up "$fx/p" atlassian_site)" "$fx/p/.claude/atlassian_site"
+  tap_fails "a file only below the start is not found" find_up "$fx" atlassian_site
+  tap_end
 fi
 
 [[ $# -eq 1 && -n "$1" ]] || { echo "Usage: $0 <name> | --self-test" >&2; exit 2; }

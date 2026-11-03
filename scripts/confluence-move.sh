@@ -50,22 +50,20 @@ atlassian_curl() {
 STUB
   out=$("$tmp/confluence-move.sh" \
     "https://example.invalid/wiki/spaces/PA/pages/42/Title" 7 2>/dev/null)
-  grep -q -- '-X PUT https://example.invalid/wiki/rest/api/content/42/move/append/7' "$tmp/calls" \
-    || { echo "self-test: does not PUT move/append/<target>" >&2; exit 1; }
-  [[ "$out" == "42 Space > Ad Hoc" ]] \
-    || { echo "self-test: ancestor path not read back: $out" >&2; exit 1; }
-  [[ "$("$tmp/confluence-move.sh" --dry-run --position before 42 7)" == "PUT /wiki/rest/api/content/42/move/before/7" ]] \
-    || { echo "self-test: --position not honoured" >&2; exit 1; }
-  if "$tmp/confluence-move.sh" --dry-run --position under 42 7 >/dev/null 2>&1; then
-    echo "self-test: an unknown position was accepted" >&2; exit 1
-  fi
-  if "$tmp/confluence-move.sh" --dry-run 42 42 >/dev/null 2>&1; then
-    echo "self-test: a page was moved relative to itself" >&2; exit 1
-  fi
-  if "$tmp/confluence-move.sh" --dry-run not-a-page 7 >/dev/null 2>&1; then
-    echo "self-test: a non-page reference was accepted" >&2; exit 1
-  fi
-  echo "confluence-move self-test: PASS"
+  # shellcheck source=tap.sh
+  . "$(dirname "$src")/tap.sh"
+  tap_run "the move is a PUT to move/append/<target>" grep -q -- \
+    '-X PUT https://example.invalid/wiki/rest/api/content/42/move/append/7' "$tmp/calls"
+  tap_is "the page's new ancestor path is read back" "$out" "42 Space > Ad Hoc"
+  tap_is "--position is honoured" \
+    "$("$tmp/confluence-move.sh" --dry-run --position before 42 7)" \
+    "PUT /wiki/rest/api/content/42/move/before/7"
+  tap_fails "an unknown position is refused" \
+    "$tmp/confluence-move.sh" --dry-run --position under 42 7
+  tap_fails "a page is not moved relative to itself" \
+    "$tmp/confluence-move.sh" --dry-run 42 42
+  tap_fails "a non-page reference is refused" \
+    "$tmp/confluence-move.sh" --dry-run not-a-page 7
 }
 
 DRY_RUN=0
@@ -74,7 +72,7 @@ while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
     --position) POSITION="${2:-}"; shift 2 ;;
-    --self-test) self_test; exit 0 ;;
+    --self-test) self_test; tap_end ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done

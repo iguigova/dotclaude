@@ -56,6 +56,7 @@ import tempfile
 from pathlib import Path
 
 import skill_inventory as si
+from tap import Tap
 
 LIMIT = 10
 LINE_CHARS = 120
@@ -272,13 +273,29 @@ def self_test() -> int:
             "untagged": [("untagged", "deploy.sh"), ("no 75", "plates.sh"),
                          ("untagged", "tail.py")],
             "skip": ["deploy.sh", "plates.sh"]}
+    names = {
+        "ranked": "a script holding more of the words ranks first, ties by name",
+        "rare": "a word fewer scripts hold weighs more",
+        "lead": "a word past the header's first sentence is found",
+        "limit": "--limit caps the list",
+        "summary": "a long first sentence is cut with an ellipsis",
+        "wrapped": "a first sentence wrapped over lines reads as one",
+        "line": "a shell header's first sentence is read from its comments",
+        "broken": "a header that does not parse finds nothing",
+        "project": "the project is found from its .claude/scripts",
+        "nested": "a product repo's own .claude does not hide its project",
+        "sources": "--sources lists each production source beside its reader",
+        "untagged": "--untagged names an untagged script and a reader with no 75",
+        "skip": "--skip leaves out the script that holds the pattern",
+    }
+    t = Tap()
     # A key on one side only is a check that never ran, so it fails too.
-    bad = sorted(set(got) ^ set(want)) + [k for k in want
-                                          if k in got and got[k] != want[k]]
-    for k in bad:
-        print(f"FAIL {k}: expected {want.get(k)!r} got {got.get(k)!r}")
-    print("script_find self-test: " + ("FAIL" if bad else "ok"))
-    return 1 if bad else 0
+    t.check(set(got) == set(want) == set(names),
+            "every answer computed is checked", f"{sorted(set(got) ^ set(want))}")
+    for k in want:
+        t.check(got.get(k) == want[k], names[k],
+                f"expected {want[k]!r}", f"got {got.get(k)!r}")
+    return t.end()
 
 
 # --------------------------------------------------------------------- main

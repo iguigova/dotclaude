@@ -31,23 +31,20 @@ except Exception as error:
 }
 
 self_test() {
-  local good=(
-    '<p>Reviewed.</p>'
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  well() { printf '%s' "$2" | check 2>/dev/null && tap_ok "$1" || tap_not_ok "$1"; }
+  ill() { printf '%s' "$2" | check 2>/dev/null && tap_not_ok "$1" || tap_ok "$1"; }
+  well "a paragraph is well-formed" '<p>Reviewed.</p>'
+  well "named and numeric entities are well-formed" \
     '<p>A &mdash; B&nbsp;C &lt;id&gt; &amp; &#160;</p>'
+  well "a user link is well-formed" \
     '<p><ac:link><ri:user ri:account-id="x" /></ac:link> reviewed</p>'
+  well "a macro with a rich-text body is well-formed" \
     '<ac:structured-macro ac:name="info"><ac:rich-text-body><p>x</p></ac:rich-text-body></ac:structured-macro>'
-  )
-  local bad=('<p><strong>unclosed</p>' '<p>unclosed' '<ac:link>')
-  local body
-  for body in "${good[@]}"; do
-    printf '%s' "$body" | check 2>/dev/null \
-      || { echo "self-test: valid storage refused: $body" >&2; return 1; }
-  done
-  for body in "${bad[@]}"; do
-    if printf '%s' "$body" | check 2>/dev/null; then
-      echo "self-test: malformed storage accepted: $body" >&2; return 1
-    fi
-  done
+  ill "an unclosed element inside a closed one is refused" '<p><strong>unclosed</p>'
+  ill "an unclosed paragraph is refused" '<p>unclosed'
+  ill "an unclosed macro element is refused" '<ac:link>'
   # The dispatch below is the whole CLI, and a writer that reads the wrong input
   # silently checks the wrong body.
   local self fx
@@ -55,26 +52,17 @@ self_test() {
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
   printf '<p>from a file</p>' > "$fx/ok.html"
   printf '<p>unclosed' > "$fx/bad.html"
-
-  "$self" "$fx/ok.html" 2>/dev/null \
-    || { echo "self-test: a well-formed file was refused" >&2; return 1; }
-  if "$self" "$fx/bad.html" 2>/dev/null; then
-    echo "self-test: a malformed file was accepted" >&2; return 1
-  fi
-  printf '<p>from stdin</p>' | "$self" 2>/dev/null \
-    || { echo "self-test: a well-formed body on stdin was refused" >&2; return 1; }
-  if printf '<p>unclosed' | "$self" 2>/dev/null; then
-    echo "self-test: a malformed body on stdin was accepted" >&2; return 1
-  fi
-  if "$self" "$fx/absent.html" 2>/dev/null; then
-    echo "self-test: a missing file passed as well-formed" >&2; return 1
-  fi
-
-  echo "storage-well-formed self-test: PASS"
+  runs() { "$self" "$@" 2>/dev/null; }
+  fails() { ! "$self" "$@" 2>/dev/null; }
+  tap_run "a well-formed file is accepted" runs "$fx/ok.html"
+  tap_run "a malformed file is refused" fails "$fx/bad.html"
+  tap_run "a well-formed body on stdin is accepted" runs <<<'<p>from stdin</p>'
+  tap_run "a malformed body on stdin is refused" fails <<<'<p>unclosed'
+  tap_run "a missing file is refused" fails "$fx/absent.html"
 }
 
 case "${1:-}" in
-  --self-test) self_test ;;
+  --self-test) self_test; tap_end ;;
   "") check ;;
   *) check < "$1" ;;
 esac

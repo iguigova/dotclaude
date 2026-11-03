@@ -202,14 +202,15 @@ EXPECTED_S2=$'cccc\t2026-01-01 00:00\t-\tclosed\tdone\tthird
 ffff\t2026-01-03 01:00\t-\topened, closed\tdropped — superseded\tsixth'
 
 self_test() {
-  local h rc=0 old
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local h old
   h=$(mktemp)
   printf '%s' "$FIXTURE" > "$h"
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "journal_queue.sh --self-test"
   check "oldest opened first, whole days old, capture order within an entry, closed left out" \
     "$EXPECTED" "$(list_items 0 "$h" "$NOW")"
   check "--ids lists the same open set" \
@@ -294,7 +295,6 @@ self_test() {
   check "a history with no entries yet lists nothing and succeeds" ok \
     "$(JOURNAL_HIST="$old" "$0" >/dev/null 2>&1 && echo ok || echo fail)"
   rm -f "$old" "$h"
-  return $rc
 }
 
 # ---------------------------------------------------------------- main
@@ -302,7 +302,7 @@ self_test() {
 SESSION="" ; OPENED_BY="" ; TICKET="" ; TOPIC="" ; IDS_ONLY=0 ; SHOW=0 ; CLOSED=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --self-test) self_test; exit $? ;;
+    --self-test) self_test; tap_end ;;
     --help)    sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \?//' ; exit 0 ;;
     --ids)     IDS_ONLY=1 ; shift ;;
     --show)    SHOW=1 ; shift ;;

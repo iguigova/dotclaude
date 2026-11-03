@@ -52,42 +52,39 @@ set -- "${POSITIONAL[@]}"
 
 if [[ "$SELF_TEST" -eq 1 ]]; then
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
   out=$(printf 'h3. Update\n*State.* [PR|https://x/1]\n||a||b||\n|1|2|\n' \
     | "$self" --dry-run XYZ-0)
-  sed -n 1p <<<"$out" | grep -qx 'POST /rest/api/2/issue/XYZ-0/comment' \
-    || { echo "self-test: create does not POST to the v2 comment endpoint" >&2; exit 1; }
-  sed 1d <<<"$out" | jq -e 'keys == ["body"]
-      and (.body | test("^h3. Update\n\\*State.\\* \\[PR\\|https://x/1\\]\n\\|\\|a\\|\\|b\\|\\|"))' >/dev/null \
-    || { echo "self-test: wiki markup not passed through verbatim" >&2; exit 1; }
+  tap_is "a comment is POSTed to the v2 comment endpoint" \
+    "$(sed -n 1p <<<"$out")" 'POST /rest/api/2/issue/XYZ-0/comment'
+  tap_run "wiki markup is passed through verbatim" \
+    jq -e 'keys == ["body"]
+      and (.body | test("^h3. Update\n\\*State.\\* \\[PR\\|https://x/1\\]\n\\|\\|a\\|\\|b\\|\\|"))' \
+    < <(sed 1d <<<"$out")
   out=$(printf 'fixed' | "$self" --dry-run --edit 42 XYZ-0)
-  sed -n 1p <<<"$out" | grep -qx 'PUT /rest/api/2/issue/XYZ-0/comment/42' \
-    || { echo "self-test: --edit does not PUT to the comment" >&2; exit 1; }
+  tap_is "--edit PUTs to the comment" \
+    "$(sed -n 1p <<<"$out")" 'PUT /rest/api/2/issue/XYZ-0/comment/42'
   # An empty body is refused: an edit would erase the comment it replaces.
-  if printf '' | "$self" --dry-run --edit 42 XYZ-0 >/dev/null 2>&1; then
-    echo "self-test: an empty body was accepted" >&2; exit 1
-  fi
+  tap_fails "an empty body is refused" \
+    "$self" --dry-run --edit 42 XYZ-0 < <(printf '')
   out=$(printf 'x' | "$self" XYZ-0 /dev/stdin --edit 42 --dry-run)
-  sed -n 1p <<<"$out" | grep -qx 'PUT /rest/api/2/issue/XYZ-0/comment/42' \
-    || { echo "self-test: a flag after the key is not honoured" >&2; exit 1; }
+  tap_is "a flag after the key is honoured" \
+    "$(sed -n 1p <<<"$out")" 'PUT /rest/api/2/issue/XYZ-0/comment/42'
   out=$(printf 'answer' | "$self" --dry-run --reply 42 XYZ-0)
-  sed -n 1p <<<"$out" | grep -qx 'POST /rest/api/2/issue/XYZ-0/comment' \
-    || { echo "self-test: --reply does not POST to the v2 comment endpoint" >&2; exit 1; }
-  sed 1d <<<"$out" | jq -e '. == {body: "answer", parentId: 42}' >/dev/null \
-    || { echo "self-test: --reply does not carry parentId" >&2; exit 1; }
-  if printf 'x' | "$self" --dry-run --reply 42 --edit 42 XYZ-0 >/dev/null 2>&1; then
-    echo "self-test: --reply and --edit were accepted together" >&2; exit 1
-  fi
-  if printf 'x' | "$self" --dry-run --reply abc XYZ-0 >/dev/null 2>&1; then
-    echo "self-test: a non-numeric --reply id was accepted" >&2; exit 1
-  fi
-  if printf '{{{"a":1}}}' | "$self" --dry-run XYZ-0 >/dev/null 2>&1; then
-    echo "self-test: an unescaped brace in {{…}} was accepted" >&2; exit 1
-  fi
-  if printf 'x' | "$self" --dry-run XYZ-0 /dev/stdin extra >/dev/null 2>&1; then
-    echo "self-test: a third positional argument was accepted" >&2; exit 1
-  fi
-  echo "jira-comment self-test: PASS"
-  exit 0
+  tap_is "--reply POSTs to the v2 comment endpoint" \
+    "$(sed -n 1p <<<"$out")" 'POST /rest/api/2/issue/XYZ-0/comment'
+  tap_run "--reply carries parentId" \
+    jq -e '. == {body: "answer", parentId: 42}' < <(sed 1d <<<"$out")
+  tap_fails "--reply is refused beside --edit" \
+    "$self" --dry-run --reply 42 --edit 42 XYZ-0 < <(printf 'x')
+  tap_fails "a non-numeric --reply id is refused" \
+    "$self" --dry-run --reply abc XYZ-0 < <(printf 'x')
+  tap_fails "an unescaped brace in {{…}} is refused" \
+    "$self" --dry-run XYZ-0 < <(printf '{{{"a":1}}}')
+  tap_fails "a third positional argument is refused" \
+    "$self" --dry-run XYZ-0 /dev/stdin extra < <(printf 'x')
+  tap_end
 fi
 
 if [[ $# -lt 1 ]]; then

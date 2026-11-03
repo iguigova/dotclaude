@@ -61,6 +61,8 @@ import tempfile
 import threading
 import urllib.request
 
+from tap import Tap
+
 HUB = "iguigova.github.io"
 SITE = "https://iguigova.github.io/brand.css"
 TEXT = {"--ink", "--muted", "--link", "--good"}
@@ -454,12 +456,10 @@ def run(root, offline, rev):
 
 
 def self_test():
-    st = 0
+    t = Tap()
 
     def expect(cond, msg):
-        nonlocal st
-        print(f"  {'ok  ' if cond else 'FAIL'} {msg}")
-        st |= not cond
+        t.check(bool(cond), msg)
 
     good = (":root {\n  --bg: light-dark(#ffffff, #0a0a0a);"
             " --ink: light-dark(#666666, #f2f2f2); --title: #cc6633;\n"
@@ -596,8 +596,7 @@ def self_test():
         finally:
             shutil.rmtree(dest)
             shutil.rmtree(snap, ignore_errors=True)
-    print(f"brand_check self-test: {'FAIL' if st else 'PASS'}")
-    return st
+    return t.end()
 
 
 def main():

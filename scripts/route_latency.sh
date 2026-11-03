@@ -96,7 +96,9 @@ probe() {  # <runs> <url>...
 }
 
 self_test() {
-  local dir port pid out rc=0
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local dir port pid out
   dir=$(mktemp -d)
   head -c 5000 /dev/zero >"$dir/a"
   port=$(python3 -c 'import socket; s = socket.socket(); s.bind(("", 0));
@@ -118,17 +120,12 @@ print(s.getsockname()[1])')
   median=$(printf '%s\n' $'1\t200\t0\t0\t0\t-\tu' $'2\t200\t10\t1\t0\t-\tu' \
     $'3\t200\t21\t2\t0\t-\tu' | summarise | cut -f4)
   probe 1 "http://127.0.0.1:1/x" >/dev/null || refused=1
-  check() {  # <label> <command>...
-    if "${@:2}" >/dev/null; then echo "  ok  $1"
-    else echo "  FAIL $1"; rc=1; fi
-  }
-  check "six call rows, run 1..3" [ "$calls" = 6 ]
-  check "status, bytes and encoding per call" [ "$first_a" = 1 ]
-  check "a missing route reports its status, not an error" [ "$last_b" = 1 ]
-  check "one summary per url, in url order" [ "$order" = ab ]
-  check "the median of an even list rounds the midpoint" [ "$median" = 16 ]
-  check "a refused connection exits 1" [ "$refused" = 1 ]
-  return "$rc"
+  tap_run "six call rows, run 1..3" [ "$calls" = 6 ]
+  tap_run "status, bytes and encoding per call" [ "$first_a" = 1 ]
+  tap_run "a missing route reports its status, not an error" [ "$last_b" = 1 ]
+  tap_run "one summary per url, in url order" [ "$order" = ab ]
+  tap_run "the median of an even list rounds the midpoint" [ "$median" = 16 ]
+  tap_run "a refused connection exits 1" [ "$refused" = 1 ]
 }
 
 main() {
@@ -138,7 +135,7 @@ main() {
       -h|--help)
         awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"
         exit 0 ;;
-      --self-test) self_test; exit ;;
+      --self-test) self_test; tap_end ;;
       --runs) runs="${2:?--runs needs a number}"; shift 2 ;;
       -*) echo "route_latency: unknown flag $1" >&2; exit 2 ;;
       *) break ;;

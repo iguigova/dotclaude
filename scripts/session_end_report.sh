@@ -84,14 +84,15 @@ section() {  # TITLE BODY — a titled block, or nothing when BODY is empty
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local rc=0 tmp out run hist ids long_note
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp out run hist ids long_note
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$3" == "$2" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$3" == "$2" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
   jw() { JOURNAL_HIST="$hist" CLAUDE_CODE_SESSION_ID="$1" "$SCRIPTS_DIR/journal.sh" "${@:2}"; }
-  echo "session_end_report.sh --self-test"
 
   DIR="$tmp/proj"; mkdir -p "$DIR/.claude"; hist="$DIR/.claude/session_history.md"
   : > "$hist"
@@ -168,10 +169,9 @@ self_test() {
     "$("$0" --session s --rc 0 --open a --after 0 >/dev/null 2>&1; echo $?)"
   check "an unknown argument is refused" "2" \
     "$("$0" --session s --rc 0 --open a --after 0 --dir "$run" --nope >/dev/null 2>&1; echo $?)"
-  return $rc
 }
 
-[[ "${1:-}" == --self-test ]] && { self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { self_test; tap_end; }
 
 # ---------------------------------------------------------------- main
 

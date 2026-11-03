@@ -30,25 +30,21 @@ if [ "${1:-}" = --self-test ]; then
     bash "$0" 'XYZ-9999 PR "quoted"' >/dev/null
   CLAUDE_CODE_SESSION_ID=test-sid SESSION_RENAME_TRANSCRIPT="$rt" \
     bash "$0" 'XYZ-9999 PR' >/dev/null
-  got=$(grep '"type":"custom-title"' "$rt" | jq -r '.customTitle + "|" + .sessionId' | paste -sd'/')
-  CLAUDE_CODE_SESSION_ID='' SESSION_RENAME_TRANSCRIPT="$rt" bash "$0" x >/dev/null 2>&1 \
-    && nosid=written || nosid=refused
+  # shellcheck source=tap.sh
+  . "$(dirname "$0")/tap.sh"
+  titles() { grep '"type":"custom-title"' "$rt" | jq -r "$1"; }
+  tap_is "each rename appends one record, with its session" \
+    "$(titles .sessionId | paste -sd' ')" "test-sid test-sid"
+  tap_is "quotes in a title survive" "$(titles .customTitle | head -1)" 'XYZ-9999 PR "quoted"'
+  tap_is "the last record is the newest title" "$(titles .customTitle | tail -1)" 'XYZ-9999 PR'
+  rename() { CLAUDE_CODE_SESSION_ID="$1" SESSION_RENAME_TRANSCRIPT="$rt" bash "$0" "$2"; }
+  tap_fails "a call outside a session is refused" rename '' x
   before=$(wc -l < "$rt")
-  CLAUDE_CODE_SESSION_ID=test-sid SESSION_RENAME_TRANSCRIPT="$rt" \
-    bash "$0" --help >/dev/null
-  CLAUDE_CODE_SESSION_ID=test-sid SESSION_RENAME_TRANSCRIPT="$rt" \
-    bash "$0" --hepl >/dev/null 2>&1 && flag=written || flag=refused
-  [ "$(wc -l < "$rt")" = "$before" ] || flag=written
-  want='XYZ-9999 PR "quoted"|test-sid/XYZ-9999 PR|test-sid'
-  if [ "$got" = "$want" ] && [ "$nosid" = refused ] && [ "$flag" = refused ]; then
-    echo "session_rename self-test: PASS (each rename appends one record, the" \
-      "last is the newest, quotes survive, a call outside a session and a" \
-      "flag-shaped title are refused, --help writes nothing)"
-    exit 0
-  fi
-  echo "session_rename self-test: FAIL (want [$want] got [$got];" \
-    "no session id: $nosid; flag: $flag)" >&2
-  exit 1
+  rename test-sid --help >/dev/null
+  tap_is "--help writes nothing" "$(wc -l < "$rt")" "$before"
+  tap_fails "a flag-shaped title is refused" rename test-sid --hepl
+  tap_is "and writes nothing" "$(wc -l < "$rt")" "$before"
+  tap_end
 fi
 
 case "${1:-}" in

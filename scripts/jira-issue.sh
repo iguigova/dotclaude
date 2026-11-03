@@ -171,22 +171,22 @@ if [[ "${1:-}" == "--self-test" ]]; then
   got_paged=$(read_comments x | jq -r '.comments | map(.id) | join(",")')
   flag_rc=0; "$0" --bogus >/dev/null 2>&1 </dev/null || flag_rc=$?
   usage=$(timeout 10 "$0" 2>&1 </dev/null || true)
-  if [[ "$got" == "$want" && "$got_bare" == "$want_bare" && "$got_big" == 200000 \
-        && "$got_paged" == 0,1,2 \
-        && "$flag_rc" == 1 ]] \
-    && grep -q '<issue-key>' <<<"$usage"; then
-    echo "jira-issue self-test: PASS (flat keys, status category, absent" \
-      "fields are null or empty, description, comments with parentId," \
-      "comments read across pages, both link" \
-      "directions, last 5 worklogs, an issue over 128 KiB, a non-key is" \
-      "refused offline)"
-    exit 0
-  fi
-  echo "jira-issue self-test: FAIL (want [$want] got [$got];" \
-    "want [$want_bare] got [$got_bare]; want [200000] got [$got_big];" \
-    "want [0,1,2] got [$got_paged];" \
-    "--bogus exit $flag_rc)" >&2
-  exit 1
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  names=("the summary is a flat key" "an absent estimate is null"
+         "the last 5 worklogs are kept" "the worklogs kept are the latest"
+         "an empty timetracking stays an object" "the status category is kept"
+         "the description is kept" "a comment keeps its body"
+         "a reply keeps its parentId" "links read in both directions")
+  IFS='|' read -ra g <<<"$got"; IFS='|' read -ra w <<<"$want"
+  for i in "${!names[@]}"; do tap_is "${names[$i]}" "${g[$i]:-}" "${w[$i]}"; done
+  tap_is "an issue with no description, comments or links reads null or empty" \
+    "$got_bare" "$want_bare"
+  tap_is "a description over 128 KiB is kept whole" "$got_big" 200000
+  tap_is "comments are read across pages" "$got_paged" 0,1,2
+  tap_is "an unknown flag is refused offline" "$flag_rc" 1
+  tap_run "a call with no key prints the usage" grep -q '<issue-key>' <<<"$usage"
+  tap_end
 fi
 
 [[ $# -eq 1 && "$1" =~ $KEY_PATTERN ]] || usage

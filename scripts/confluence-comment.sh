@@ -57,43 +57,33 @@ edit_payload() {
 
 self_test() {
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "$0")"
-  [[ "$(page_id "https://example.invalid/wiki/spaces/PA/pages/42/Title")" == 42 ]] \
-    || { echo "self-test: page id not taken from URL" >&2; exit 1; }
-  if page_id "not-a-page" >/dev/null 2>&1; then
-    echo "self-test: a non-page reference was accepted" >&2; exit 1
-  fi
-  printf '<p>a&nbsp;<strong>b</strong></p>' | well_formed \
-    || { echo "self-test: well-formed storage refused" >&2; exit 1; }
-  if printf '<p>unclosed' | well_formed; then
-    echo "self-test: malformed storage accepted" >&2; exit 1
-  fi
-  printf '<p><ac:link><ri:user ri:account-id="x" /></ac:link> &mdash;</p>' \
-    | well_formed \
-    || { echo "self-test: a mention or named entity was refused" >&2; exit 1; }
-  payload 42 '<p>x</p>' | jq -e '.container.id == "42"
-    and .body.storage.representation == "storage"' >/dev/null \
-    || { echo "self-test: payload shape wrong" >&2; exit 1; }
-  payload 42 '<p>x</p>' | jq -e 'has("ancestors") | not' >/dev/null \
-    || { echo "self-test: a top-level comment carries a parent" >&2; exit 1; }
-  payload 42 '<p>x</p>' 7 | jq -e '.ancestors == [{id:"7"}]' >/dev/null \
-    || { echo "self-test: reply parent missing" >&2; exit 1; }
-  if printf '<p>x</p>' | "$self" --dry-run --reply-to x 42 \
-    >/dev/null 2>&1; then
-    echo "self-test: a non-numeric parent was accepted" >&2; exit 1
-  fi
-  edit_payload '<p>x</p>' 3 | jq -e '.version.number == 4
-    and .type == "comment" and (has("container") | not)' >/dev/null \
-    || { echo "self-test: edit payload does not send the next version" >&2; exit 1; }
-  if printf '<p>x</p>' | "$self" --dry-run --edit x >/dev/null 2>&1; then
-    echo "self-test: a non-numeric comment id was accepted for --edit" >&2; exit 1
-  fi
-  if printf '<p>x</p>' | "$self" --dry-run --edit 7 --reply-to 8 42 >/dev/null 2>&1; then
-    echo "self-test: --edit was combined with --reply-to" >&2; exit 1
-  fi
-  if printf '' | "$self" --dry-run 42 >/dev/null 2>&1; then
-    echo "self-test: an empty comment was accepted" >&2; exit 1
-  fi
-  echo "confluence-comment self-test: PASS"
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
+  tap_is "the page id is taken from a URL" \
+    "$(page_id "https://example.invalid/wiki/spaces/PA/pages/42/Title")" 42
+  tap_fails "a non-page reference is refused" page_id "not-a-page"
+  tap_run "well-formed storage is accepted" \
+    well_formed < <(printf '<p>a&nbsp;<strong>b</strong></p>')
+  tap_fails "malformed storage is refused" well_formed < <(printf '<p>unclosed')
+  tap_run "a mention and a named entity are accepted" well_formed \
+    < <(printf '<p><ac:link><ri:user ri:account-id="x" /></ac:link> &mdash;</p>')
+  tap_run "the payload names the page and the storage representation" \
+    jq -e '.container.id == "42" and .body.storage.representation == "storage"' \
+    < <(payload 42 '<p>x</p>')
+  tap_run "a top-level comment carries no parent" \
+    jq -e 'has("ancestors") | not' < <(payload 42 '<p>x</p>')
+  tap_run "a reply carries its parent" \
+    jq -e '.ancestors == [{id:"7"}]' < <(payload 42 '<p>x</p>' 7)
+  tap_fails "a non-numeric parent is refused" \
+    "$self" --dry-run --reply-to x 42 < <(printf '<p>x</p>')
+  tap_run "an edit sends the next version, as a comment, with no container" \
+    jq -e '.version.number == 4 and .type == "comment" and (has("container") | not)' \
+    < <(edit_payload '<p>x</p>' 3)
+  tap_fails "a non-numeric comment id is refused for --edit" \
+    "$self" --dry-run --edit x < <(printf '<p>x</p>')
+  tap_fails "--edit is refused beside --reply-to" \
+    "$self" --dry-run --edit 7 --reply-to 8 42 < <(printf '<p>x</p>')
+  tap_fails "an empty comment is refused" "$self" --dry-run 42 < <(printf '')
 }
 
 DRY_RUN=0
@@ -104,7 +94,7 @@ while [[ "${1:-}" == --* ]]; do
     --dry-run) DRY_RUN=1; shift ;;
     --reply-to) PARENT="${2:-}"; shift 2 ;;
     --edit) EDIT="${2:-}"; shift 2 ;;
-    --self-test) self_test; exit 0 ;;
+    --self-test) self_test; tap_end ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done

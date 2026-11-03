@@ -80,21 +80,20 @@ GATE_JQ='
 }'
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
-  check() {  # <label> <meta-json> <want>
-    local got; got=$(jq -r "$TICKET_JQ" <<<"$2")
-    [[ "$got" == "$3" ]] || fails+=("$1: ticket '$got', want '$3'")
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  check() {  # <name> <meta-json> <want>
+    tap_is "$1" "$(jq -r "$TICKET_JQ" <<<"$2")" "$3"
   }
-  check "title" '{"title":"XYZ-1234 fix the thing","headRefName":"feature/x"}' "XYZ-1234"
-  check "branch" '{"title":"Fix the thing","headRefName":"ABC-7213-scan-button"}' "ABC-7213"
-  check "title wins" '{"title":"XYZ-1 a","headRefName":"ABC-2-b"}' "XYZ-1"
-  check "neither" '{"title":"Bump deps","headRefName":"chore/bump"}' ""
-  check "null branch" '{"title":"XYZ-9 x","headRefName":null}' "XYZ-9"
+  check "a key in the title is the ticket" '{"title":"XYZ-1234 fix the thing","headRefName":"feature/x"}' "XYZ-1234"
+  check "a key in the branch is the ticket" '{"title":"Fix the thing","headRefName":"ABC-7213-scan-button"}' "ABC-7213"
+  check "the title's key wins over the branch's" '{"title":"XYZ-1 a","headRefName":"ABC-2-b"}' "XYZ-1"
+  check "no key in either is no ticket" '{"title":"Bump deps","headRefName":"chore/bump"}' ""
+  check "a null branch still reads the title" '{"title":"XYZ-9 x","headRefName":null}' "XYZ-9"
   check "lowercase is not a key" '{"title":"xyz-1234 x","headRefName":"x"}' ""
 
   gate() {  # <label> <meta-json> <jq-filter-over-gate> <want>
-    local got; got=$(jq -c "$GATE_JQ | ($3)" <<<"$2")
-    [[ "$got" == "$4" ]] || fails+=("gate/$1: got $got, want $4")
+    tap_is "$1" "$(jq -c "$GATE_JQ | ($3)" <<<"$2")" "$4"
   }
   # A CheckRun and a StatusContext in one rollup: both shapes must be counted.
   MIXED='{"statusCheckRollup":[
@@ -106,46 +105,42 @@ if [[ "${1:-}" == "--self-test" ]]; then
     {"__typename":"StatusContext","context":"ci/legacy","state":"FAILURE","targetUrl":"https://ci/legacy/1"},
     {"__typename":"StatusContext","context":"ci/waiting","state":"PENDING"},
     {"__typename":"StatusContext","context":"ci/ok","state":"SUCCESS"}]}'
-  gate "counts both shapes"  "$MIXED" '.checks.total'   '8'
-  gate "failed both shapes"  "$MIXED" '[.checks.failed[].name]'  '["test (2)","ci/legacy"]'
-  gate "pending both shapes" "$MIXED" '[.checks.pending[].name]' '["lint","unstarted","ci/waiting"]'
+  gate "the gate counts checks of both shapes"  "$MIXED" '.checks.total'   '8'
+  gate "the gate lists failures of both shapes"  "$MIXED" '[.checks.failed[].name]'  '["test (2)","ci/legacy"]'
+  gate "the gate lists pending checks of both shapes" "$MIXED" '[.checks.pending[].name]' '["lint","unstarted","ci/waiting"]'
   # Each shape names its link differently; both must reach the entry, and a
   # check that has none carries null rather than dropping the key.
-  gate "failed links both shapes" "$MIXED" '[.checks.failed[].url]' '["https://gh/runs/7/job/8","https://ci/legacy/1"]'
-  gate "no link is null" "$MIXED" '.checks.pending[0]' '{"name":"lint","url":null}'
+  gate "a failure of either shape carries its link" "$MIXED" '[.checks.failed[].url]' '["https://gh/runs/7/job/8","https://ci/legacy/1"]'
+  gate "a check with no link carries null" "$MIXED" '.checks.pending[0]' '{"name":"lint","url":null}'
   # SKIPPED and NEUTRAL block nothing, so they belong in neither bucket.
-  gate "skipped is not failed"  "$MIXED" '[.checks.failed[].name] | index("skipme")'  'null'
-  gate "skipped is not pending" "$MIXED" '[.checks.pending[].name] | index("skipme")' 'null'
+  gate "a skipped check is not failed"  "$MIXED" '[.checks.failed[].name] | index("skipme")'  'null'
+  gate "a skipped check is not pending" "$MIXED" '[.checks.pending[].name] | index("skipme")' 'null'
   # A PR with no checks at all must fold to zero, not to null or an error.
-  gate "no rollup" '{"mergeable":"MERGEABLE"}' '.checks' '{"total":0,"failed":[],"pending":[]}'
+  gate "no rollup folds to zero checks" '{"mergeable":"MERGEABLE"}' '.checks' '{"total":0,"failed":[],"pending":[]}'
   gate "no rollup keeps mergeable" '{"mergeable":"MERGEABLE"}' '.mergeable' '"MERGEABLE"'
-  gate "absent decision is empty" '{}' '.review_decision' '""'
+  gate "an absent review decision is empty" '{}' '.review_decision' '""'
 
   # headRefOid must be requested, or the index has no commit to pin to.
-  grep -q 'headRefOid' "${BASH_SOURCE[0]}" || fails+=("headRefOid is not in the --json field list")
+  tap_run "headRefOid is in the --json field list" grep -q 'headRefOid' "${BASH_SOURCE[0]}"
   # The gate is only as good as the fields behind it.
   for f in statusCheckRollup mergeable mergeStateStatus reviewDecision; do
-    grep -q -- "$f" "${BASH_SOURCE[0]}" || fails+=("$f is not in the --json field list")
+    tap_run "$f is in the --json field list" grep -q -- "$f" "${BASH_SOURCE[0]}"
   done
   # A review without its commit cannot be told apart from one written against
   # the current head, which is the whole basis of the re-review path.
-  grep -q 'commit: .commit.oid' "${BASH_SOURCE[0]}" || fails+=("reviews[] drops .commit.oid")
-  grep -q 'submitted_at: .submittedAt' "${BASH_SOURCE[0]}" || fails+=("reviews[] drops .submittedAt")
-  grep -q 'in_reply_to' "${BASH_SOURCE[0]}" || fails+=("review_comments[] drops in_reply_to_id")
+  tap_run "reviews[] keeps .commit.oid" grep -q 'commit: .commit.oid' "${BASH_SOURCE[0]}"
+  tap_run "reviews[] keeps .submittedAt" grep -q 'submitted_at: .submittedAt' "${BASH_SOURCE[0]}"
+  tap_run "review_comments[] keeps in_reply_to_id" grep -q 'in_reply_to' "${BASH_SOURCE[0]}"
   # Structural, because the failure needs a network call to reproduce: a bare
   # `wait` returns 0 whatever the children did, so each job must be waited on
   # by pid or a 404 PR yields a clean exit and a null blob.
-  grep -qE '^\s*wait\s*$' "${BASH_SOURCE[0]}" && fails+=("a bare 'wait' is back — gh failures would exit 0")
+  tap_fails "no bare 'wait' hides a gh failure" grep -qE '^\s*wait\s*$' "${BASH_SOURCE[0]}"
   for v in META_PID DIFF_PID REVIEWS_PID COMMENTS_PID; do
-    grep -q "wait \"\$$v\"" "${BASH_SOURCE[0]}" || fails+=("$v is never waited on by pid")
+    tap_run "$v is waited on by pid" grep -q "wait \"\$$v\"" "${BASH_SOURCE[0]}"
   done
   # The ref forms are gh_pr_ref.py's to define; this only checks delegation.
-  "$HERE/gh_pr_ref.py" --self-test >/dev/null 2>&1 || fails+=("gh_pr_ref.py self-test fails")
-  if ((${#fails[@]})); then
-    printf 'gh-pr-fetch self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-fetch self-test: PASS (ticket rule over 6 cases, merge gate and check links over both rollup shapes, review state fields present)"
-  exit 0
+  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_end
 fi
 
 if [[ $# -lt 1 ]]; then

@@ -57,26 +57,24 @@ STUB
   left=$(cd "$fx/out" && ls | paste -sd' ')
   unset STUB_PAGE
   want_body=' < p > a & a m p ; b < / p > \n < p > c < / p >'
-  if [[ "$by_id" == "$base/2415788040?expand=body.storage,version,space,ancestors" \
-        && "$by_url" == "$by_id" && "$expand" == "$base/7?expand=body.storage" \
-        && "$word_rc" == 1 && "$arg_rc" == 1 \
-        && "$to_out" == "$fx/out/7.storage.html" && "$to_body" == "$want_body" \
-        && "$to_ver" == 12 && "$to_asked" == "$base/7?expand=body.storage,version" \
-        && "$both_rc" == 1 && "$nover_rc" == 1 && "$nobody_rc" == 1 \
-        && "$left" == "7.storage.html 7.version" ]]; then
-    echo "confluence-page self-test: PASS (an id and a page URL ask the same" \
-      "page, default and given --expand, a reference with no id and an" \
-      "unknown argument are refused; --to writes the body verbatim beside its" \
-      "version and prints its path, refuses --expand, and writes nothing for a" \
-      "response missing the version or the body)"
-    exit 0
-  fi
-  echo "confluence-page self-test: FAIL (id [$by_id] url [$by_url]" \
-    "expand [$expand]; no id exit $word_rc; unknown arg exit $arg_rc;" \
-    "--to printed [$to_out] body [$to_body] version [$to_ver] asked [$to_asked];" \
-    "--to with --expand exit $both_rc; no version exit $nover_rc;" \
-    "no body exit $nobody_rc; files [$left])" >&2
-  exit 1
+  # shellcheck source=tap.sh
+  . "$(dirname "$0")/tap.sh"
+  tap_is "an id asks for the page with its default expansion" \
+    "$by_id" "$base/2415788040?expand=body.storage,version,space,ancestors"
+  tap_is "a page URL asks for the same page as its id" "$by_url" "$by_id"
+  tap_is "a given --expand replaces the default" "$expand" "$base/7?expand=body.storage"
+  tap_is "a reference with no id is refused" "$word_rc" 1
+  tap_is "an unknown argument is refused" "$arg_rc" 1
+  tap_is "--to prints the path of the body it wrote" "$to_out" "$fx/out/7.storage.html"
+  tap_is "--to writes the body verbatim" "$to_body" "$want_body"
+  tap_is "--to writes the version beside the body" "$to_ver" 12
+  tap_is "--to asks for the body and the version" \
+    "$to_asked" "$base/7?expand=body.storage,version"
+  tap_is "--to refuses --expand" "$both_rc" 1
+  tap_is "a response with no version is refused" "$nover_rc" 1
+  tap_is "a response with no body is refused" "$nobody_rc" 1
+  tap_is "a refused response writes nothing" "$left" "7.storage.html 7.version"
+  tap_end
 fi
 
 if [[ $# -lt 1 ]]; then

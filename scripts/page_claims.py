@@ -45,6 +45,8 @@ from dataclasses import dataclass
 from html.parser import HTMLParser
 from pathlib import Path
 
+from tap import Tap
+
 HOME = Path.home()
 TOOLING = HOME / ".claude"
 QUEUE = TOOLING / "scripts" / "journal_queue.sh"
@@ -225,12 +227,12 @@ def count(page: Path) -> int:
 
 
 def self_test() -> int:
-    fails = []
+    t = Tap()
+    expect = t.check
 
-    def expect(cond: bool, msg: str):
-        print(f"  {'ok  ' if cond else 'FAIL'} {msg}")
-        if not cond:
-            fails.append(msg)
+    def checked(page: Path, root: Path) -> int:
+        with contextlib.redirect_stdout(io.StringIO()):
+            return check(page, root)
 
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
@@ -249,7 +251,7 @@ def self_test() -> int:
             judge(root, found[0].parts[0]) == Verdict(0, 2),
             "the words found give 0 and their line",
         )
-        expect(check(page, root) == 0, "a page whose claims hold exits 0")
+        expect(checked(page, root) == 0, "a page whose claims hold exits 0")
         tested = '<p data-check="a.sh" data-says="one" data-test="a.sh" data-proves='
         case = claims(tested + '"a red case">')
         expect(
@@ -269,24 +271,24 @@ def self_test() -> int:
             "a tested claim counts once, and the tally says it is tested",
         )
         page.write_text(tested + '"no such case">')
-        expect(check(page, root) == 1, "a self-test case the file lacks fails")
+        expect(checked(page, root) == 1, "a self-test case the file lacks fails")
         page.write_text(holds + '<p data-check="a.sh" data-says="pushes">')
-        expect(check(page, root) == 0, "a phrase on a line holds")
+        expect(checked(page, root) == 0, "a phrase on a line holds")
         page.write_text(holds + '<p data-check="a.sh" data-says="one\n# it">')
-        expect(check(page, root) == 1, "words across two lines do not hold")
+        expect(checked(page, root) == 1, "words across two lines do not hold")
         (root / ".hidden").mkdir()
         (root / ".hidden" / "w.yml").write_text("run: it\n")
         page.write_text(holds + '<p data-check=".hidden/w.yml" data-says="run">')
-        expect(check(page, root) == 1, "a path Pages does not serve fails")
+        expect(checked(page, root) == 1, "a path Pages does not serve fails")
         page.write_text(holds + '<p data-check="gone.sh" data-says="x">')
-        expect(check(page, root) == 75, "an unreadable file exits 75")
+        expect(checked(page, root) == 75, "an unreadable file exits 75")
         page.write_text(
             '<p data-check="gone.sh" data-says="x">'
             '<p data-check="a.sh" data-says="always">'
         )
-        expect(check(page, root) == 1, "a contradiction outranks no answer")
+        expect(checked(page, root) == 1, "a contradiction outranks no answer")
         page.write_text("<p>no claims</p>")
-        expect(check(page, root) == 1, "a page with no claims fails")
+        expect(checked(page, root) == 1, "a page with no claims fails")
 
         day = datetime.date(2026, 11, 2)
         html = (
@@ -319,8 +321,7 @@ def self_test() -> int:
             "a session's history is the nearest one above its cwd",
         )
 
-    print("FAIL" if fails else "all passed")
-    return 1 if fails else 0
+    return t.end()
 
 
 def main() -> int:

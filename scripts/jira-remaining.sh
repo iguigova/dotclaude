@@ -146,10 +146,11 @@ HELPER_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SO
 # The decision is the contract, so the test drives `decide` over fixtures: no
 # network, and every state that omits the argument is named here.
 self_test() {
-  local rc=0
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
   arg() {  # ISSUE_JSON EFFORT [HPD] [DPW] — the argument alone
     local row; row=$(decide "$1" "$2" "${3:-8}" "${4:-5}") || return 2
@@ -167,7 +168,6 @@ self_test() {
   local done='{"status":"Done","statusCategory":"done","timeOriginalEstimate":"8h","timeRemainingEstimate":"2h","timeSpent":"6h"}'
   local junk='{"status":"In Progress","statusCategory":"indeterminate","timeOriginalEstimate":"8h","timeRemainingEstimate":"about a day","timeSpent":"4h"}'
 
-  echo "jira-remaining.sh --self-test"
   check "a ticket with no estimate omits the argument" "" "$(arg "$none" 2h)"
   check "remaining already 0h on an open ticket omits it" "" "$(arg "$spent" 1h)"
   check "and says the burndown is spent, with the overrun" \
@@ -221,12 +221,11 @@ self_test() {
   printf '{"timeTrackingConfiguration":{}}' > "$JR_CONFIG"
   check "a configuration with no working day is refused, not assumed" 1 \
     "$("$self" ABC-1 2h >/dev/null 2>&1; echo $?)"
-  return $rc
 }
 
 # ---------------------------------------------------------------- main
 
-[[ "${1:-}" == "--self-test" ]] && { self_test; exit $?; }
+[[ "${1:-}" == "--self-test" ]] && { self_test; tap_end; }
 
 [[ $# -eq 2 ]] || { echo "Usage: $0 <issue-key> <effort>" >&2 ; exit 1 ; }
 

@@ -23,7 +23,9 @@
 #     allowlist, because it names exactly what must not be published.
 #   - a token shape: GitHub, Slack, AWS, Google OAuth, Anthropic keys, or a
 #     private key block. AWS's documented example key is a fixture and passes.
-#   - an email address outside the example domains and the commit trailer's.
+#   - an email address outside the example domains, the top-level domains
+#     reserved for examples (.example, .invalid, .test, .localhost) and the
+#     commit trailer's.
 #   - a binary file, which the checks above read as text and cannot see into.
 # A hit is reported as path:line and its reason, never the line, since the hit
 # may be the secret itself. Every claim index.html makes must then hold against
@@ -42,7 +44,7 @@ CLAIMS="$(dirname "${BASH_SOURCE[0]}")/page_claims.py"
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
-EMAIL_OK='@(example\.(com|org|net|invalid)|test\.com)$|^git@github\.com$|^noreply@anthropic\.com$'
+EMAIL_OK='@(example\.(com|org|net)|test\.com|([A-Za-z0-9-]+\.)*(example|invalid|test|localhost))$|^git@github\.com$|^noreply@anthropic\.com$'
 
 die()   { echo "dotclaude_export.sh: $*" >&2; exit 1; }
 usage() { echo "usage: dotclaude_export.sh [-m <message>] <target-clone>" >&2; exit 2; }
@@ -135,11 +137,13 @@ export_to() {  # <src> <target> <message>
 }
 
 self_test() {
-  local st=0 out head f
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local out head f
   FX=$(mktemp -d); trap 'rm -rf "$FX"' EXIT
   local fx=$FX
-  fail() { echo "  FAIL $*" >&2; st=1; }
-  ok()   { echo "  ok   $*"; }
+  fail() { tap_not_ok "$@"; }
+  ok()   { tap_ok "$1"; }
   g() { git -C "$1" -c user.name=t -c user.email=t@example.com "${@:2}"; }
 
   mkdir -p "$fx/src/scripts" "$fx/src/skills/a" "$fx/src/commands" "$fx/src/projects"
@@ -161,66 +165,64 @@ self_test() {
   run() { (export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
            export_to "$fx/src" "$fx/dst" "$1") 2>&1; }
 
-  out=$(run "first export") || fail "a clean export refused: $out"
-  [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && ok "the allowlist is copied" || fail "allowlist missing"
-  [[ ! -e "$fx/dst/projects" && ! -e "$fx/dst/dotclaude_denylist.txt" ]] && ok "paths off the allowlist stay behind" || fail "an unlisted path was exported"
-  [[ -f "$fx/dst/README.md" && ! -e "$fx/dst/old.md" ]] && ok "README is kept and a stale file is removed" || fail "keep/remove wrong"
+  out=$(run "first export") && ok "a clean export succeeds" || fail "a clean export succeeds" "$out"
+  [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && ok "the allowlist is copied" || fail "the allowlist is copied" "allowlist missing"
+  [[ ! -e "$fx/dst/projects" && ! -e "$fx/dst/dotclaude_denylist.txt" ]] && ok "paths off the allowlist stay behind" || fail "paths off the allowlist stay behind" "an unlisted path was exported"
+  [[ -f "$fx/dst/README.md" && ! -e "$fx/dst/old.md" ]] && ok "README is kept and a stale file is removed" || fail "README is kept and a stale file is removed" "keep/remove wrong"
   [[ -f "$fx/dst/.claude/session_history.md" && -z "$(git -C "$fx/dst" ls-files .claude)" ]] \
-    && ok "the clone's ignored .claude is kept and not committed" || fail ".claude removed or committed"
+    && ok "the clone's ignored .claude is kept and not committed" || fail "the clone's ignored .claude is kept and not committed" ".claude removed or committed"
   [[ -z "$(git -C "$fx/dst" ls-files scripts/__pycache__)" && -z "$(git -C "$fx/dst" status --porcelain)" ]] \
-    && ok "what the selftest leaves behind is neither committed nor left" || fail "selftest leftovers reached the target"
-  g "$fx/dst" log -1 --format=%B | grep -q "Source commit: $(git -C "$fx/src" rev-parse --short HEAD)" && ok "the commit names the source commit" || fail "no source commit in message"
+    && ok "what the selftest leaves behind is neither committed nor left" || fail "what the selftest leaves behind is neither committed nor left" "selftest leftovers reached the target"
+  g "$fx/dst" log -1 --format=%B | grep -q "Source commit: $(git -C "$fx/src" rev-parse --short HEAD)" && ok "the commit names the source commit" || fail "the commit names the source commit" "no source commit in message"
 
-  out=$(run "again"); [[ "$out" == nothing\ to\ commit* ]] && ok "a second export with no change commits nothing" || fail "rerun: $out"
+  out=$(run "again"); [[ "$out" == nothing\ to\ commit* ]] && ok "a second export with no change commits nothing" || fail "a second export with no change commits nothing" "rerun: $out"
 
   head=$(git -C "$fx/dst" rev-parse HEAD)
   expect_refusal() {  # <file> <content> <reason> <case, as it prints>
     mkdir -p "$(dirname "$fx/src/$1")"; echo "$2" > "$fx/src/$1"; g "$fx/src" add -A; g "$fx/src" commit -qm "$4"
-    out=$(run "$4") && fail "$4: it exported" || { grep -q "$3" <<<"$out" && ok "$4" || fail "$4: $out"; }
-    [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" && -z "$(git -C "$fx/dst" status --porcelain)" ]] || fail "$4: target not restored"
+    out=$(run "$4") && fail "$4" "$4: it exported" || { grep -q "$3" <<<"$out" && ok "$4" || fail "$4" "$4: $out"; }
+    [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" && -z "$(git -C "$fx/dst" status --porcelain)" ]] \
+      && ok "$4, and the target is left as it was" || fail "$4, and the target is left as it was"
     g "$fx/src" rm -q "$1"; g "$fx/src" commit -qm "undo $4"
   }
   expect_refusal scripts/a.sh "works at Secret-Co" "scripts/a.sh:1 \[denylist\]" "a denylist name is refused"
-  grep -q "Secret-Co" <<<"$out" && fail "the denylist hit's line was printed" || ok "a denylist hit prints its place, not its line"
+  grep -q "Secret-Co" <<<"$out" && fail "a denylist hit prints its place, not its line" || ok "a denylist hit prints its place, not its line"
   expect_refusal "skills/review:bot/x.md" $'one\nsecret-co' "skills/review:bot/x.md:2 \[denylist\]" "a hit in a path with a colon is refused"
   tok="ghp_$(printf 'a%.0s' {1..36})"
   expect_refusal scripts/b.sh "t=$tok" "scripts/b.sh:1 \[token shape\]" "a GitHub token is refused"
-  grep -q "$tok" <<<"$out" && fail "the token was printed" || ok "a token hit never prints the token"
+  grep -q "$tok" <<<"$out" && fail "a token hit never prints the token" || ok "a token hit never prints the token"
   expect_refusal scripts/c.sh "mail me@realmail$(printf .)org" "scripts/c.sh:1 \[email\]" "a real email is refused"
-  grep -q "realmail" <<<"$out" && fail "the email was printed" || ok "an email hit never prints the address"
-  echo "fixtures use alice@example.com and AKIAIOSFODNN7EXAMPLE" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
+  grep -q "realmail" <<<"$out" && fail "an email hit never prints the address" || ok "an email hit never prints the address"
+  echo "fixtures use alice@example.com, ssh://git@gh.example and AKIAIOSFODNN7EXAMPLE" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
   printf 'a\0b' > "$fx/src/scripts/e.bin"; g "$fx/src" add -A; g "$fx/src" commit -qm bin
-  out=$(run "binary") && fail "a binary file exported" || { grep -q "scripts/e.bin \[binary\]" <<<"$out" && ok "a binary file is refused" || fail "binary: $out"; }
+  out=$(run "binary") && fail "a binary file is refused" "a binary file exported" || { grep -q "scripts/e.bin \[binary\]" <<<"$out" && ok "a binary file is refused" || fail "a binary file is refused" "binary: $out"; }
   g "$fx/src" rm -q scripts/e.bin; g "$fx/src" commit -qm "undo bin"
-  out=$(run "example email") && ok "an example-domain email and AWS's example key pass" || fail "examples refused: $out"
+  out=$(run "example email") && ok "an example domain, a reserved TLD and AWS's example key pass" || fail "an example domain, a reserved TLD and AWS's example key pass" "examples refused: $out"
   echo "secret-co" >> "$fx/dst/.claude/session_history.md"
-  out=$(run "ignored hit") && ok "a hit in the clone's ignored .claude is never read" || fail "ignored .claude refused: $out"
+  out=$(run "ignored hit") && ok "a hit in the clone's ignored .claude is never read" || fail "a hit in the clone's ignored .claude is never read" "ignored .claude refused: $out"
   head=$(git -C "$fx/dst" rev-parse HEAD)
   echo "secret-co" >> "$fx/dst/README.md"; g "$fx/dst" commit -qam "readme hit"
-  out=$(run "readme hit") && fail "a hit in the kept README exported" || { grep -q "README.md:2 \[denylist\]" <<<"$out" && ok "a hit in the kept README is refused" || fail "readme: $out"; }
+  out=$(run "readme hit") && fail "a hit in the kept README is refused" "a hit in the kept README exported" || { grep -q "README.md:2 \[denylist\]" <<<"$out" && ok "a hit in the kept README is refused" || fail "a hit in the kept README is refused" "readme: $out"; }
   g "$fx/dst" reset -q --hard "$head"
-  [[ -f "$fx/dst/index.html" ]] && ok "the page is kept" || fail "index.html removed"
-  [[ -f "$fx/dst/.github/workflows/selftest.yml" ]] && ok "the workflow is kept" || fail ".github removed"
+  [[ -f "$fx/dst/index.html" ]] && ok "the page is kept" || fail "the page is kept" "index.html removed"
+  [[ -f "$fx/dst/.github/workflows/selftest.yml" ]] && ok "the workflow is kept" || fail "the workflow is kept" ".github removed"
   echo '<p data-check="credo.md" data-says="not in the credo">' > "$fx/dst/index.html"; g "$fx/dst" commit -qam "stale page"
-  out=$(run "stale page") && fail "a page with a failing claim exported" || { grep -q "makes a claim" <<<"$out" && ok "a page whose claim fails is refused" || fail "stale page: $out"; }
+  out=$(run "stale page") && fail "a page whose claim fails is refused" "a page with a failing claim exported" || { grep -q "makes a claim" <<<"$out" && ok "a page whose claim fails is refused" || fail "a page whose claim fails is refused" "stale page: $out"; }
   g "$fx/dst" reset -q --hard "$head"
 
   echo "draft" > "$fx/dst/NOTES.md"; echo "edited" >> "$fx/dst/README.md"
-  out=$(run "dirty") && fail "a dirty target was exported into" || { grep -q "uncommitted changes" <<<"$out" && ok "a dirty target is refused" || fail "dirty: $out"; }
-  [[ -f "$fx/dst/NOTES.md" && "$(tail -1 "$fx/dst/README.md")" == edited ]] && ok "and its uncommitted work is untouched" || fail "dirty: work lost"
+  out=$(run "dirty") && fail "a dirty target is refused" "a dirty target was exported into" || { grep -q "uncommitted changes" <<<"$out" && ok "a dirty target is refused" || fail "a dirty target is refused" "dirty: $out"; }
+  [[ -f "$fx/dst/NOTES.md" && "$(tail -1 "$fx/dst/README.md")" == edited ]] && ok "and its uncommitted work is untouched" || fail "and its uncommitted work is untouched" "dirty: work lost"
   rm "$fx/dst/NOTES.md"; g "$fx/dst" checkout -q -- README.md
 
   printf '#!/usr/bin/env bash\nexit 1\n' > "$fx/src/scripts/selftest.sh"; g "$fx/src" commit -qam red
   head=$(git -C "$fx/dst" rev-parse HEAD)
-  out=$(run "red") && fail "a failing selftest exported" || { grep -q "selftest.sh fails" <<<"$out" && ok "a failing selftest is refused" || fail "red: $out"; }
-  [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" ]] || fail "red: target committed"
-  [[ -z "$(git -C "$fx/dst" status --porcelain)" ]] && ok "a refusal after staging leaves nothing staged" || fail "red: the copy is left staged"
-
-  [[ $st -eq 0 ]] && echo "dotclaude_export self-test: PASS" || echo "dotclaude_export self-test: FAIL"
-  return "$st"
+  out=$(run "red") && fail "a failing selftest is refused" "a failing selftest exported" || { grep -q "selftest.sh fails" <<<"$out" && ok "a failing selftest is refused" || fail "a failing selftest is refused" "red: $out"; }
+  [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" ]] && ok "a failing selftest commits nothing" || fail "a failing selftest commits nothing"
+  [[ -z "$(git -C "$fx/dst" status --porcelain)" ]] && ok "a refusal after staging leaves nothing staged" || fail "a refusal after staging leaves nothing staged" "red: the copy is left staged"
 }
 
-[[ "${1:-}" == "--self-test" ]] && { self_test; exit $?; }
+[[ "${1:-}" == "--self-test" ]] && { self_test; tap_end; }
 msg=""
 while getopts "m:" o; do case $o in m) msg=$OPTARG ;; *) usage ;; esac; done
 shift $((OPTIND - 1))

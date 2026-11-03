@@ -64,49 +64,49 @@ atlassian_curl() {
 STUB
   export JL_POSTED="$fx/posted.json" JL_STATUS=201
   jl() { "$fx/jira-link.sh" "$@"; }
-  fail() { echo "self-test: $1" >&2; exit 1; }
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   sides() { jq -r '[.inwardIssue.key, .outwardIssue.key, .type.name] | join(" ")'; }
 
   out=$(jl --dry-run ABC-1 blocks ABC-2)
-  [[ "$(sed -n 1p <<<"$out")" == "POST $ENDPOINT" ]] \
-    || fail "a dry run does not name the v2 issueLink endpoint"
-  [[ "$(sed 1d <<<"$out" | sides)" == "ABC-1 ABC-2 Blocks" ]] \
-    || fail "an outward phrase does not make the first key the inward issue"
-  [[ "$(jl --dry-run ABC-1 is blocked by ABC-2 | sed 1d | sides)" == "ABC-2 ABC-1 Blocks" ]] \
-    || fail "an inward phrase does not swap the two keys"
-  [[ "$(jl --dry-run ABC-1 'IS BLOCKED BY' ABC-2 | sed 1d | sides)" == "ABC-2 ABC-1 Blocks" ]] \
-    || fail "a quoted, upper-case phrase is not matched"
-  [[ "$(jl --dry-run ABC-1 Relates ABC-2 | sed 1d | sides)" == "ABC-1 ABC-2 Relates" ]] \
-    || fail "a type name does not read as its outward phrase"
-  [[ ! -e "$JL_POSTED" ]] || fail "a dry run posted"
+  tap_is "a dry run names the v2 issueLink endpoint" \
+    "$(sed -n 1p <<<"$out")" "POST $ENDPOINT"
+  tap_is "an outward phrase makes the first key the inward issue" \
+    "$(sed 1d <<<"$out" | sides)" "ABC-1 ABC-2 Blocks"
+  tap_is "an inward phrase swaps the two keys" \
+    "$(jl --dry-run ABC-1 is blocked by ABC-2 | sed 1d | sides)" "ABC-2 ABC-1 Blocks"
+  tap_is "a quoted, upper-case phrase is matched" \
+    "$(jl --dry-run ABC-1 'IS BLOCKED BY' ABC-2 | sed 1d | sides)" "ABC-2 ABC-1 Blocks"
+  tap_is "a type name reads as its outward phrase" \
+    "$(jl --dry-run ABC-1 Relates ABC-2 | sed 1d | sides)" "ABC-1 ABC-2 Relates"
+  tap_run "a dry run posts nothing" test ! -e "$JL_POSTED"
 
-  [[ "$(jl ABC-1 is blocked by ABC-2)" == "ABC-2 blocks ABC-1" ]] \
-    || fail "a post does not print the link as Jira shows it"
-  [[ "$(sides < "$JL_POSTED")" == "ABC-2 ABC-1 Blocks" ]] \
-    || fail "the posted body is not the one the dry run shows"
+  tap_is "a post prints the link as Jira shows it" \
+    "$(jl ABC-1 is blocked by ABC-2)" "ABC-2 blocks ABC-1"
+  tap_is "the posted body is the one the dry run shows" \
+    "$(sides < "$JL_POSTED")" "ABC-2 ABC-1 Blocks"
 
   for bad in "ABC-1 duplicates ABC-2" "ABC-1 pairs with ABC-2" "abc-1 blocks ABC-2" \
              "ABC-1 blocks ABC-1" "ABC-1 ABC-2" "ABC-1 blocks"; do
     st=0; jl --dry-run $bad >/dev/null 2>&1 || st=$?
-    [[ "$st" == 2 ]] || fail "'$bad' exited $st, not 2"
+    tap_is "a usage error exits 2: '$bad'" "$st" 2
   done
   st=0; JL_STATUS=404 jl ABC-1 blocks ABC-2 >/dev/null 2>&1 || st=$?
-  [[ "$st" == 1 ]] || fail "an HTTP 404 exited $st, not 1"
+  tap_is "an HTTP 404 exits 1" "$st" 1
 
   export JL_DELETED="$fx/deleted" JL_DEL_STATUS=204
-  [[ "$(jl --dry-run --delete ABC-1 is blocked by ABC-2)" == "DELETE $ENDPOINT/902" ]] \
-    || fail "a delete dry run does not name the link id from the inward issue"
-  [[ ! -e "$JL_DELETED" ]] || fail "a delete dry run deleted"
-  [[ "$(jl --delete ABC-1 is blocked by ABC-2)" == "deleted: ABC-2 blocks ABC-1" ]] \
-    || fail "a delete does not print the link it removed"
-  [[ "$(cat "$JL_DELETED")" == 902 ]] || fail "a delete removed the wrong link"
+  tap_is "a delete dry run names the link id from the inward issue" \
+    "$(jl --dry-run --delete ABC-1 is blocked by ABC-2)" "DELETE $ENDPOINT/902"
+  tap_run "a delete dry run deletes nothing" test ! -e "$JL_DELETED"
+  tap_is "a delete prints the link it removed" \
+    "$(jl --delete ABC-1 is blocked by ABC-2)" "deleted: ABC-2 blocks ABC-1"
+  tap_is "a delete removes the link named" "$(cat "$JL_DELETED")" 902
   st=0; jl --delete ABC-3 blocks ABC-2 >/dev/null 2>&1 || st=$?
-  [[ "$st" == 1 ]] || fail "a delete of an absent link exited $st, not 1"
+  tap_is "a delete of an absent link exits 1" "$st" 1
   st=0; JL_DEL_STATUS=404 jl --delete ABC-1 is blocked by ABC-2 >/dev/null 2>&1 || st=$?
-  [[ "$st" == 1 ]] || fail "a delete answered HTTP 404 exited $st, not 1"
+  tap_is "a delete answered HTTP 404 exits 1" "$st" 1
 
-  echo "jira-link self-test: PASS"
-  exit 0
+  tap_end
 fi
 
 DRY_RUN=0 DELETE=0

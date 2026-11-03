@@ -142,7 +142,9 @@ mf_verify() {  # NAME
 # The fixture is a whole store, because a pointer and a fact file are only
 # correct relative to each other.
 self_test() {
-  local d rc=0 out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local d out
   d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
   printf '# F\n\n' > "$d/MEMORY.md"
   printf -- '- [keep](keep.md) — an existing fact\n' >> "$d/MEMORY.md"
@@ -154,9 +156,8 @@ self_test() {
   }
   check() {  # DESCRIPTION CONDITION…
     local t="$1"; shift
-    if "$@"; then echo "  ok   $t"; else echo "  FAIL $t" >&2; rc=1; fi
+    tap_run "$t" "$@"
   }
-  echo "memory_fact.sh --self-test"
 
   fact new true | run write new "when it matters" >/dev/null
   check "a new fact writes its file"    test -f "$d/new.md"
@@ -244,14 +245,12 @@ self_test() {
   # The writer evals what it read, so the shape that broke it is tested whole.
   fact esc 'test -n "a\"b"' | run write esc "hook" >/dev/null 2>&1
   check "a fact whose verify carries escaped quotes is written" test -f "$d/esc.md"
-
-  return $rc
 }
 
 # ---------------------------------------------------------------- main
 
 case "${1:-}" in
-  --self-test) self_test; exit $? ;;
+  --self-test) self_test; tap_end ;;
   write)  [[ $# -eq 3 ]] || die "usage: memory_fact.sh write <name> <pointer hook>  (fact on stdin)"
           mf_write "$2" "$3" ;;
   remove) [[ $# -eq 2 ]] || die "usage: memory_fact.sh remove <name>"

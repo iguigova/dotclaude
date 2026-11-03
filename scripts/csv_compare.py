@@ -24,6 +24,8 @@ import io
 import sys
 from collections import Counter
 
+from tap import Tap
+
 MAX_EXAMPLES = 3
 
 
@@ -153,6 +155,8 @@ def compare(path_a, path_b, key_cols=None, ignore=None, out=sys.stdout):
 
 
 def self_test():
+    t = Tap()
+
     def run(a, b, **kwargs):
         buf = io.StringIO()
         rc = compare(io.StringIO(a), io.StringIO(b), out=buf, **kwargs)
@@ -161,50 +165,44 @@ def self_test():
     base = "zone,peak,occupancy\nz1,10,0.5\nz2,20,0.6\n"
 
     rc, out = run(base, base)
-    assert rc == 0, "identical files must exit 0"
-    assert "identical on 3 shared columns" in out, out
+    t.check(rc == 0 and "identical on 3 shared columns" in out,
+            "identical files exit 0 and say so", out)
 
-    # A single differing column is named, and untouched columns are not.
     rc, out = run(base, "zone,peak,occupancy\nz1,10,0.5\nz2,99,0.6\n")
-    assert rc == 1
-    assert "COLUMN       peak: 1/2 differ" in out, out
-    assert "COLUMN       occupancy" not in out, out
+    t.check(rc == 1 and "COLUMN       peak: 1/2 differ" in out
+            and "COLUMN       occupancy" not in out,
+            "a single differing column is named, and untouched columns are not",
+            out)
 
-    # Header differences are reported in both directions.
     rc, out = run(base, "zone,peak\nz1,10\nz2,20\n")
-    assert rc == 1
-    assert "only in A: occupancy" in out, out
+    t.check(rc == 1 and "only in A: occupancy" in out,
+            "a header difference is reported", out)
 
-    # Ragged rows are caught before value comparison.
     rc, out = run(base, "zone,peak,occupancy\nz1,10\nz2,20,0.6\n")
-    assert rc == 1
-    assert "FIELD COUNT  B line 2: 2 fields" in out, out
+    t.check(rc == 1 and "FIELD COUNT  B line 2: 2 fields" in out,
+            "a ragged row is caught before values are compared", out)
 
-    # Keyed matching reports add/remove instead of smearing.
-    rc, out = run(base, "zone,peak,occupancy\nz2,20,0.6\nz3,30,0.7\n", key_cols=["zone"])
-    assert rc == 1
-    assert "only in A: ('z1',)" in out, out
-    assert "only in B: ('z3',)" in out, out
-    assert "COLUMN       peak" not in out, out
+    rc, out = run(base, "zone,peak,occupancy\nz2,20,0.6\nz3,30,0.7\n",
+                  key_cols=["zone"])
+    t.check(rc == 1 and "only in A: ('z1',)" in out
+            and "only in B: ('z3',)" in out and "COLUMN       peak" not in out,
+            "keyed matching reports rows added and removed, not smeared", out)
 
-    # Keyed matching is order-insensitive.
-    rc, out = run(base, "zone,peak,occupancy\nz2,20,0.6\nz1,10,0.5\n", key_cols=["zone"])
-    assert rc == 0, out
+    reordered = "zone,peak,occupancy\nz2,20,0.6\nz1,10,0.5\n"
+    rc, out = run(base, reordered, key_cols=["zone"])
+    t.check(rc == 0, "keyed matching ignores row order", out)
+    rc, out = run(base, reordered)
+    t.check(rc == 1, "positional matching flags a reorder", out)
 
-    # Positional matching flags the same reorder as a difference.
-    rc, out = run(base, "zone,peak,occupancy\nz2,20,0.6\nz1,10,0.5\n")
-    assert rc == 1, out
+    rc, out = run(base, "zone,peak,occupancy\nz1,10,0.5\nz1,10,0.5\n",
+                  key_cols=["zone"])
+    t.check("DUPLICATE    B key ('z1',): 2 rows" in out,
+            "a duplicate key is surfaced", out)
 
-    # Duplicate keys are surfaced.
-    rc, out = run(base, "zone,peak,occupancy\nz1,10,0.5\nz1,10,0.5\n", key_cols=["zone"])
-    assert "DUPLICATE    B key ('z1',): 2 rows" in out, out
-
-    # --ignore removes a column from the comparison.
-    rc, out = run(base, "zone,peak,occupancy\nz1,10,0.9\nz2,20,0.6\n", ignore=["occupancy"])
-    assert rc == 0, out
-
-    print("csv_compare self-test: PASS")
-    return 0
+    rc, out = run(base, "zone,peak,occupancy\nz1,10,0.9\nz2,20,0.6\n",
+                  ignore=["occupancy"])
+    t.check(rc == 0, "--ignore removes a column from the comparison", out)
+    return t.end()
 
 
 def main():

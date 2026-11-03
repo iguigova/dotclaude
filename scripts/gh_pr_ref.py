@@ -31,6 +31,8 @@ import re
 import subprocess
 import sys
 
+from tap import Tap
+
 # One definition of the URL shape, used two ways: anchored to parse a ref that
 # should be nothing but a URL, and unanchored to pick one out of a session title.
 _URL_BODY = r"https?://github\.com/([^/\s]+)/([^/\s]+?)(?:\.git)?/pull/(\d+)"
@@ -145,33 +147,40 @@ def session_ref() -> str:
 
 
 def _self_test() -> int:
+    t = Tap()
     cases = [
-        ("https://github.com/Acme/sensor-connector/pull/456",
+        ("a PR URL parses",
+         "https://github.com/Acme/sensor-connector/pull/456",
          ("Acme", "sensor-connector", "456")),
-        ("https://github.com/AcmeLabs/py-sdk.git/pull/7",
+        ("a PR URL whose repo ends in .git parses",
+         "https://github.com/AcmeLabs/py-sdk.git/pull/7",
          ("AcmeLabs", "py-sdk", "7")),
-        ("Acme/web-app#5236", ("Acme", "web-app", "5236")),
-        ("  AcmeLabs/web-hub#12  ", ("AcmeLabs", "web-hub", "12")),
+        ("an owner/repo and number parse",
+         "Acme/web-app#5236", ("Acme", "web-app", "5236")),
+        ("a ref padded with spaces parses",
+         "  AcmeLabs/web-hub#12  ", ("AcmeLabs", "web-hub", "12")),
     ]
-    bad = ["", "not-a-ref", "Org/repo", "Org/repo#", "#", "a/b/c#1",
-           "https://gitlab.com/o/r/pull/1"]
-    fails = []
-    for ref, want in cases:
+    bad = [("an empty ref is refused", ""),
+           ("a word is refused", "not-a-ref"),
+           ("an owner/repo with no number is refused", "Org/repo"),
+           ("an owner/repo with an empty number is refused", "Org/repo#"),
+           ("a bare number sign is refused", "#"),
+           ("a three-part path is refused", "a/b/c#1"),
+           ("a URL off GitHub is refused", "https://gitlab.com/o/r/pull/1")]
+    for name, ref, want in cases:
         try:
             got = parse_ref(ref)
         except RefError as exc:
-            fails.append(f"{ref!r} raised {exc}")
-            continue
-        if got != want:
-            fails.append(f"{ref!r} -> {got}, want {want}")
-    for ref in bad:
+            got = f"RefError: {exc}"
+        t.check(got == want, name, f"{ref!r} -> {got}, want {want}")
+    # '#N' forms are the only ones allowed to consult the remote; none of
+    # these are that form, so a parse here is a real over-acceptance.
+    for name, ref in bad:
         try:
             got = parse_ref(ref)
         except RefError:
-            continue
-        # '#N' forms are the only ones allowed to consult the remote; none of
-        # these are that form, so a parse here is a real over-acceptance.
-        fails.append(f"{ref!r} parsed as {got}, want a RefError")
+            got = None
+        t.check(got is None, name, f"{ref!r} parsed as {got}")
 
     # --- session titles, offline, against a transcript built here ---------
     import tempfile
@@ -179,6 +188,12 @@ def _self_test() -> int:
     def title(text):
         return json.dumps({"type": "custom-title", "customTitle": text,
                            "sessionId": "s"})
+
+    def read_back():
+        try:
+            return session_ref()
+        except RefError:
+            return None
 
     lines = [
         json.dumps({"type": "user", "text": "irrelevant"}),
@@ -196,45 +211,35 @@ def _self_test() -> int:
         saved = os.environ.get("SESSION_RENAME_TRANSCRIPT")
         os.environ["SESSION_RENAME_TRANSCRIPT"] = tpath
         try:
-            got = session_ref()
+            got = read_back()
             want = "https://github.com/Acme/events-service/pull/13"
-            if got != want:
-                # The later URL-less title must not hide it, the ai-title must not
-                # win it, and the malformed line must not stop the scan.
-                fails.append(f"session_ref -> {got!r}, want {want!r}")
-            else:
-                owner, repo, number = parse_ref(got)
-                if (owner, repo, number) != ("Acme", "events-service", "13"):
-                    fails.append(f"session_ref output does not re-parse: {got!r}")
+            # The later URL-less title must not hide it, the ai-title must not
+            # win it, and the malformed line must not stop the scan.
+            t.check(got == want,
+                    "the session's PR is read back past a later title-less"
+                    " rename, an ai-title and a malformed line",
+                    f"got {got!r}, want {want!r}")
+            t.check(got is not None and parse_ref(got)
+                    == ("Acme", "events-service", "13"),
+                    "the PR read back parses again")
             # A transcript with no PR in any title must raise, never return "".
             empty = os.path.join(tmp, "empty.jsonl")
             with open(empty, "w", encoding="utf-8") as fh:
                 fh.write(title("ABC-10810 no link here") + "\n")
             os.environ["SESSION_RENAME_TRANSCRIPT"] = empty
-            try:
-                got = session_ref()
-                fails.append(f"a title-less transcript returned {got!r}, want a RefError")
-            except RefError:
-                pass
+            got = read_back()
+            t.check(got is None, "a transcript with no PR title is refused",
+                    f"returned {got!r}")
             os.environ["SESSION_RENAME_TRANSCRIPT"] = os.path.join(tmp, "nope.jsonl")
-            try:
-                got = session_ref()
-                fails.append(f"a missing transcript returned {got!r}, want a RefError")
-            except RefError:
-                pass
+            got = read_back()
+            t.check(got is None, "a missing transcript is refused",
+                    f"returned {got!r}")
         finally:
             if saved is None:
                 os.environ.pop("SESSION_RENAME_TRANSCRIPT", None)
             else:
                 os.environ["SESSION_RENAME_TRANSCRIPT"] = saved
-
-    if fails:
-        print("gh_pr_ref self-test: FAIL\n  " + "\n  ".join(fails), file=sys.stderr)
-        return 1
-    print(f"gh_pr_ref self-test: PASS ({len(cases)} refs parsed, "
-          f"{len(bad)} rejected incl. 'a/b/c#1', session title read back "
-          f"past a later title-less rename, an ai-title and a malformed line)")
-    return 0
+    return t.end()
 
 
 def main() -> None:

@@ -59,15 +59,14 @@ fetch_failure() {  # <gh stderr> -> missing | failed
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
-  [[ "$(fetch_failure 'gh: Not Found (HTTP 404)')" == missing ]] \
-    || fails+=("a 404 is not classed missing")
-  [[ "$(fetch_failure 'proxyconnect tcp: connection refused')" == failed ]] \
-    || fails+=("a network error is not classed failed")
-  [[ "$(fetch_failure 'gh: Bad credentials (HTTP 401)')" == failed ]] \
-    || fails+=("a 401 is not classed failed")
-  ok()  { path_is_safe "$1" || fails+=("should accept: $1"); }
-  bad() { path_is_safe "$1" && fails+=("should reject: $1"); return 0; }
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  tap_is "a 404 is classed missing" "$(fetch_failure 'gh: Not Found (HTTP 404)')" missing
+  tap_is "a network error is classed failed" \
+    "$(fetch_failure 'proxyconnect tcp: connection refused')" failed
+  tap_is "a 401 is classed failed" "$(fetch_failure 'gh: Bad credentials (HTTP 401)')" failed
+  ok()  { tap_run "a safe path is accepted: $1" path_is_safe "$1"; }
+  bad() { tap_fails "an unsafe path is refused: ${1:-the empty path}" path_is_safe "$1"; }
   ok  "apps/libs/services/x.py"
   ok  "README.md"
   ok  "a/b..c/d.py"            # '..' only inside a segment is an ordinary name
@@ -78,16 +77,14 @@ if [[ "${1:-}" == "--self-test" ]]; then
   bad ""
   # The point of the helper is the ref; losing it would silently reintroduce
   # exactly the working-tree bug it exists to prevent.
-  grep -q 'ref=' "${BASH_SOURCE[0]}" || fails+=("the contents call does not pin ?ref=")
-  grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}" || fails+=("not requesting raw media type (base64 caps at 1MB)")
+  tap_run "the contents call pins ?ref=" grep -q 'ref=' "${BASH_SOURCE[0]}"
+  tap_run "the raw media type is requested, as base64 caps at 1MB" \
+    grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}"
   # --base is only a merge-base fetch if the directory owner is told so.
-  grep -qF "gh-pr-head-dir.sh\" \"\${AT[@]}\"" "${BASH_SOURCE[0]}" || fails+=("--base is not passed to gh-pr-head-dir.sh")
-  "$HERE/gh_pr_ref.py" --self-test >/dev/null 2>&1 || fails+=("gh_pr_ref.py self-test fails")
-  if ((${#fails[@]})); then
-    printf 'gh-pr-file self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-file self-test: PASS (404 vs other fetch failures, path safety over 8 cases, ref pinning, --base routing and raw media type asserted)"
-  exit 0
+  tap_run "--base is passed to gh-pr-head-dir.sh" \
+    grep -qF "gh-pr-head-dir.sh\" \"\${AT[@]}\"" "${BASH_SOURCE[0]}"
+  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_end
 fi
 
 AT=()

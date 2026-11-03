@@ -33,6 +33,8 @@ from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 from reportlab.platypus import Frame, Paragraph
 
+from tap import Tap
+
 W, H = 960, 540  # 16:9 at 72 pt/in
 MARGIN = 40
 GAP = 14
@@ -190,11 +192,10 @@ def refused(content, out):
 
 
 def self_test():
-    results = []
+    t = Tap()
 
     def check(desc, ok):
-        results.append(ok)
-        print(f"  {'ok  ' if ok else 'FAIL'} {desc}")
+        t.check(ok, desc)
 
     with tempfile.TemporaryDirectory() as d:
         out = Path(d) / "s.pdf"
@@ -214,8 +215,7 @@ def self_test():
         check("a missing field is named",
               "missing field: takeaway" in refused(none, bad))
         check("a refused summary writes no file", not bad.exists())
-    print("gist self-test:", "PASS" if all(results) else "FAIL")
-    return 0 if all(results) else 1
+    return t.end()
 
 
 def main(args):

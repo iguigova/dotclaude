@@ -38,16 +38,18 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     >/dev/null 2>"$fx/err" || site_rc=$?
   want='https://example.invalid|me@example.invalid|tok
 -s -u me@example.invalid:tok -H Accept: application/json https://example.invalid/x'
-  if [[ "$got" == "$want" && "$site_rc" == 1 ]] && grep -q 'no .claude/atlassian_site at or above' "$fx/err"; then
-    echo "atlassian-auth self-test: PASS (site read from the nearest .claude/atlassian_site above \$PWD," \
-      "credentials from the project's .secrets/ with newlines trimmed, atlassian_curl" \
-      "sends them as basic auth with the JSON Accept header, a missing site" \
-      "fails the source)"
-    exit 0
-  fi
-  echo "atlassian-auth self-test: FAIL (want [$want] got [$got]; missing site" \
-    "exit $site_rc [$(cat "$fx/err")])" >&2
-  exit 1
+  # shellcheck source=tap.sh
+  . "$(dirname "$0")/tap.sh"
+  tap_is "the site is read from the nearest .claude/atlassian_site above \$PWD" \
+    "$(sed -n 1p <<<"$got" | cut -d'|' -f1)" "https://example.invalid"
+  tap_is "credentials come from the project's .secrets/, newlines trimmed" \
+    "$(sed -n 1p <<<"$got")" "$(sed -n 1p <<<"$want")"
+  tap_is "atlassian_curl sends them as basic auth with the JSON Accept header" \
+    "$(sed -n 2p <<<"$got")" "$(sed -n 2p <<<"$want")"
+  tap_is "a missing site fails the source" "$site_rc" 1
+  tap_run "and says where it looked" \
+    grep -q 'no .claude/atlassian_site at or above' "$fx/err"
+  tap_end
 fi
 
 # The site is the one line in the project's .claude/atlassian_site, so each project

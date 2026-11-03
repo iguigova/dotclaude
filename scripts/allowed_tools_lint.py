@@ -38,7 +38,6 @@ thing to fix, by naming the command.
 Exit 0 nothing found, 1 rows printed, 2 usage.
 """
 import fnmatch
-import itertools
 import os
 import pathlib
 import re
@@ -48,6 +47,7 @@ import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from skill_inventory import skills_in, commands_in   # noqa: E402
+from tap import Tap   # noqa: E402
 
 # https://code.claude.com/docs/en/permissions, "Read-only commands". git is
 # read-only only in some forms, so it is not here. cd is read-only only into a
@@ -275,26 +275,29 @@ def self_test() -> int:
             ".claude/commands/c.md:7\tunruled\tgit push",
             ".claude/commands/c.md:7\tunruled\tjob.sh <a|b> <id>",
             ".claude/commands/c.md\tunused\tBash(curl:*)"]
-    checks = [admits("git:*", "git"), admits("git:*", "git status"),
-              not admits("git:*", "gitk"), admits("ls*", "lsof"),
-              not admits("ls *", "lsof"),
-              split("echo $(date) && (cd a && make)")
-              == ["echo $(date)", "cd a", "make"],
-              [unwrap(c) for c in ("timeout -k 5 120 foo -x", "nice -n 5 foo",
-                                   "stdbuf -oL foo", "time nohup foo",
-                                   "xargs foo", "xargs -0 foo")]
-              == ["foo -x", "foo", "foo", "foo", "foo", "xargs -0 foo"]]
-    checks.append(by_root == [cmd])
-    if got == want and all(checks):
-        print("allowed_tools_lint self-test: PASS (unruled, unused, a read "
-              "file's piped span, a quoted ';', a placeholder's '|', a "
-              "redirect's '&', a continuation, a comment, a $( ), a process "
-              "wrapper)")
-        return 0
-    print("allowed_tools_lint self-test: FAIL", file=sys.stderr)
-    for w, g in itertools.zip_longest(want, got, fillvalue=""):
-        print(f"  want {w!r}\n  got  {g!r}", file=sys.stderr)
-    return 1
+    t = Tap()
+    for w in want:
+        _, kind, what = w.split("\t")
+        t.check(w in got, f"flagged {kind}: {what}")
+    t.check(got == want,
+            "nothing else is flagged, past a read file's piped span, a quoted"
+            " ';', a redirect's '&', a continuation and a comment",
+            *got)
+    t.check(admits("git:*", "git"), "git:* admits git")
+    t.check(admits("git:*", "git status"), "git:* admits git status")
+    t.check(not admits("git:*", "gitk"), "git:* does not admit gitk")
+    t.check(admits("ls*", "lsof"), "ls* admits lsof")
+    t.check(not admits("ls *", "lsof"), "ls * does not admit lsof")
+    t.check(split("echo $(date) && (cd a && make)")
+            == ["echo $(date)", "cd a", "make"],
+            "a $( ) stays whole and a subshell splits into its commands")
+    t.check([unwrap(c) for c in ("timeout -k 5 120 foo -x", "nice -n 5 foo",
+                                 "stdbuf -oL foo", "time nohup foo",
+                                 "xargs foo", "xargs -0 foo")]
+            == ["foo -x", "foo", "foo", "foo", "foo", "xargs -0 foo"],
+            "a process wrapper is read as the command it runs")
+    t.check(by_root == [cmd], "a root's commands are found")
+    return t.end()
 
 
 def main() -> int:

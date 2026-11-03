@@ -57,36 +57,35 @@ atlassian_curl() {
 STUB
   export JT_POSTED="$fx/posted.json" JT_STATUS=204
   jt() { "$fx/jira-transition.sh" "$@"; }
-  fail() { echo "self-test: $1" >&2; exit 1; }
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   out=$(jt --dry-run ABC-1 in progress)
-  [[ "$(sed -n 1p <<<"$out")" == "POST /rest/api/2/issue/ABC-1/transitions" ]] \
-    || fail "a dry run does not name the v2 transitions endpoint"
-  [[ "$(sed 1d <<<"$out" | jq -r .transition.id)" == 11 ]] \
-    || fail "a target status, any case, does not pick its transition"
-  [[ "$(jt --dry-run ABC-1 Close | sed 1d | jq -r .transition.id)" == 31 ]] \
-    || fail "a transition's own name does not pick it"
-  [[ "$(jt --dry-run ABC-1 'not doing' | sed 1d | jq -r .transition.id)" == 41 ]] \
-    || fail "a transition name shared with no status is not matched"
-  [[ ! -e "$JT_POSTED" ]] || fail "a dry run posted"
+  tap_is "a dry run names the v2 transitions endpoint" \
+    "$(sed -n 1p <<<"$out")" "POST /rest/api/2/issue/ABC-1/transitions"
+  tap_is "a target status, any case, picks its transition" \
+    "$(sed 1d <<<"$out" | jq -r .transition.id)" 11
+  tap_is "a transition's own name picks it" \
+    "$(jt --dry-run ABC-1 Close | sed 1d | jq -r .transition.id)" 31
+  tap_is "a transition name shared with no status is matched" \
+    "$(jt --dry-run ABC-1 'not doing' | sed 1d | jq -r .transition.id)" 41
+  tap_run "a dry run posts nothing" test ! -e "$JT_POSTED"
 
-  [[ "$(jt ABC-1 blocked)" == "ABC-1: Backlog -> Blocked" ]] \
-    || fail "a transition does not print the move"
-  [[ "$(jq -r .transition.id < "$JT_POSTED")" == 51 ]] \
-    || fail "the posted body is not the one the dry run shows"
+  tap_is "a transition prints the move" \
+    "$(jt ABC-1 blocked)" "ABC-1: Backlog -> Blocked"
+  tap_is "the posted body is the one the dry run shows" \
+    "$(jq -r .transition.id < "$JT_POSTED")" 51
 
-  [[ "$(jt --list ABC-1 | sed -n 2p)" == "Close -> Done" ]] \
-    || fail "--list does not print name -> target"
+  tap_is "--list prints name -> target" "$(jt --list ABC-1 | sed -n 2p)" "Close -> Done"
 
   for bad in "ABC-1 Done" "ABC-1 Testing" "abc-1 Blocked" "ABC-1"; do
     st=0; jt --dry-run $bad >/dev/null 2>&1 || st=$?
-    [[ "$st" == 2 ]] || fail "'$bad' exited $st, not 2"
+    tap_is "a usage error exits 2: '$bad'" "$st" 2
   done
   st=0; JT_STATUS=400 jt ABC-1 Blocked >/dev/null 2>&1 || st=$?
-  [[ "$st" == 1 ]] || fail "an HTTP 400 exited $st, not 1"
+  tap_is "an HTTP 400 exits 1" "$st" 1
 
-  echo "jira-transition self-test: PASS"
-  exit 0
+  tap_end
 fi
 
 usage() { echo "$1" >&2; echo "Usage: $0 [--dry-run] <KEY> <status...> | --list <KEY>" >&2; exit 2; }

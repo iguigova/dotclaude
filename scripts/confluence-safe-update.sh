@@ -67,12 +67,13 @@ csu_payload() {  # TITLE SPACE BODY_FILE VERSION
 }
 
 csu_self_test() {
-  local rc=0 got st
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local got st
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "confluence-safe-update.sh --self-test"
 
   local fx; fx=$(mktemp -d)
   printf '<p>x</p>' > "$fx/42.storage.html"; printf '7\n' > "$fx/42.version"
@@ -144,10 +145,9 @@ STUB
   check "a page that moved on sends nothing" '4/7/' "$(live 8 200)"
   printf '<p>new' > "$run/page/42.storage.html"
   check "a malformed body sends nothing" '2/7/' "$(live 7 200)"
-  return $rc
 }
 
-[[ "${1:-}" == --self-test ]] && { csu_self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { csu_self_test; tap_end; }
 
 usage() { echo "Usage: $0 --from <dir>/<id>.storage.html [--title \"<new title>\"]" >&2; exit 2; }
 FROM=""

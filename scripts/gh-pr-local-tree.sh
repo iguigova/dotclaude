@@ -61,7 +61,8 @@ locate() {  # <root> <owner> <repo> <branch> <head_sha> -> dir, exit per header
 if [[ "${1:-}" == "--self-test" ]]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   export GIT_CONFIG_GLOBAL=/dev/null GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t \
          GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@t
   mkrepo() {  # <dir> <origin-url>
@@ -72,7 +73,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   run() {  # <expected-exit> <description> <locate args...>
     local want="$1" desc="$2" got=0; shift 2
     out=$(locate "$@" 2>"$tmp/err") || got=$?
-    [[ "$got" == "$want" ]] || fails+=("$desc: exit $got, want $want ($(cat "$tmp/err"))")
+    tap_is "$desc exits $want" "$got" "$want"
   }
 
   root="$tmp/api"
@@ -81,31 +82,26 @@ if [[ "${1:-}" == "--self-test" ]]; then
   main_sha=$(git -C "$rp" rev-parse main)
 
   run 0 "a branch the main clone has checked out" "$root" Acme web-app main "$main_sha"
-  [[ "$out" == "$rp" ]] || fails+=("main clone: printed '$out'")
+  tap_is "and prints the main clone" "$out" "$rp"
 
   git -C "$rp" branch other
   run 3 "a branch checked out nowhere" "$root" Acme web-app other "$main_sha"
-  grep -q "$rp" "$tmp/err" || fails+=("checked out nowhere: stderr does not name the clone")
+  tap_run "and names the clone on stderr" grep -q "$rp" "$tmp/err"
 
   git -C "$rp" commit -q --allow-empty -m local
   run 5 "a clone behind or ahead of the PR head" "$root" Acme web-app main "$main_sha"
-  [[ "$out" == "$rp" ]] || fails+=("stale head: directory not printed")
+  tap_is "and prints the stale clone" "$out" "$rp"
 
   mkrepo "$root/2.0/web-hub" https://github.com/AcmeLabs/web-hub.git
   run 0 "a 2.0 clone over HTTPS" "$root" AcmeLabs web-hub main "$(git -C "$root/2.0/web-hub" rev-parse main)"
-  [[ "$out" == "$root/2.0/web-hub" ]] || fails+=("2.0 clone: printed '$out'")
+  tap_is "and prints the 2.0 clone" "$out" "$root/2.0/web-hub"
 
   run 4 "a same-named clone from another org" "$root" AcmeLabs web-app main "$main_sha"
   run 4 "no clone at all" "$root" Acme absent main "$main_sha"
 
-  grep -q 'gh-pr-local-tree.sh' "$HERE/../skills/review:bot/SKILL.md" \
-    || fails+=("review:bot does not locate the tree through gh-pr-local-tree.sh")
-
-  if ((${#fails[@]})); then
-    printf 'gh-pr-local-tree self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-local-tree self-test: PASS (main clone, nowhere, stale head, 2.0 clone, origin decides, absent)"
-  exit 0
+  tap_run "review:bot locates the tree through gh-pr-local-tree.sh" \
+    grep -q 'gh-pr-local-tree.sh' "$HERE/../skills/review:bot/SKILL.md"
+  tap_end
 fi
 
 if [[ $# -ne 1 ]]; then

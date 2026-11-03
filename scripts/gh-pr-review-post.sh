@@ -72,6 +72,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gh_pr_ref import RefError, parse_slug  # noqa: E402
+from tap import Tap  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 
@@ -234,24 +235,21 @@ SELF_TEST_INDEX = {
 
 def _self_test() -> int:
     ok = postable_lines(SELF_TEST_INDEX)
-    fails = []
+    t = Tap()
+    want = t.check
 
-    def want(cond: bool, msg: str) -> None:
-        if not cond:
-            fails.append(msg)
-
-    want(("keep.py", 11, "RIGHT") in ok, "an added line is not postable on RIGHT")
-    want(("keep.py", 10, "RIGHT") in ok, "a context line is not postable on RIGHT")
-    want(("keep.py", 10, "LEFT") in ok, "a context line is not postable on LEFT")
-    want(("keep.py", 11, "LEFT") not in ok, "an added line is postable on LEFT")
-    want(("gone.py", 1, "LEFT") in ok, "a deleted file's line is not postable")
+    want(("keep.py", 11, "RIGHT") in ok, "an added line is postable on RIGHT", "an added line is not postable on RIGHT")
+    want(("keep.py", 10, "RIGHT") in ok, "a context line is postable on RIGHT", "a context line is not postable on RIGHT")
+    want(("keep.py", 10, "LEFT") in ok, "a context line is postable on LEFT", "a context line is not postable on LEFT")
+    want(("keep.py", 11, "LEFT") not in ok, "an added line is not postable on LEFT", "an added line is postable on LEFT")
+    want(("gone.py", 1, "LEFT") in ok, "a deleted file's line is postable on LEFT", "a deleted file's line is not postable")
     want(("gone.py", 1, "RIGHT") not in ok,
-         "a deleted file's line is postable on RIGHT")
+         "a deleted file's line is not postable on RIGHT", "a deleted file's line is postable on RIGHT")
     # The phantom anchor the old parser produced: a deleted file's line numbers
     # landing on the previous file in the diff. GitHub 422s the whole review on
     # it, so it must be rejected here.
     want(("keep.py", 1, "LEFT") not in ok,
-         "keep.py:1 LEFT is postable — a deleted file's lines leaked into it")
+         "a deleted file's lines do not leak into the file before it", "keep.py:1 LEFT is postable — a deleted file's lines leaked into it")
 
     comments, invalid = split_findings([
         {"path": "keep.py", "line": 11, "body": "real"},
@@ -259,13 +257,13 @@ def _self_test() -> int:
         {"path": "nope.py", "line": 3, "body": "file not in diff"},
     ], ok)
     want([c["body"] for c in comments] == ["real"],
-         f"accepted {[c['body'] for c in comments]}, want ['real']")
+         "a finding on a postable line is accepted", f"accepted {[c['body'] for c in comments]}, want ['real']")
     want([f["body"] for f in invalid] == ["phantom", "file not in diff"],
-         f"rejected {[f['body'] for f in invalid]}")
+         "a phantom anchor and a file off the diff are rejected", f"rejected {[f['body'] for f in invalid]}")
     want(comments and comments[0]["side"] == "RIGHT",
-         "side did not default to RIGHT")
+         "the side defaults to RIGHT", "side did not default to RIGHT")
     want("`nope.py:3`" in append_unanchored("body", invalid),
-         "--drop-invalid text does not name the dropped finding")
+         "--drop-invalid names each dropped finding", "--drop-invalid text does not name the dropped finding")
 
     # The word budget is reported, so it has to count words rather than
     # sentences — three long sentences is the shape it exists to catch.
@@ -273,7 +271,7 @@ def _self_test() -> int:
     short_one = {"path": "b.py", "line": 2, "body": "one. two. three."}
     got = over_budget([long_one, short_one])
     want([a for a, _ in got] == ["a.py:1"],
-         f"over_budget flagged {got}, want only a.py:1")
+         "the word budget counts words, not sentences", f"over_budget flagged {got}, want only a.py:1")
 
     # A finding that names a thread is a reply, and never reaches the diff
     # validation — its anchor is the thread's, not a line of ours.
@@ -281,13 +279,13 @@ def _self_test() -> int:
         {"path": "keep.py", "line": 11, "body": "new"},
         {"in_reply_to": 7, "body": "confirmed"},
     ])
-    want([f["body"] for f in anchored] == ["new"], "a reply was treated as anchored")
-    want([f["body"] for f in replies] == ["confirmed"], "a reply was not split out")
+    want([f["body"] for f in anchored] == ["new"], "a reply is not treated as anchored", "a reply was treated as anchored")
+    want([f["body"] for f in replies] == ["confirmed"], "a reply is split out", "a reply was not split out")
 
     known = [{"id": 7, "author": "bot[bot]", "path": "keep.py", "line": 11, "side": "RIGHT"},
              {"id": 8, "author": "me", "path": "keep.py", "line": 10, "side": "RIGHT"}]
     want(unknown_threads([{"in_reply_to": 7}, {"in_reply_to": 99}], known)
-         == [{"in_reply_to": 99}], "a reply to a missing thread was not caught")
+         == [{"in_reply_to": 99}], "a reply to a missing thread is caught", "a reply to a missing thread was not caught")
 
     # Another reviewer's anchor is a duplicate; my own earlier one is not — a
     # second pass re-raising a live finding of mine is the second-pass rule's
@@ -296,29 +294,21 @@ def _self_test() -> int:
            {"path": "keep.py", "line": 10, "side": "RIGHT", "body": "mine"},
            {"path": "keep.py", "line": 11, "side": "LEFT", "body": "other side"}]
     got = [(c["body"], t["id"]) for c, t in shared_anchors(new, known, "me")]
-    want(got == [("dup", 7)], f"shared_anchors found {got}, want [('dup', 7)]")
+    want(got == [("dup", 7)], "another reviewer's anchor is a shared anchor, my own is not", f"shared_anchors found {got}, want [('dup', 7)]")
     want(over_budget([{"in_reply_to": 7, "body": "w " * (INLINE_WORD_BUDGET + 1)}])
-         == [("reply to 7", INLINE_WORD_BUDGET + 1)], "a long reply was not flagged")
+         == [("reply to 7", INLINE_WORD_BUDGET + 1)], "a long reply is flagged", "a long reply was not flagged")
 
     # An author may only COMMENT on their own PR; anyone else keeps the event.
     want(event_for("APPROVE", "me", "me")[0] == "COMMENT",
-         "APPROVE on your own PR was not downgraded to COMMENT")
+         "APPROVE on your own PR is downgraded to COMMENT", "APPROVE on your own PR was not downgraded to COMMENT")
     want(event_for("APPROVE", "them", "me") == ("APPROVE", None),
-         "APPROVE on someone else's PR was changed")
+         "APPROVE on someone else's PR is kept", "APPROVE on someone else's PR was changed")
     want(event_for("COMMENT", "me", "me") == ("COMMENT", None),
-         "COMMENT on your own PR carried a note")
+         "COMMENT on your own PR carries no note", "COMMENT on your own PR carried a note")
     want(event_for("APPROVE", None, "me") == ("APPROVE", None),
-         "an unknown author downgraded the event")
+         "an unknown author keeps the event", "an unknown author downgraded the event")
 
-    if fails:
-        print("gh-pr-review-post self-test: FAIL\n  " + "\n  ".join(fails),
-              file=sys.stderr)
-        return 1
-    print("gh-pr-review-post self-test: PASS (phantom and off-diff anchors "
-          "rejected, deleted file is LEFT-only, side defaults to RIGHT, replies "
-          "split out and checked, another reviewer's anchor refused, own-PR "
-          "verdict posts as COMMENT)")
-    return 0
+    return t.end()
 
 
 def main() -> None:

@@ -46,7 +46,9 @@ gf_check() {  # REPO REF PATH PATTERN [PATH PATTERN ...]
 # ---------------------------------------------------------------- self-test
 # A real repository: a path absent at a ref exists only in git.
 self_test() {
-  local d rc=0 self out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local d self out
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
 
@@ -57,10 +59,9 @@ self_test() {
 
   run() { "$self" "$@" >/dev/null 2>&1; echo $?; }
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else echo "  FAIL $1 — want exit $2, got $3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "git_fact.sh --self-test"
 
   check "a matching pattern holds" 0 \
     "$(run "$d/repo" HEAD kept.py '^PLUGIN_TABLE: dict')"
@@ -85,12 +86,10 @@ self_test() {
   out=$("$self" "$d/repo" HEAD gone.py 'x' 2>&1)
   check "and says which path was not there" 0 \
     "$([[ "$out" == *"gone.py is not at HEAD"* ]] && echo 0 || echo 1)"
-
-  return $rc
 }
 
 # ---------------------------------------------------------------- main
-if [[ "${1:-}" == "--self-test" ]]; then self_test; exit $?; fi
+if [[ "${1:-}" == "--self-test" ]]; then self_test; tap_end; fi
 (( $# >= 4 && ($# - 2) % 2 == 0 )) || {
   echo "usage: git_fact.sh <repo> <ref> <path> <pattern> [<path> <pattern> ...]" >&2; exit 2; }
 gf_check "$@"

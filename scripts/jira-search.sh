@@ -49,7 +49,9 @@ SHAPE='[ .issues[] | {
 } ]'
 
 js_self_test() {
-  local rc=0 got fixture
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local got fixture
   fixture='{"isLast":true,"issues":[
     {"key":"ABC-1","fields":{"summary":"first","updated":"2026-09-01T00:00:00.000+0000",
       "status":{"name":"In Progress","statusCategory":{"key":"indeterminate"}},
@@ -59,10 +61,9 @@ js_self_test() {
       "assignee":null}}
   ]}'
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "jira-search.sh --self-test"
   got=$(jq -c "$SHAPE" <<<"$fixture")
   check "every issue is shaped, in order" 'ABC-1,ABC-2' "$(jq -r 'map(.key)|join(",")' <<<"$got")"
   check "the workflow name and the stable category both survive" \
@@ -78,10 +79,9 @@ js_self_test() {
   local flag_rc=0
   "$0" --max >/dev/null 2>&1 </dev/null || flag_rc=$?
   check "a leading flag is refused offline with the usage, not sent as JQL" 2 "$flag_rc"
-  return $rc
 }
 
-[[ "${1:-}" == --self-test ]] && { js_self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { js_self_test; tap_end; }
 
 # A leading flag is never JQL: sent to Jira it comes back as HTTP 400, so it is
 # refused here, offline, with the usage.

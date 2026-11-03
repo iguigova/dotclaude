@@ -18,17 +18,16 @@ if [[ "${1:-}" == "--self-test" ]]; then
   : > "$fx/p/.claude/session_history.md"
   printf 'tok\n' > "$fx/p/.secrets/jira-token"
   : > "$fx/p/.secrets/empty"
-  me="$HERE/$(basename "$0")"; fails=()
-  [[ "$(cd "$fx/p/api/repo" && "$me" jira-token)" == "$fx/p/.secrets/jira-token" ]] \
-    || fails+=("a secret is found from below the project root")
-  (cd "$fx/p" && "$me" missing) >/dev/null 2>&1 && fails+=("a missing secret exits non-zero")
-  (cd "$fx/p" && "$me" empty) >/dev/null 2>&1 && fails+=("an empty secret exits non-zero")
-  (cd "$fx" && "$me" jira-token) >/dev/null 2>&1 && fails+=("outside a project exits non-zero")
-  if ((${#fails[@]})); then
-    printf 'secret_file self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "secret_file self-test: PASS (found from below the root; missing, empty and no project each exit 1)"
-  exit 0
+  me="$HERE/$(basename "$0")"
+  # shellcheck source=tap.sh
+  . "$HERE/tap.sh"
+  in_dir() { (cd "$1" && "$me" "$2"); }
+  tap_is "a secret is found from below the project root" \
+    "$(in_dir "$fx/p/api/repo" jira-token)" "$fx/p/.secrets/jira-token"
+  tap_fails "a missing secret exits non-zero" in_dir "$fx/p" missing
+  tap_fails "an empty secret exits non-zero" in_dir "$fx/p" empty
+  tap_fails "outside a project exits non-zero" in_dir "$fx" jira-token
+  tap_end
 fi
 
 [[ $# -eq 1 && -n "$1" && "$1" != */* ]] || { echo "Usage: $0 <name> | --self-test" >&2; exit 2; }

@@ -52,7 +52,9 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Entries are written by journal.sh, never by hand, so the test proves the writer
 # and this reader agree on the format rather than that the reader parses a guess.
 self_test() {
-  local h rc=0 got old
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local h got old
   h=$(mktemp)
   printf '# Log\n\n<!-- timelog 2026-01-01 00:00Z — baseline -->\n' > "$h"
   # Unset by default, so the fixture reads the same whether or not the test runs
@@ -63,10 +65,9 @@ self_test() {
     JOURNAL_HIST="$h" "$0" | jq -r "$1"
   }
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else echo "  FAIL $1: want [$2] got [$3]" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "journal_scan.sh --self-test"
   w -t "XYZ-9999 round-trip" -b b
   w -t "chore: no ticket" -b "a bullet naming XYZ-1234 does not group the entry"
   w -t "chore: radar row R-31" -b b
@@ -106,11 +107,10 @@ self_test() {
   check "--help answers without a history to resolve" ok \
     "$(cd / && env -u JOURNAL_HIST "$SCRIPTS_DIR/journal_scan.sh" --help 2>/dev/null | grep -q '^Usage:' && echo ok || echo fail)"
   rm -f "$old" "$h"
-  return $rc
 }
 
 case "${1:-}" in
-  --self-test) self_test; exit $? ;;
+  --self-test) self_test; tap_end ;;
   --help)      sed -n '2,/^$/p' "${BASH_SOURCE[0]}" | sed 's/^# \?//'; exit 0 ;;
 esac
 

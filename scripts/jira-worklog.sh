@@ -56,13 +56,15 @@ if [[ "${1:-}" == "--self-test" ]]; then
   wiki=$(echo 'See [PR #1|https://x.test/1].' | timeout 10 "$self" --dry-run AAA-1 1h >/dev/null 2>&1; echo $?)
   noid=$(timeout 10 "$self" --edit AAA-1 1h >/dev/null 2>&1 </dev/null; echo $?)
   edit=$(echo 'One.' | timeout 10 "$self" --dry-run --edit 52445 AAA-1 1h 2>/dev/null | jq -r '.timeSpent')
-  if grep -q -- '\[--quiet\]' <<<"$usage" && [[ "$short" -eq 1 && "$texts" == "$want" \
-       && "$wiki" -eq 1 && "$noid" -eq 1 && "$edit" == "1h" ]]; then
-    echo "jira-worklog self-test: PASS (--quiet consumed before positionals; leading item numbers dropped; wiki link refused; --edit takes a numeric id)"
-    exit 0
-  fi
-  echo "jira-worklog self-test: FAIL ('--quiet AAA' exit $short, want 1; item texts $texts, want $want; wiki link exit $wiki, want 1; '--edit AAA-1' exit $noid, want 1; --edit dry-run timeSpent '$edit', want 1h)" >&2
-  exit 1
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
+  tap_run "the usage names --quiet" grep -q -- '\[--quiet\]' <<<"$usage"
+  tap_is "--quiet is consumed before the positionals" "$short" 1
+  tap_is "leading item numbers are dropped" "$texts" "$want"
+  tap_is "a wiki link is refused" "$wiki" 1
+  tap_is "--edit takes a numeric id" "$noid" 1
+  tap_is "an --edit dry run sends the time spent" "$edit" 1h
+  tap_end
 fi
 
 QUIET=0

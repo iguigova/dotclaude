@@ -41,34 +41,27 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tmp=$(mktemp -d)
   trap 'rm -rf "$tmp"' EXIT
   export GH_PR_WORKDIR_BASE="$tmp/base"
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   a=$(workdir "Acme/web-app#5236")
   b=$(workdir "https://github.com/Acme/web-app/pull/5236")
   c=$(workdir "Acme/web-app#5237")
   d=$(workdir "AcmeLabs/web-hub#5236")
 
-  [[ "$a" == "$b" ]] || fails+=("slug and URL forms of one PR disagree: $a vs $b")
-  [[ "$a" != "$c" ]] || fails+=("two PR numbers share a directory: $a")
-  [[ "$a" != "$d" ]] || fails+=("two repos share a directory: $a")
-  [[ -d "$a" ]] || fails+=("directory not created: $a")
-  [[ "$(stat -c %a "$a")" == 700 ]] || fails+=("dir is mode $(stat -c %a "$a"), want 700")
-  [[ "$(stat -c %a "$GH_PR_WORKDIR_BASE")" == 700 ]] \
-    || fails+=("base is mode $(stat -c %a "$GH_PR_WORKDIR_BASE"), want 700")
+  tap_is "the slug and URL forms of one PR share a directory" "$b" "$a"
+  tap_fails "two PR numbers get two directories" test "$a" = "$c"
+  tap_fails "two repos get two directories" test "$a" = "$d"
+  tap_run "the directory is created" test -d "$a"
+  tap_is "the directory is mode 700" "$(stat -c %a "$a")" 700
+  tap_is "the base is mode 700" "$(stat -c %a "$GH_PR_WORKDIR_BASE")" 700
   # Re-running must be idempotent, so a resumed review finds its own files.
   echo marker > "$a/probe"
-  [[ "$(workdir "Acme/web-app#5236")" == "$a" && -f "$a/probe" ]] \
-    || fails+=("not idempotent: a second call lost the directory's contents")
+  tap_is "a second call names the same directory" "$(workdir "Acme/web-app#5236")" "$a"
+  tap_run "and keeps its contents" test -f "$a/probe"
   # A ref that names no PR must fail rather than yield a directory.
-  if workdir "not-a-ref" >/dev/null 2>&1; then
-    fails+=("a bad ref produced a directory")
-  fi
-
-  if ((${#fails[@]})); then
-    printf 'gh-pr-workdir self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-workdir self-test: PASS (one dir per PR, mode 700, idempotent, bad ref refused)"
-  exit 0
+  tap_fails "a bad ref is refused" workdir "not-a-ref"
+  tap_end
 fi
 
 if [[ $# -ne 1 ]]; then

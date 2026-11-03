@@ -1,7 +1,7 @@
 ---
 name: audit
-description: Judge one thing that has been read — a file, a script, a command, a change, a design, an answer — against the user's credo, and report the technical debt, hacks, holes, defects, gaps and refactors it carries. User-invoked via `/audit [what]`, bare for the last answer and the work it describes, run unasked on every answer before it is sent, and invoked by a command that has already gathered the evidence.
-argument-hint: "[what to audit — defaults to the last answer and the work it describes]"
+description: Judge one thing that has been read — a file, a script, a command, a change, a design, an answer — against the user's credo, and report the technical debt, hacks, holes, defects, gaps and refactors it carries. User-invoked via `/audit [what]`, bare for the answer to the prompt it is in and the answer before it, with the work each describes, run unasked on every answer before it is sent, and invoked by a command that has already gathered the evidence.
+argument-hint: "[what to audit — defaults to this prompt's answer and the one before it]"
 ---
 
 # Audit
@@ -14,9 +14,14 @@ An audit judges what was read, never what was recalled.
 - **Invoked on a name** — read the thing end to end, then read what it depends
   on. A file's own text says what it does; its dependencies say whether it is
   telling the truth.
-- **Invoked bare** — the subject is the last answer and the work it describes.
-  Anything known only from before the last compaction, or from the summary, is
-  recalled: read it again or leave it out.
+- **Invoked bare** — the subject is two answers and the work each describes:
+  the answer to the prompt the audit is in, and the answer to the prompt before
+  it. When that prompt asks for nothing but the audit, its answer is the report,
+  which the self-check under Report covers.
+- **Run unasked** — the subject is the answer about to be sent and the work it
+  describes.
+- **Recalled is not read.** Anything known only from before the last
+  compaction, or from the summary, is recalled: read it again or leave it out.
 - **Where a claim turns on behaviour, run it.** A verdict about what a script
   does, what a flag accepts or what a number is belongs to a command you ran and
   quoted, not to a reading of the source.

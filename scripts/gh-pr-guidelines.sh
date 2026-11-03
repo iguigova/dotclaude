@@ -71,56 +71,54 @@ if [[ "${1:-}" == "--self-test" ]]; then
     : > "$tmp/$g.md"
   done
   GLOBAL="$tmp"
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   # <label> <newline-separated changed paths> <expected space-separated basenames>
   check() {
     local got
     got=$(printf '%s\n' "$2" | select_guidelines | sed "s#^$tmp/##" | tr '\n' ' ')
-    [[ "$got" == "$3 " ]] || fails+=("$1: got '$got', want '$3 '")
+    tap_is "$1" "$got" "$3 "
   }
 
   base="coding_guidelines.md style_guidelines.md"
-  check "non-code change gets the always-on pair" "README.md" "$base"
-  check "ruby" "app/models/user.rb" "coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
-  check "rake task" "lib/tasks/x.rake" "coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
-  check "root Gemfile" "Gemfile" "coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
+  check "a non-code change gets the always-on pair" "README.md" "$base"
+  check "a Ruby file reaches the Ruby guidelines" "app/models/user.rb" "coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
+  check "a rake task reaches the Ruby guidelines" "lib/tasks/x.rake" "coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
+  check "the root Gemfile reaches the Ruby guidelines" "Gemfile" "coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
   # A haml file is Rails markup that RuboCop does not lint, so it reaches
   # accessibility and not the Ruby guidelines.
-  check "haml is markup, not Ruby" "app/views/x.html.haml" "accessibility_guidelines.md $base"
-  check "python" "app/x.py" "coding_guidelines.md python_coding_guidelines.md style_guidelines.md"
-  check "haml reaches accessibility" "app/views/x.html.haml" "accessibility_guidelines.md $base"
-  check "erb reaches accessibility" "app/views/x.erb" "accessibility_guidelines.md $base"
-  check "tsx reaches accessibility" "src/X.tsx" "accessibility_guidelines.md $base"
-  check "clojure" "src/core.clj" "clojure_coding_guidelines.md $base"
-  check "cljs and edn reach the same file" "$(printf 'src/app.cljs\nresources/config.edn')" \
+  check "a haml file is markup, not Ruby" "app/views/x.html.haml" "accessibility_guidelines.md $base"
+  check "a Python file reaches the Python guidelines" "app/x.py" "coding_guidelines.md python_coding_guidelines.md style_guidelines.md"
+  check "a haml file reaches accessibility" "app/views/x.html.haml" "accessibility_guidelines.md $base"
+  check "an erb file reaches accessibility" "app/views/x.erb" "accessibility_guidelines.md $base"
+  check "a tsx file reaches accessibility" "src/X.tsx" "accessibility_guidelines.md $base"
+  check "a Clojure file reaches the Clojure guidelines" "src/core.clj" "clojure_coding_guidelines.md $base"
+  check "cljs and edn reach the Clojure guidelines too" "$(printf 'src/app.cljs\nresources/config.edn')" \
         "clojure_coding_guidelines.md $base"
-  check "mixed rails PR" "$(printf 'app/models/user.rb\napp/views/x.html.haml\nlib/y.py')" \
+  check "a mixed Rails PR reaches every guideline its files need" "$(printf 'app/models/user.rb\napp/views/x.html.haml\nlib/y.py')" \
         "accessibility_guidelines.md coding_guidelines.md python_coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
 
   # A guideline file that does not exist on disk is never emitted.
   rm "$tmp/go_coding_guidelines.md"
   got=$(printf 'main.go\n' | select_guidelines | tr '\n' ' ')
-  [[ "$got" != *go_coding_guidelines* ]] || fails+=("emitted a guideline file that does not exist")
+  tap_fails "a guideline file that does not exist is never emitted" \
+    grep -q go_coding_guidelines <<<"$got"
 
   # The always-on pair must actually exist where it is resolved, or every review
   # silently runs a file short.
   for f in coding_guidelines.md style_guidelines.md; do
-    [ -f "$HOME/.claude/$f" ] || fails+=("$HOME/.claude/$f is missing — the always-on set would be silently short")
+    tap_run "the always-on $f exists where it is resolved" test -f "$HOME/.claude/$f"
   done
   # A language file the selector maps but cannot resolve is skipped without a
   # word, so that language's PRs get reviewed against the general pair only.
   for f in python_coding_guidelines.md clojure_coding_guidelines.md \
            go_coding_guidelines.md haskell_coding_guidelines.md \
            accessibility_guidelines.md ruby_coding_guidelines.md; do
-    [ -f "$HOME/.claude/$f" ] || fails+=("$HOME/.claude/$f is mapped but missing — those PRs silently get no language guidance")
+    tap_run "the mapped $f exists where it is resolved" test -f "$HOME/.claude/$f"
   done
 
-  if ((${#fails[@]})); then
-    printf 'gh-pr-guidelines self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-guidelines self-test: PASS (coding+style always, haml/erb/tsx -> accessibility, clj/cljs/edn -> clojure, rb/rake/Gemfile -> ruby, haml stays markup, absent file skipped, every mapped file resolves)"
-  exit 0
+  tap_end
 fi
 
 # Read and validate stdin fully before emitting anything: piping jq straight into

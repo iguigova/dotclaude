@@ -61,43 +61,39 @@ done
 
 # Offline check of payload shape — no network, no credentials.
 if [[ "$SELF_TEST" -eq 1 ]]; then
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
   payload=$(printf 'h2. Goal\n\n*bold* and [link|https://example.com]\n' \
     | jq -Rs '{fields:{description:.}}')
-  echo "$payload" | jq -e '.fields.description | test("h2. Goal")' >/dev/null \
-    || { echo "self-test: heading not preserved" >&2; exit 1; }
-  echo "$payload" | jq -e '.fields.description | test("\\[link\\|https://example.com\\]")' >/dev/null \
-    || { echo "self-test: wiki link mangled" >&2; exit 1; }
-  echo "$payload" | jq -e 'keys == ["fields"]' >/dev/null \
-    || { echo "self-test: unexpected top-level keys" >&2; exit 1; }
+  tap_run "a heading is preserved" \
+    jq -e '.fields.description | test("h2. Goal")' <<<"$payload"
+  tap_run "a wiki link is preserved" \
+    jq -e '.fields.description | test("\\[link\\|https://example.com\\]")' <<<"$payload"
+  tap_run "the payload holds fields alone" jq -e 'keys == ["fields"]' <<<"$payload"
   # An empty stdin is refused rather than published: a description is replaced
   # whole, so an accidental empty body would erase the ticket's definition.
-  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-  if printf '' | "$self" --dry-run XYZ-0 >/dev/null 2>&1; then
-    echo "self-test: an empty description was accepted" >&2; exit 1
-  fi
-  if printf '{{{"a":1}}}' | "$self" --dry-run XYZ-0 >/dev/null 2>&1; then
-    echo "self-test: an unescaped brace in {{…}} was accepted" >&2; exit 1
-  fi
+  tap_fails "an empty description is refused" \
+    "$self" --dry-run XYZ-0 < <(printf '')
+  tap_fails "an unescaped brace in {{…}} is refused" \
+    "$self" --dry-run XYZ-0 < <(printf '{{{"a":1}}}')
   both=$(printf 'h2. Goal\n' | "$self" --dry-run --summary 'New title' XYZ-0 | tail -n +2)
-  echo "$both" | jq -e '.fields == {summary:"New title", description:"h2. Goal\n"}' >/dev/null \
-    || { echo "self-test: summary and description not set together" >&2; exit 1; }
+  tap_run "the summary and the description are set together" \
+    jq -e '.fields == {summary:"New title", description:"h2. Goal\n"}' <<<"$both"
   only=$("$self" --dry-run --summary 'New title' --summary-only XYZ-0 </dev/null | tail -n +2)
-  echo "$only" | jq -e '.fields == {summary:"New title"}' >/dev/null \
-    || { echo "self-test: --summary-only touched more than the title" >&2; exit 1; }
-  if "$self" --dry-run --summary-only XYZ-0 </dev/null >/dev/null 2>&1; then
-    echo "self-test: --summary-only without --summary was accepted" >&2; exit 1
-  fi
+  tap_run "--summary-only touches the title alone" \
+    jq -e '.fields == {summary:"New title"}' <<<"$only"
+  tap_fails "--summary-only without --summary is refused" \
+    "$self" --dry-run --summary-only XYZ-0 </dev/null
   labelled=$(printf 'h2. Goal\n' | "$self" --dry-run --label a --label b XYZ-0 | tail -n +2)
-  echo "$labelled" | jq -e '.update == {labels:[{add:"a"},{add:"b"}]}' >/dev/null \
-    || { echo "self-test: labels not added one by one" >&2; exit 1; }
+  tap_run "labels are added one by one" \
+    jq -e '.update == {labels:[{add:"a"},{add:"b"}]}' <<<"$labelled"
   fielded=$(printf 'h2. Goal\n' | "$self" --dry-run --field customfield_1=5 --field c2='{"id":"7"}' XYZ-0 | tail -n +2)
-  echo "$fielded" | jq -e '.fields == {description:"h2. Goal\n", customfield_1:5, c2:{id:"7"}}' >/dev/null \
-    || { echo "self-test: --field not set beside the description" >&2; exit 1; }
-  if "$self" --dry-run --field c3=notjson XYZ-0 </dev/null >/dev/null 2>&1; then
-    echo "self-test: a non-JSON --field value was accepted" >&2; exit 1
-  fi
-  echo "jira-description self-test: PASS"
-  exit 0
+  tap_run "--field is set beside the description" \
+    jq -e '.fields == {description:"h2. Goal\n", customfield_1:5, c2:{id:"7"}}' <<<"$fielded"
+  tap_fails "a non-JSON --field value is refused" \
+    "$self" --dry-run --field c3=notjson XYZ-0 </dev/null
+  tap_end
 fi
 
 if [[ $# -lt 1 ]]; then

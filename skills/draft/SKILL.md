@@ -100,7 +100,8 @@ sections below it, or in the opening when there are none.
   and commands as code.
 - The reader's own next steps numbered. Choices offered to the reader
   numbered too, so the reply can name one.
-- A table only for rows of the same kind.
+- Rows of the same kind, such as members, groups or counts by day, are
+  a table, in chat too; a table holds nothing else.
 - The message is the draft's text alone, with nothing about drafting it.
 
 ## Markup

@@ -93,7 +93,9 @@ probe() {
 }
 
 self_test() {
-  local tmp rc fail=0
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp rc
   tmp=$(mktemp -d) || return 2
   local -a G=(-c user.email=t@t -c user.name=t -c commit.gpgsign=false)
 
@@ -111,14 +113,9 @@ self_test() {
   check() {  # name expected_rc [args…]
     local name=$1 want=$2; shift 2
     probe "$@" >/dev/null 2>&1; rc=$?
-    if [[ "$rc" == "$want" ]]; then
-      echo "  ok  $name (exit $rc)"
-    else
-      echo "  FAIL $name: want exit $want, got $rc"; fail=1
-    fi
+    tap_is "$name" "exit $rc" "exit $want"
   }
 
-  echo "== dev_setup self-test =="
   check "default branch at tip → ready" 0 "$w" no
   git "${G[@]}" -C "$w" checkout --quiet -b feat
   check "feature branch at tip → ready" 0 "$w" no
@@ -140,35 +137,30 @@ self_test() {
   cli() {  # name expected_rc [args…]
     local name=$1 want=$2; shift 2
     "$0" "$@" >/dev/null 2>&1; rc=$?
-    if [[ "$rc" == "$want" ]]; then echo "  ok  $name (exit $rc)"
-    else echo "  FAIL $name: want exit $want, got $rc"; fail=1; fi
+    tap_is "$name" "exit $rc" "exit $want"
   }
   cli "unknown argument → exit 2" 2 --bogus
   cli "a path that is not a repo → exit 2" 2 "$tmp"
   cli "a path argument is honoured" 0 "$w" --dry-run
   if "$0" "$w" --dry-run 2>/dev/null | grep -q '(local refs; --dry-run)'; then
-    echo "  ok  --dry-run says the refs are local"
-  else echo "  FAIL --dry-run did not mark its refs as local"; fail=1; fi
+    tap_ok "--dry-run says the refs are local"
+  else tap_not_ok "--dry-run says the refs are local"; fi
   if "$0" "$w" 2>/dev/null | grep -q '(local refs'; then
-    echo "  FAIL a fetching run still claimed local refs"; fail=1
-  else echo "  ok  a fetching run does not claim local refs"; fi
+    tap_not_ok "a fetching run does not claim local refs"
+  else tap_ok "a fetching run does not claim local refs"; fi
   local got want
   got=$("$0" "$w" --dry-run 2>/dev/null | sed -n 's/^repo  *//p')
   want=$(git -C "$w" rev-parse --show-toplevel)
-  if [[ "$got" == "$want" ]]; then echo "  ok  it reports the repo it was pointed at"
-  else echo "  FAIL it reported $got, not $want"; fail=1; fi
+  tap_is "it reports the repo it was pointed at" "$got" "$want"
 
   rm -rf "$tmp"
-  echo
-  [[ "$fail" -eq 0 ]] && echo "dev_setup self-test: PASS" || echo "dev_setup self-test: FAIL"
-  return "$fail"
 }
 
 path="$PWD" fetch=yes
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)   fetch=no ; shift ;;
-    --self-test) self_test; exit $? ;;
+    --self-test) self_test; tap_end ;;
     -*) echo "dev_setup: unknown argument: $1" >&2; exit 2 ;;
     *)  path="$1" ; shift ;;
   esac

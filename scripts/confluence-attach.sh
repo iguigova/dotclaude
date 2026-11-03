@@ -52,29 +52,28 @@ atlassian_curl() {
 STUB
   out=$("$tmp/confluence-attach.sh" \
     "https://example.invalid/wiki/spaces/PA/pages/42/Title" "$tmp/a.png" "$tmp/b.png")
+  # shellcheck source=tap.sh
+  . "$(dirname "$src")/tap.sh"
   # PUT, not POST: POST refuses a filename the page already has.
-  grep -q -- "-X PUT https://example.invalid/wiki/rest/api/content/42/child/attachment" "$tmp/calls" \
-    || { echo "self-test: does not PUT to child/attachment" >&2; exit 1; }
-  grep -q -- "X-Atlassian-Token: no-check" "$tmp/calls" \
-    || { echo "self-test: XSRF header missing" >&2; exit 1; }
-  grep -q -- "-F file=@$tmp/a.png -F minorEdit=true -F file=@$tmp/b.png -F minorEdit=true" "$tmp/calls" \
-    || { echo "self-test: not every file is sent, in order, each with its minorEdit" >&2; exit 1; }
-  [[ "$out" == $'att1 a.png v1\natt2 b.png v3' ]] \
-    || { echo "self-test: output not '<id> <name> v<n>': $out" >&2; exit 1; }
-  if "$tmp/confluence-attach.sh" --dry-run 42 "$tmp/a.png" "$tmp/missing.png" >/dev/null 2>&1; then
-    echo "self-test: a missing file was accepted" >&2; exit 1
-  fi
-  if "$tmp/confluence-attach.sh" --dry-run not-a-page "$tmp/a.png" >/dev/null 2>&1; then
-    echo "self-test: a non-page reference was accepted" >&2; exit 1
-  fi
-  echo "confluence-attach self-test: PASS"
+  tap_run "the files are PUT to child/attachment" grep -q -- \
+    "-X PUT https://example.invalid/wiki/rest/api/content/42/child/attachment" "$tmp/calls"
+  tap_run "the XSRF header is sent" \
+    grep -q -- "X-Atlassian-Token: no-check" "$tmp/calls"
+  tap_run "every file is sent, in order, each with its minorEdit" grep -q -- \
+    "-F file=@$tmp/a.png -F minorEdit=true -F file=@$tmp/b.png -F minorEdit=true" "$tmp/calls"
+  tap_is "each attachment prints as <id> <name> v<n>" \
+    "$out" $'att1 a.png v1\natt2 b.png v3'
+  tap_fails "a missing file is refused" \
+    "$tmp/confluence-attach.sh" --dry-run 42 "$tmp/a.png" "$tmp/missing.png"
+  tap_fails "a non-page reference is refused" \
+    "$tmp/confluence-attach.sh" --dry-run not-a-page "$tmp/a.png"
 }
 
 DRY_RUN=0
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
-    --self-test) self_test; exit 0 ;;
+    --self-test) self_test; tap_end ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done

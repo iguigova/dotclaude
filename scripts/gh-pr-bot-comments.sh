@@ -71,6 +71,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gh_pr_ref import RefError, parse_ref  # noqa: E402
+from tap import Tap  # noqa: E402
 
 
 def die(msg: str) -> "None":
@@ -296,32 +297,29 @@ def _self_test() -> int:
     ]
     issue = [_comment(9, "greptile-apps[bot]", "run summary"),
              _comment(10, "iguigova", "looks good")]
-    fails = []
-
-    def want(cond, msg):
-        if not cond:
-            fails.append(msg)
+    t = Tap()
+    want = t.check
 
     r = classify(inline, issue, [])
     want([t["id"] for t in r["threads"]] == [1, 2],
-         f"threads {[t['id'] for t in r['threads']]}, want [1, 2]")
-    want(r["threads"][0]["severity"] == "P1", "severity not parsed from the img alt")
+         "only top-level bot threads are listed", f"threads {[t['id'] for t in r['threads']]}, want [1, 2]")
+    want(r["threads"][0]["severity"] == "P1", "the severity is parsed from the img alt", "severity not parsed from the img alt")
     want(r["threads"][0]["already_replied"] is True,
-         "a thread the bot itself replied to is not marked replied")
+         "a thread the bot itself replied to is marked replied", "a thread the bot itself replied to is not marked replied")
     want(r["threads"][1]["already_replied"] is True,
-         "a thread a human replied to is not marked replied")
-    want(r["open_count"] == 0, f"open_count {r['open_count']}, want 0")
+         "a thread a human replied to is marked replied", "a thread a human replied to is not marked replied")
+    want(r["open_count"] == 0, "a replied thread is not open", f"open_count {r['open_count']}, want 0")
     want([s["id"] for s in r["summary"]] == [9],
-         "the human issue comment leaked into the bot summaries")
+         "a human issue comment is not a bot summary", "the human issue comment leaked into the bot summaries")
 
     # A substring filter narrows to one bot, and leaves the rest out entirely.
     r = classify(inline, issue, ["greptile"])
     want([t["id"] for t in r["threads"]] == [1],
-         f"greptile filter gave {[t['id'] for t in r['threads']]}, want [1]")
+         "a substring filter narrows to one bot", f"greptile filter gave {[t['id'] for t in r['threads']]}, want [1]")
 
     # An unanswered bot thread is what the skill exists to find.
     r = classify([_comment(1, "greptile-apps[bot]", "unanswered")], [], [])
-    want(r["open_count"] == 1, "an unanswered bot thread is not counted open")
+    want(r["open_count"] == 1, "an unanswered bot thread is counted open", "an unanswered bot thread is not counted open")
 
     # A human reviewer's thread is open until someone other than them answers,
     # and neither a bot nor the viewer counts as a reviewer.
@@ -333,17 +331,17 @@ def _self_test() -> int:
     ]
     h = classify_humans(h_inline, [], [], "iguigova")
     want([t["id"] for t in h["human_threads"]] == [4, 8],
-         f"human threads {[t['id'] for t in h['human_threads']]}, want [4, 8]")
+         "a human reviewer's top-level threads are listed", f"human threads {[t['id'] for t in h['human_threads']]}, want [4, 8]")
     want(h["human_threads"][0]["already_replied"] is False,
-         "a reviewer's own follow-up closed their thread")
+         "a reviewer's own follow-up does not close their thread", "a reviewer's own follow-up closed their thread")
     want(h["human_threads"][1]["already_replied"] is True,
-         "the viewer's reply did not close a human thread")
+         "the viewer's reply closes a human thread", "the viewer's reply did not close a human thread")
     want(h["human_open_count"] == 1,
-         f"human_open_count {h['human_open_count']}, want 1")
+         "the open human threads are counted", f"human_open_count {h['human_open_count']}, want 1")
 
     # Narrowing the bot filter never turns another bot into a human.
     h = classify_humans([_comment(1, "coderabbitai[bot]", "x")], [], [], "me")
-    want(h["human_threads"] == [], "a bot outside the filter counted as human")
+    want(h["human_threads"] == [], "a bot outside the filter is not a human", "a bot outside the filter counted as human")
 
     # A note is answered only by the viewer speaking after it; a bare
     # approval is not a note.
@@ -355,7 +353,7 @@ def _self_test() -> int:
     notes = classify_humans([], reviews, issue_h, "me")["human_notes"]
     want([(n["id"], n["answered"]) for n in notes]
          == [(22, True), (21, True), (24, False)],
-         f"notes {[(n['id'], n['answered']) for n in notes]}, "
+         "a note is answered only by the viewer speaking after it", f"notes {[(n['id'], n['answered']) for n in notes]}, "
          "want [(22, True), (21, True), (24, False)]")
 
     # On the viewer's own PR, the latest review with a body is an ask; its
@@ -369,37 +367,30 @@ def _self_test() -> int:
     o_issue = [_comment(40, "me", "unrelated", at="2026-01-01T11:00:00Z")]
     o = own_review(o_reviews, o_inline, o_issue, "me", "h1", "someone-else")
     want(o == {"own_review": None, "own_open_count": 0},
-         "an own review surfaced on someone else's PR")
+         "no own review surfaces on someone else's PR", "an own review surfaced on someone else's PR")
     o = own_review(o_reviews, o_inline, o_issue, "me", "h1", "me")
     r = o["own_review"]
     want(r is not None and r["id"] == 30,
-         f"own review {r and r['id']}, want 30 (an empty reply review displaced it)")
-    want(r is not None and r["asks"] is True, "a Nits section did not ask")
+         "the own review is the latest with a body", f"own review {r and r['id']}, want 30 (an empty reply review displaced it)")
+    want(r is not None and r["asks"] is True, "a Nits section asks", "a Nits section did not ask")
     want(r is not None and r["answered"] is False,
-         "an unrelated PR comment answered the own review")
+         "an unrelated PR comment does not answer the own review", "an unrelated PR comment answered the own review")
     want([(f["id"], f["already_replied"]) for f in (r or {}).get("findings", [])]
-         == [(31, False), (32, True)], f"own findings {r and r['findings']}")
-    want(o["own_open_count"] == 1, f"own_open_count {o['own_open_count']}, want 1")
+         == [(31, False), (32, True)], "an own finding closes on any reply", f"own findings {r and r['findings']}")
+    want(o["own_open_count"] == 1, "the open own findings are counted", f"own_open_count {o['own_open_count']}, want 1")
     o_issue.append(_comment(41, "me", "Addressed: pull/1#pullrequestreview-30",
                             at="2026-01-01T12:00:00Z"))
     o = own_review(o_reviews, o_inline, o_issue, "me", "h1", "me")
     want(o["own_review"]["answered"] is True,
-         "a PR comment linking the review did not answer it")
+         "a PR comment linking the review answers it", "a PR comment linking the review did not answer it")
     o = own_review([_review(36, "me", "Approve: **Checked and cleared:** x",
                             "2026-01-01T13:00:00Z")], [], [], "me", "h1", "me")
-    want(o["own_review"]["asks"] is False, "a clean approve asked something")
+    want(o["own_review"]["asks"] is False, "a clean approve asks nothing", "a clean approve asked something")
 
-    want(is_bot("Greptile-Apps[bot]", []), "case-sensitive [bot] suffix missed")
-    want(not is_bot("iguigova", []), "a human counted as a bot")
+    want(is_bot("Greptile-Apps[bot]", []), "the [bot] suffix is matched in any case", "case-sensitive [bot] suffix missed")
+    want(not is_bot("iguigova", []), "a human is not a bot", "a human counted as a bot")
 
-    if fails:
-        print("gh-pr-bot-comments self-test: FAIL\n  " + "\n  ".join(fails),
-              file=sys.stderr)
-        return 1
-    print("gh-pr-bot-comments self-test: PASS (top-level bot threads only, "
-          "replies from anyone close a thread, severity parsed, filter narrows, "
-          "human threads and notes, viewer excluded, own review on own PR)")
-    return 0
+    return t.end()
 
 
 def main() -> None:

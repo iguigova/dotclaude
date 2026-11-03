@@ -246,6 +246,8 @@ nl_gate() {
 
 # ---------------------------------------------------------------- self-test
 self_test() {
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local d rc=0 out self
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
@@ -284,9 +286,7 @@ DOC
   # $out is read by the check expressions below, which are eval'd strings.
   # shellcheck disable=SC2034
   out=$("$self" --project "$d" "$d/doc.md" 2>&1); rc=$?
-  check() { if eval "$2"; then echo "  ok   $1"; else echo "  FAIL $1" >&2; SELF_RC=1; fi; }
-  SELF_RC=0
-  echo "name_lint.sh --self-test"
+  check() { if eval "$2"; then tap_ok "$1"; else tap_not_ok "$1"; fi; }
   check "a path under the file's own project resolves" 'grep -q "ok         .claude/scripts/real.sh" <<<"$out"'
   check "a bare script basename resolves"              'grep -q "ok         real.sh" <<<"$out"'
   check "a project slash command resolves"             'grep -q "ok         /probe" <<<"$out"'
@@ -373,13 +373,12 @@ DOC
   check "every token is accounted for, so silence means checked" \
     '[[ $(grep -cE "^  (ok|elsewhere|MISSING|skipped) " <<<"$out") \
         -eq $(nl_tokens "'"$d"'/doc.md" | grep -c .) ]]'
-  return $SELF_RC
 }
 
 # ---------------------------------------------------------------- main
 usage() { echo "usage: name_lint.sh [--project DIR] [--gate] <file> …" >&2; exit 2; }
 
-[[ "${1:-}" == "--self-test" ]] && { self_test; exit $?; }
+[[ "${1:-}" == "--self-test" ]] && { self_test; tap_end; }
 
 gate=0
 while (( $# )); do

@@ -145,53 +145,54 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   [[ "${1:-}" == "--self-test" ]] || {
     echo "journal_lib.sh: source this file; executed, it takes only --self-test" >&2; exit 2; }
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  st=0; fail() { echo "  FAIL $*" >&2; st=1; }
-  for k in ABC-1 XYZ-12345; do [[ "$k" =~ ^$JOURNAL_TICKET_RE$ ]] || fail "ticket $k refused"; done
-  for k in R-31 abc-1 ABC-; do [[ "$k" =~ ^$JOURNAL_TICKET_RE$ ]] && fail "ticket $k accepted"; done
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  matches() { [[ "$1" =~ $2 ]]; }
+  for k in ABC-1 XYZ-12345; do
+    tap_run "a ticket key with two capitals is a ticket: $k" matches "$k" "^$JOURNAL_TICKET_RE$"
+  done
+  for k in R-31 abc-1 ABC-; do
+    tap_fails "a key with one capital, lower case or no number is not: $k" \
+      matches "$k" "^$JOURNAL_TICKET_RE$"
+  done
   re=$(journal_close_re)
   for c in 'skill — r' 'script:memory_lib.sh — r' 'ticket:ABC-7 — r' '- — r'; do
-    [[ "$c" =~ $re ]] || fail "close [$c] refused"
+    tap_run "a close with a known placement and a reason is accepted: $c" matches "$c" "$re"
   done
   for c in 'skill:x' 'skill:x — ' 'wiki — r' 'ticket:R-31 — r' 'ticket — r'; do
-    [[ "$c" =~ $re ]] && fail "close [$c] accepted"
+    tap_fails "a close missing a reason, a known placement or a ticket is refused: $c" \
+      matches "$c" "$re"
   done
   mkdir -p "$fx/a/.claude" "$fx/a/b/c" "$fx/none"
   touch "$fx/a/.claude/session_history.md"
-  got=$(cd "$fx/a/b/c" && JOURNAL_HIST='' journal_hist t)
-  [[ "$got" == "$fx/a/.claude/session_history.md" ]] || fail "journal_hist walk-up: [$got]"
-  got=$(cd "$fx/none" && JOURNAL_HIST=/x journal_hist t)
-  [[ "$got" == /x ]] || fail "journal_hist override: [$got]"
-  if (cd "$fx/none" && JOURNAL_HIST='' journal_hist t) 2>"$fx/err"; then
-    fail "journal_hist found a history under $fx/none"
-  fi
-  grep -q '^t: no .claude/session_history.md' "$fx/err" || fail "journal_hist names no caller: [$(cat "$fx/err")]"
+  tap_is "the history is found by walking up" \
+    "$(cd "$fx/a/b/c" && JOURNAL_HIST='' journal_hist t)" "$fx/a/.claude/session_history.md"
+  tap_is "JOURNAL_HIST overrides the walk" \
+    "$(cd "$fx/none" && JOURNAL_HIST=/x journal_hist t)" /x
+  walk_none() { (cd "$fx/none" && JOURNAL_HIST='' journal_hist t) 2>"$fx/err"; }
+  tap_fails "no history above is an error" walk_none
+  tap_run "and the error names the caller" \
+    grep -q '^t: no .claude/session_history.md' "$fx/err"
   printf '## 2026-10-14 09:00 a\n## 2026-10-14 09:01 b\n' > "$fx/ok.md"
   printf '## 2026-10-14 09:00 a\n## Notes\n' > "$fx/bad.md"
-  journal_check_headings t "$fx/ok.md" || fail "headings: a parseable history refused"
-  journal_check_headings t "$fx/bad.md" 2>"$fx/err" && fail "headings: an unparseable heading accepted"
-  grep -q '2 .## . headings and 1' "$fx/err" || fail "headings count: [$(cat "$fx/err")]"
-  got=$(printf 'ab12\t2026-01-01 00:00\t3d\tABC-1\tTitle — the whole detail\n' |
-        journal_note_lines)
-  [[ "$got" == $'| id   | ticket | age | note |\n|------|--------|-----|---|\n| ab12 | ABC-1  | 3d  | Title — the whole detail |' ]] ||
-    fail "note table, open listing: [$got]"
-  got=$(printf 'cd34\t2026-01-01 00:00\t-\topened\topen\tstill here\nef56\t2026-01-01 00:00\tABC-2\topened, closed\tskill — r\tgone\n' |
-        journal_note_lines)
-  [[ "$got" == $'| id   | note | status | resolution | ticket |\n|------|---|---|---|---|\n| cd34 | still here | open | - | - |\n| ef56 | gone | closed | skill — r | ABC-2 |' ]] ||
-    fail "note table, a session's open and closed notes: [$got]"
-  got=$(printf 'gh78\t2026-01-01 00:00\t3d\t-\ta | b\n' | journal_note_lines | tail -1)
-  [[ "$got" == '| gh78 | -      | 3d  | a \| b |' ]] || fail "note table, a pipe in the text: [$got]"
-  [[ -z "$(printf '' | journal_note_lines)" ]] || fail "note table: empty input printed a header"
-  printf 'a\t1\t2\t3\t4\nb\t1\t2\t3\t4\t5\n' | journal_note_lines >/dev/null 2>&1 &&
-    fail "note table: a mixed listing accepted"
-  printf 'a\tb\n' | journal_note_lines 2>/dev/null && fail "note lines: a short row accepted"
-  if [[ "$st" -eq 0 ]]; then
-    echo "journal_lib self-test: PASS (ticket keys need two capitals, a close" \
-      "needs a known placement and a reason, the history is found by override" \
-      "or walking up and its absence names the caller, an unparseable" \
-      "heading fails with both counts, a note renders as a table row of its" \
-      "id and whole text from either listing)"
-    exit 0
-  fi
-  echo "journal_lib self-test: FAIL" >&2
-  exit 1
+  tap_run "a parseable history passes the heading check" \
+    journal_check_headings t "$fx/ok.md"
+  check_bad() { journal_check_headings t "$fx/bad.md" 2>"$fx/err"; }
+  tap_fails "an unparseable heading fails it" check_bad
+  tap_run "with both counts" grep -q '2 .## . headings and 1' "$fx/err"
+  tap_is "an open listing renders as a table row of its id and whole text" \
+    "$(journal_note_lines < <(printf 'ab12\t2026-01-01 00:00\t3d\tABC-1\tTitle — the whole detail\n'))" \
+    $'| id   | ticket | age | note |\n|------|--------|-----|---|\n| ab12 | ABC-1  | 3d  | Title — the whole detail |'
+  tap_is "a session's open and closed notes render as rows" \
+    "$(journal_note_lines < <(printf 'cd34\t2026-01-01 00:00\t-\topened\topen\tstill here\nef56\t2026-01-01 00:00\tABC-2\topened, closed\tskill — r\tgone\n'))" \
+    $'| id   | note | status | resolution | ticket |\n|------|---|---|---|---|\n| cd34 | still here | open | - | - |\n| ef56 | gone | closed | skill — r | ABC-2 |'
+  tap_is "a pipe in a note is escaped" \
+    "$(journal_note_lines < <(printf 'gh78\t2026-01-01 00:00\t3d\t-\ta | b\n') | tail -1)" \
+    '| gh78 | -      | 3d  | a \| b |'
+  tap_is "empty input prints nothing, header included" \
+    "$(journal_note_lines < <(printf ''))" ""
+  tap_fails "a listing of mixed shapes is refused" \
+    journal_note_lines < <(printf 'a\t1\t2\t3\t4\nb\t1\t2\t3\t4\t5\n')
+  tap_fails "a short row is refused" journal_note_lines < <(printf 'a\tb\n')
+  tap_end
 fi

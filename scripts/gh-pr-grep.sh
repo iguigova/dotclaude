@@ -138,16 +138,17 @@ check_cap() {  # <count> <max> <globs>
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   # Every refusal is 2: a 1 there reads as "searched, nothing found".
   check_cap 121 120 '*.ts' 2>/dev/null && st=0 || st=$?
-  [[ "$st" == 2 ]] || fails+=("over-cap refusal exited $st, want 2")
-  check_cap 120 120 '*.ts' 2>/dev/null || fails+=("a count at the cap was refused")
+  tap_is "a count over the cap is refused with exit 2" "$st" 2
+  tap_run "a count at the cap is accepted" check_cap 120 120 '*.ts'
   "${BASH_SOURCE[0]}" not-a-ref needle >/dev/null 2>&1 && st=0 || st=$?
-  [[ "$st" == 2 ]] || fails+=("unrecognized ref exited $st, want 2")
+  tap_is "an unrecognized ref exits 2" "$st" 2
   "${BASH_SOURCE[0]}" only-one-arg >/dev/null 2>&1 && st=0 || st=$?
-  [[ "$st" == 2 ]] || fails+=("usage error exited $st, want 2")
+  tap_is "a usage error exits 2" "$st" 2
 
   # search_blobs against a stub fetch: a.ts holds a match, b.ts fetches with no
   # match, bad.ts fails. The exit must be 2 with a.ts's match still printed,
@@ -162,25 +163,25 @@ if [[ "${1:-}" == "--self-test" ]]; then
     esac
   }
   out=$(search_blobs needle $'a.ts\nbad.ts\nb.ts' 2>"$HEADDIR/err") && st=0 || st=$?
-  [[ "$st" == 2 ]] || fails+=("search with a failed fetch exited $st, want 2")
-  [[ "$out" == "a.ts:1:needle here" ]] || fails+=("search with a failed fetch printed '$out', want a.ts's match")
-  grep -q 'bad.ts — HTTP 502' "$HEADDIR/err" || fails+=("failed fetch did not report the path with gh's error")
-  [[ ! -e "$HEADDIR/bad.ts" ]] || fails+=("failed fetch left a cache file behind")
+  tap_is "a search with a failed fetch exits 2" "$st" 2
+  tap_is "and still prints the matches it fetched" "$out" "a.ts:1:needle here"
+  tap_run "and reports the path with gh's error" grep -q 'bad.ts — HTTP 502' "$HEADDIR/err"
+  tap_run "and leaves no cache file behind" test ! -e "$HEADDIR/bad.ts"
   search_blobs needle 'b.ts' >/dev/null 2>&1 && st=0 || st=$?
-  [[ "$st" == 1 ]] || fails+=("clean no-match exited $st, want 1")
+  tap_is "a clean miss exits 1" "$st" 1
   search_blobs needle $'b.ts\na.ts' >/dev/null 2>&1 && st=0 || st=$?
-  [[ "$st" == 0 ]] || fails+=("match exited $st, want 0")
+  tap_is "a match exits 0" "$st" 0
 
   got=$(printf 'apps/x.py\nlib/y.py\nsrc/a.tsx\nREADME.md\nMakefile\n' | globs_from_paths | tr '\n' ' ')
-  [[ "$got" == "*.md *.py *.tsx " ]] || fails+=("globs_from_paths: got '$got', want '*.md *.py *.tsx '")
+  tap_is "each extension found becomes one glob" "$got" "*.md *.py *.tsx "
 
   # An extensionless path contributes no glob rather than a bare '*.'; a '*.'
   # would match nothing and silently shrink the candidate set.
   got=$(printf 'Makefile\nDockerfile\n' | globs_from_paths | tr '\n' ' ')
-  [[ "$got" == "" ]] || fails+=("extensionless paths yielded globs: '$got'")
+  tap_is "an extensionless path yields no glob" "$got" ""
 
-  m()  { path_matches "$1" "$2" || fails+=("should match: $1 vs $2"); }
-  nm() { path_matches "$1" "$2" && fails+=("should not match: $1 vs $2"); return 0; }
+  m()  { tap_run "$1 matches ${2//$'\n'/ or }" path_matches "$1" "$2"; }
+  nm() { tap_fails "$1 does not match $2" path_matches "$1" "$2"; }
   m  "apps/libs/x.py"   '*.py'
   m  "x.py"             '*.py'
   m  "apps/libs/x.py"   'apps/*'
@@ -191,23 +192,19 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   # The last path must be a miss: that is the only arrangement the `&& printf`
   # form got wrong, and it lost the matches before it as well as its own status.
-  got=$(candidates $'apps/x.py\nREADME.md' '*.py') \
-    || fails+=("candidates exited non-zero because the last path missed")
-  [[ "$got" == "apps/x.py" ]] || fails+=("candidates: got '$got', want 'apps/x.py'")
+  got=$(candidates $'apps/x.py\nREADME.md' '*.py') && st=0 || st=$?
+  tap_is "the candidate filter survives a trailing miss" "$st" 0
+  tap_is "and keeps the paths that match" "$got" "apps/x.py"
 
   # The whole value of the helper is the pin; losing it reintroduces the
   # working-tree bug it exists to prevent.
-  grep -q 'ref=\$HEAD_SHA' "${BASH_SOURCE[0]}" || fails+=("blob fetch does not pin ?ref=\$HEAD_SHA")
-  grep -q 'recursive=1'    "${BASH_SOURCE[0]}" || fails+=("tree listing is not recursive")
-  grep -q 'truncated'      "${BASH_SOURCE[0]}" || fails+=("does not check the tree's truncated flag")
-  grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}" || fails+=("not requesting raw media type (base64 caps at 1MB)")
-  "$HERE/gh_pr_ref.py" --self-test >/dev/null 2>&1 || fails+=("gh_pr_ref.py self-test fails")
-
-  if ((${#fails[@]})); then
-    printf 'gh-pr-grep self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-grep self-test: PASS (search exits 2 with partial matches on a failed fetch, 1 on a clean miss, 0 on a match; over-cap, bad-ref and usage refusals exit 2; glob derivation over 2 cases, path matching over 7, candidate filter survives a trailing miss, head_sha pin and truncation check asserted)"
-  exit 0
+  tap_run "the blob fetch pins ?ref=\$HEAD_SHA" grep -q 'ref=\$HEAD_SHA' "${BASH_SOURCE[0]}"
+  tap_run "the tree listing is recursive" grep -q 'recursive=1' "${BASH_SOURCE[0]}"
+  tap_run "the tree's truncated flag is checked" grep -q 'truncated' "${BASH_SOURCE[0]}"
+  tap_run "the raw media type is requested, as base64 caps at 1MB" \
+    grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}"
+  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_end
 fi
 
 # From here on an unexpected failure exits 2, never set -e's 1 (which would

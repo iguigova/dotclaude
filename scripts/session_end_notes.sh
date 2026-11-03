@@ -100,16 +100,17 @@ start_run() {
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local rc=0 tmp out repo e2e
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp out repo e2e
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   # Every run started below, and every process it starts, inherits these, so no
   # case can snapshot the real repos.
   export SESSION_END_REPOS="$tmp"
   check() {  # DESCRIPTION WANT-PREFIX GOT
-    if [[ "$3" == "$2"* ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want prefix: %s\n    got:         %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$3" == "$2"* ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want prefix: $2" "got:         $3"; fi
   }
-  echo "session_end_notes.sh --self-test"
 
   check "no session id is a skip, never a run" "skip: the payload carried no session id" \
     "$(decide "$tmp" "")"
@@ -189,10 +190,9 @@ self_test() {
     "$(drive "not json at all" --dry-run >/dev/null 2>&1; echo $?)"
   check "every firing left a line in the log, skips included" "3" \
     "$(grep -c "^20" "$tmp/e2e.log")"
-  return $rc
 }
 
-[[ "${1:-}" == --self-test ]] && { self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { self_test; tap_end; }
 
 DRY=0
 [[ "${1:-}" == --dry-run ]] && DRY=1

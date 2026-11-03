@@ -13,13 +13,17 @@ FILE is standard Markdown: **bold**, _italic_, `code`, [text](url),
 becomes a real ``rich_text_list``. A message's plain ``text`` field is
 mrkdwn, which has no lists, so a ``•`` line sent there stays a
 character. ``text`` carries a plain copy as the notification fallback.
+A pipe table (``| a | b |``, a ``|---|--:|`` line under its header)
+becomes a ``table`` block, its alignment kept; a fenced block stays
+monospace text.
 
 ``post`` sends the message, in the thread at TS with ``--thread``, also
 to the channel with ``--broadcast``. CHANNEL may be a user id, which sends
 a direct message; the read-back and the printed ``edit`` hint then use the
 DM's own channel id. ``edit`` replaces the message at
 TS whole. Either then reads the message back, checks that every list
-item in FILE arrived as a list item, and prints its permalink. A
+item in FILE arrived as a list item and every table row as a table row,
+and prints its permalink. A
 mismatch exits 1 and says so; the message is already posted, so the
 fix is an ``edit``. ``--dry-run`` prints the payload and sends nothing.
 
@@ -34,8 +38,12 @@ message that has replies.
 Raw ``<``, ``>`` and ``&`` arrive as written, so FILE needs no escaping.
 Slack caps all ``markdown`` blocks in one payload at 12,000 characters
 (https://docs.slack.dev/reference/block-kit/blocks/markdown-block);
-longer text is refused before sending, and so is a line that starts
-with a typed ``•`` or ``–``, which would post as a character.
+longer text is refused before sending. So is a table over Slack's
+limits of 100 rows, 20 cells a row and 10,000 characters of cells across
+the message
+(https://docs.slack.dev/reference/block-kit/blocks/table-block), and a
+line that starts with a typed ``•`` or ``–``, which would post as a
+character.
 
 It writes with the project's ``.secrets/slack-token-write`` (chat:write
 only) and reads back with ``.secrets/slack-token``;
@@ -51,6 +59,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from tap import Tap
+
 SLACK_API = 'https://slack.com/api'
 MARKDOWN_LIMIT = 12000
 TIMEOUT = 30
@@ -60,6 +70,9 @@ GONE = 'thread_not_found'
 LIST_ITEM = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+\S')
 FENCE = re.compile(r'^\s*(```|~~~)')
 TYPED_BULLET = re.compile(r'(?m)^\s*[•–]\s')
+TABLE_ROW = re.compile(r'^\s*\|.*\|\s*$')
+TABLE_RULE = re.compile(r'^:?-+:?$')
+TABLE_ROWS, TABLE_CELLS, TABLE_CHARS = 100, 20, 10000
 
 
 class SlackError(Exception):
@@ -75,7 +88,10 @@ class SlackError(Exception):
 
 def text_of(path):
     """FILE's Markdown, or SlackError when it cannot be sent."""
-    text = Path(path).read_text().strip()
+    try:
+        text = Path(path).read_text().strip()
+    except OSError as error:
+        raise SlackError(f'{path} cannot be read: {error.strerror}')
     if not text:
         raise SlackError(f'{path} is empty; nothing sent')
     if len(text) > MARKDOWN_LIMIT:
@@ -84,7 +100,41 @@ def text_of(path):
     if TYPED_BULLET.search(text):
         raise SlackError(f'{path} has a line starting with a typed bullet; '
                          f'write a list item as "- " so it renders as one')
+    over = over_limits(table_rows(text))
+    if over:
+        raise SlackError(f'{path} has {"; ".join(over)}; Slack refuses '
+                         f'such a table, so split it across messages')
     return text
+
+
+def over_limits(rows):
+    """Each table limit the rows exceed."""
+    chars = sum(len(cell) for row in rows for cell in row)
+    return [problem for problem, exceeded in [
+        (f'{len(rows)} table rows, over {TABLE_ROWS}', len(rows) > TABLE_ROWS),
+        (f'a table row of over {TABLE_CELLS} cells',
+         any(len(row) > TABLE_CELLS for row in rows)),
+        (f'{chars} characters of table cells, over {TABLE_CHARS}',
+         chars > TABLE_CHARS)] if exceeded]
+
+
+def cells(line):
+    """The cells of one pipe-table line."""
+    return [cell.strip() for cell in line.strip().strip('|').split('|')]
+
+
+def table_rows(markdown):
+    """Each pipe-table row outside code fences, as its cells; the rule
+    line under a header is not a row."""
+    rows, fenced = [], False
+    for line in markdown.splitlines():
+        if FENCE.match(line):
+            fenced = not fenced
+        elif not fenced and TABLE_ROW.match(line):
+            row = cells(line)
+            if not all(TABLE_RULE.match(cell) for cell in row):
+                rows.append(row)
+    return rows
 
 
 def fallback(markdown):
@@ -135,12 +185,21 @@ def rendered_items(msg):
                if element.get('type') == 'rich_text_list')
 
 
+def rendered_rows(msg):
+    """Table rows in a message as Slack stored it."""
+    return sum(len(block.get('rows', []))
+               for block in msg.get('blocks', [])
+               if block.get('type') == 'table')
+
+
 def verdict(markdown, msg):
-    """None when every list item arrived as one, else what went wrong."""
-    want, got = expected_items(markdown), rendered_items(msg)
-    if want == got:
-        return None
-    return f'{want} list items written, {got} rendered'
+    """None when every list item and table row arrived as one, else
+    what went wrong."""
+    counts = [('list items', expected_items(markdown), rendered_items(msg)),
+              ('table rows', len(table_rows(markdown)), rendered_rows(msg))]
+    problems = [f'{want} {what} written, {got} rendered'
+                for what, want, got in counts if want != got]
+    return '; '.join(problems) or None
 
 
 def pick(messages, ts):
@@ -347,8 +406,16 @@ SAMPLE = """**Outcome** with `pi_1` and [a link](https://x.invalid).
 
 ```
 - not a list item
+| not | a row |
 ```
+
+| group | count |
+|---|--:|
+| Surgery | 24 |
 """
+
+STORED_TABLE = {'type': 'table', 'rows': [[{}, {}], [{}, {}]],
+                'column_settings': [{}, {'align': 'right'}]}
 
 STORED = {'blocks': [{'type': 'rich_text', 'elements': [
     {'type': 'rich_text_section', 'elements': []},
@@ -357,15 +424,16 @@ STORED = {'blocks': [{'type': 'rich_text', 'elements': [
     {'type': 'rich_text_list', 'style': 'bullet', 'indent': 1,
      'elements': [{'type': 'rich_text_section'}]},
     {'type': 'rich_text_list', 'style': 'ordered', 'indent': 0,
-     'elements': [{'type': 'rich_text_section'}]}]}]}
+     'elements': [{'type': 'rich_text_section'}]}]}, STORED_TABLE]}
+
+
+SELF_TEST = Tap()
 
 
 def check(name, expected, actual):
-    ok = expected == actual
-    print(f'  {"ok" if ok else "FAIL"}  {name}')
-    if not ok:
-        print(f'        expected {expected!r}\n        got      {actual!r}')
-    return ok
+    return SELF_TEST.check(
+        expected == actual, name,
+        f'expected {expected!r}', f'got      {actual!r}')
 
 
 def refused(path):
@@ -411,65 +479,73 @@ def self_test(tmp):
     typed.write_text('Intro\n\n• a typed bullet\n')
     long_.write_text('x' * (MARKDOWN_LIMIT + 1))
     reply = post_payload('C1', 'x', thread='1.2', broadcast=True)
-    results = [
-        check('list items counted, nested ones too, fenced ones not',
-              3, expected_items(SAMPLE)),
-        check('stored list items counted across lists', 3,
-              rendered_items(STORED)),
-        check('a message that rendered its lists passes', None,
-              verdict(SAMPLE, STORED)),
-        check('bullets sent as text are caught',
-              '3 list items written, 0 rendered', verdict(SAMPLE, plain)),
-        check('the Markdown goes in one markdown block',
-              [{'type': 'markdown', 'text': 'x'}], reply['blocks']),
-        check('a thread reply can also go to the channel',
-              ('1.2', True), (reply['thread_ts'], reply['reply_broadcast'])),
-        check('a top-level post names no thread', False,
-              'thread_ts' in post_payload('C1', 'x')),
-        check('broadcast without a thread is ignored', False,
-              'reply_broadcast' in post_payload('C1', 'x', broadcast=True)),
-        check('an edit replaces text and blocks at ts',
-              ('C1', '1.2', 'x'), tuple(edit_payload('C1', '1.2', 'x')[k]
-                                       for k in ('channel', 'ts', 'text'))),
-        check('the fallback drops marks and keeps the words',
-              'Outcome with pi_1 and a link.\n\n• first\n  • nested',
-              fallback('**Outcome** with `pi_1` and [a link](https://x)'
-                       '.\n\n- first\n  - nested')),
-        check('the read-back uses the channel the post landed in',
-              ('D1', '1.2'), posted_at({'channel': 'D1', 'ts': '1.2'})),
-        check('the read-back picks the message by ts', '2',
-              pick([{'ts': '1'}, {'ts': '2'}], '2')['ts']),
-        check('an empty file is refused', True, refused(empty)),
-        check('text over the block limit is refused', True, refused(long_)),
-        check('a typed bullet is refused', True, refused(typed)),
-        check('the sample is accepted', False, refused_text(tmp, SAMPLE)),
-        check('a missing image is refused', True, image_refused(tmp, None)),
-        check('an empty image is refused', True, image_refused(tmp, b'')),
-        check('an image with bytes is read', False,
-              image_refused(tmp, b'\x89PNG')),
-        check('an image replies in the thread it was posted to', '1.2',
-              image_thread('1.2', '3.4')),
-        check('an image replies under a top-level post', '3.4',
-              image_thread(None, '3.4')),
-        check('the upload names the file and its size',
-              {'filename': 'a.png', 'length': 4},
-              upload_fields('a.png', b'\x89PNG')),
-        check('the upload is shared in the thread it names',
-              {'files': '[{"id": "F1", "title": "a.png"}]',
-               'channel_id': 'C1', 'thread_ts': '1.2'},
-              complete_fields('F1', 'a.png', 'C1', '1.2')),
-        check('a delete names the channel and ts',
-              {'channel': 'C1', 'ts': '1.2'}, delete_payload('C1', '1.2')),
-        check('a deleted message with replies reads back as gone', True,
-              gone({'ts': '1.2', 'subtype': 'tombstone'})),
-        check('a missing message reads back as gone', True, gone(None)),
-        check('a message still posted is not gone', False,
-              gone({'ts': '1.2', 'text': 'x'})),
-        check("an error keeps Slack's code", 'thread_not_found',
-              error_code({'ok': False, 'error': 'thread_not_found'})),
-    ]
-    print('slack_post self-test:', 'PASS' if all(results) else 'FAIL')
-    return 0 if all(results) else 1
+    check('list items counted, nested ones too, fenced ones not',
+          3, expected_items(SAMPLE))
+    check('stored list items counted across lists', 3,
+          rendered_items(STORED))
+    check('a message that rendered its lists passes', None,
+          verdict(SAMPLE, STORED))
+    check('bullets and a table sent as text are caught',
+          '3 list items written, 0 rendered; '
+          '2 table rows written, 0 rendered', verdict(SAMPLE, plain))
+    check('table rows counted, the rule line and fenced ones not',
+          [['group', 'count'], ['Surgery', '24']], table_rows(SAMPLE))
+    check('stored table rows counted', 2, rendered_rows(STORED))
+    check('a table within the limits passes', [],
+          over_limits([['a'] * TABLE_CELLS] * TABLE_ROWS))
+    check('a table over each limit is refused, each named', 3,
+          len(over_limits([['x' * 100] * (TABLE_CELLS + 1)]
+                          * (TABLE_ROWS + 1))))
+    check('a missing file is refused', True,
+          refused(Path(tmp) / 'absent.md'))
+    check('the Markdown goes in one markdown block',
+          [{'type': 'markdown', 'text': 'x'}], reply['blocks'])
+    check('a thread reply can also go to the channel',
+          ('1.2', True), (reply['thread_ts'], reply['reply_broadcast']))
+    check('a top-level post names no thread', False,
+          'thread_ts' in post_payload('C1', 'x'))
+    check('broadcast without a thread is ignored', False,
+          'reply_broadcast' in post_payload('C1', 'x', broadcast=True))
+    check('an edit replaces text and blocks at ts',
+          ('C1', '1.2', 'x'), tuple(edit_payload('C1', '1.2', 'x')[k]
+                                   for k in ('channel', 'ts', 'text')))
+    check('the fallback drops marks and keeps the words',
+          'Outcome with pi_1 and a link.\n\n• first\n  • nested',
+          fallback('**Outcome** with `pi_1` and [a link](https://x)'
+                   '.\n\n- first\n  - nested'))
+    check('the read-back uses the channel the post landed in',
+          ('D1', '1.2'), posted_at({'channel': 'D1', 'ts': '1.2'}))
+    check('the read-back picks the message by ts', '2',
+          pick([{'ts': '1'}, {'ts': '2'}], '2')['ts'])
+    check('an empty file is refused', True, refused(empty))
+    check('text over the block limit is refused', True, refused(long_))
+    check('a typed bullet is refused', True, refused(typed))
+    check('the sample is accepted', False, refused_text(tmp, SAMPLE))
+    check('a missing image is refused', True, image_refused(tmp, None))
+    check('an empty image is refused', True, image_refused(tmp, b''))
+    check('an image with bytes is read', False,
+          image_refused(tmp, b'\x89PNG'))
+    check('an image replies in the thread it was posted to', '1.2',
+          image_thread('1.2', '3.4'))
+    check('an image replies under a top-level post', '3.4',
+          image_thread(None, '3.4'))
+    check('the upload names the file and its size',
+          {'filename': 'a.png', 'length': 4},
+          upload_fields('a.png', b'\x89PNG'))
+    check('the upload is shared in the thread it names',
+          {'files': '[{"id": "F1", "title": "a.png"}]',
+           'channel_id': 'C1', 'thread_ts': '1.2'},
+          complete_fields('F1', 'a.png', 'C1', '1.2'))
+    check('a delete names the channel and ts',
+          {'channel': 'C1', 'ts': '1.2'}, delete_payload('C1', '1.2'))
+    check('a deleted message with replies reads back as gone', True,
+          gone({'ts': '1.2', 'subtype': 'tombstone'}))
+    check('a missing message reads back as gone', True, gone(None))
+    check('a message still posted is not gone', False,
+          gone({'ts': '1.2', 'text': 'x'}))
+    check("an error keeps Slack's code", 'thread_not_found',
+          error_code({'ok': False, 'error': 'thread_not_found'}))
+    return SELF_TEST.end()
 
 
 def main():

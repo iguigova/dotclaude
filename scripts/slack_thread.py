@@ -33,6 +33,8 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from tap import Tap
+
 SLACK_API = 'https://slack.com/api'
 TIMEOUT = 30
 
@@ -185,12 +187,13 @@ def read(link, out):
 
 # ── Self-test ────────────────────────────────────────────────────────
 
+SELF_TEST = Tap()
+
+
 def check(name, expected, actual):
-    ok = expected == actual
-    print(f'  {"ok" if ok else "FAIL"}  {name}')
-    if not ok:
-        print(f'        expected {expected!r}\n        got      {actual!r}')
-    return ok
+    return SELF_TEST.check(
+        expected == actual, name,
+        f'expected {expected!r}', f'got      {actual!r}')
 
 
 def refused(link):
@@ -224,35 +227,32 @@ def self_test():
             {'user': 'U2', 'ts': '1792703411.000100', 'text': 'Yes'}]
     md = render('C1', {'name': 'product', 'purpose': {'value': 'P'}}, msgs,
                 {'U1': 'Ann', 'U2': 'Bo'}, {'F1': '/o/files/F1-a.png'})
-    results = [
-        check('a parent link gives its own ts',
-              ('C0123ABCDEF', '1792703410.430689'), parse_link(base)),
-        check('a reply link reads its parent thread',
-              ('C0123ABCDEF', '1792703410.430689'),
-              parse_link(base[:-6] + '999999?thread_ts=1792703410.430689'
-                         '&cid=C0123ABCDEF')),
-        check('a link that is not a message is refused', True,
-              refused('https://x.slack.com/archives/C1')),
-        check('authors include people only mentioned', ['U1', 'U2'],
-              authors(msgs)),
-        check('mentions render as names', True, 'Hi @Bo' in md),
-        check('each person is listed beside the id that tags them', True,
-              'People:\n- Ann — <@U1>\n- Bo — <@U2>\n' in md),
-        check('each message is headed by author, ts and UTC time', True,
-              '## Ann — ts 1792703410.430689 — 2026-10-22 21:10 UTC' in md),
-        check('a file is named by where it was saved', True,
-              '- file: /o/files/F1-a.png' in md),
-        check('the channel and its purpose lead', True,
-              md.startswith('# #product (C1)\n\nPurpose: P')),
-        check('a file Slack refuses is named with its status',
-              'a.png (not downloaded: HTTP 401)', download_refused(401)),
-        check('a file name cannot leave its directory', 'passwd',
-              safe_name('../../etc/passwd')),
-        check('a file name keeps no shell characters', 'a_b_.png',
-              safe_name('a b$.png')),
-    ]
-    print('slack_thread self-test:', 'PASS' if all(results) else 'FAIL')
-    return 0 if all(results) else 1
+    check('a parent link gives its own ts',
+          ('C0123ABCDEF', '1792703410.430689'), parse_link(base))
+    check('a reply link reads its parent thread',
+          ('C0123ABCDEF', '1792703410.430689'),
+          parse_link(base[:-6] + '999999?thread_ts=1792703410.430689'
+                     '&cid=C0123ABCDEF'))
+    check('a link that is not a message is refused', True,
+          refused('https://x.slack.com/archives/C1'))
+    check('authors include people only mentioned', ['U1', 'U2'],
+          authors(msgs))
+    check('mentions render as names', True, 'Hi @Bo' in md)
+    check('each person is listed beside the id that tags them', True,
+          'People:\n- Ann — <@U1>\n- Bo — <@U2>\n' in md)
+    check('each message is headed by author, ts and UTC time', True,
+          '## Ann — ts 1792703410.430689 — 2026-10-22 21:10 UTC' in md)
+    check('a file is named by where it was saved', True,
+          '- file: /o/files/F1-a.png' in md)
+    check('the channel and its purpose lead', True,
+          md.startswith('# #product (C1)\n\nPurpose: P'))
+    check('a file Slack refuses is named with its status',
+          'a.png (not downloaded: HTTP 401)', download_refused(401))
+    check('a file name cannot leave its directory', 'passwd',
+          safe_name('../../etc/passwd'))
+    check('a file name keeps no shell characters', 'a_b_.png',
+          safe_name('a b$.png'))
+    return SELF_TEST.end()
 
 
 def main():

@@ -105,6 +105,9 @@ import subprocess
 import sys
 import tempfile
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from tap import Tap  # noqa: E402
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 THRESHOLD = 1000
 PARSER_PIN = "tree-sitter-language-pack==1.22.1"
@@ -624,30 +627,27 @@ def _entry(path: str, status: str, added: "list[int]",
 
 
 def _self_test(get_parser) -> int:
-    fails = []
-
-    def want(cond: bool, msg: str) -> None:
-        if not cond:
-            fails.append(msg)
+    t = Tap()
+    want = t.check
 
     # Each grammar: every function found, each count as hand-counted.
     for lang, (path, source, expected) in FIXTURES.items():
         tree = parse(get_parser, lang, source)
-        want(not tree.root_node.has_error, f"{lang} fixture does not parse")
+        want(not tree.root_node.has_error, f"the {lang} fixture parses", f"{lang} fixture does not parse")
         fns = functions(tree.root_node, GRAMMARS[lang])
         got = {f["name"]: metrics(f, GRAMMARS[lang]) for f in fns}
         want(set(got) == set(expected),
-             f"{lang} functions {sorted(got)}, want {sorted(expected)}")
+             f"every {lang} function is found", f"{lang} functions {sorted(got)}, want {sorted(expected)}")
         for name, want_m in expected.items():
             want(got.get(name) == want_m,
-                 f"{lang} {name}: {got.get(name)}, want {want_m}")
+                 f"{lang} {name} measures as hand-counted", f"{lang} {name}: {got.get(name)}, want {want_m}")
 
     # A changed line belongs to its innermost function only.
     path, source, _ = FIXTURES["python"]
     edit = _entry(path, "modified", [13], [])
     rows = file_record(edit, source, source, get_parser)["functions"]
     want([r["name"] for r in rows] == ["K.inner_host.inner"],
-         f"line 13 owners {[r['name'] for r in rows]}")
+         "a changed line belongs to its innermost function only", f"line 13 owners {[r['name'] for r in rows]}")
 
     # Matching: a branch added to K.m is a modified row with both shapes; a
     # function only at the head is added; one only at the base is removed.
@@ -658,28 +658,28 @@ def _self_test(get_parser) -> int:
                       base, head, get_parser)
     by = {r["name"]: r for r in rec["functions"]}
     want(by.get("keep", {}).get("complexity") == [1, 2]
-         and by["keep"]["status"] == "modified", f"keep row {by.get('keep')}")
+         and by["keep"]["status"] == "modified", "a branch added to a function is a modified row with both shapes", f"keep row {by.get('keep')}")
     want(by.get("new", {}).get("status") == "added"
-         and by["new"]["params"] == [None, 2], f"new row {by.get('new')}")
+         and by["new"]["params"] == [None, 2], "a function only at the head is added", f"new row {by.get('new')}")
     want(by.get("gone", {}).get("status") == "removed"
-         and by["gone"]["lines"] == [2, None], f"gone row {by.get('gone')}")
+         and by["gone"]["lines"] == [2, None], "a function only at the base is removed", f"gone row {by.get('gone')}")
     want(rec["functions"][0]["name"] == "keep",
-         f"function rank {[r['name'] for r in rec['functions']]}")
+         "functions rank by the complexity and nesting they gained", f"function rank {[r['name'] for r in rec['functions']]}")
 
     # Size: a crossing is base at or under the threshold and head over it.
     cross = file_record(_entry("big.py", "modified", [], []),
                         "x = 1\n" * 990, "x = 1\n" * 1011, get_parser)
     over = file_record(_entry("over.py", "modified", [], []),
                        "x = 1\n" * 1010, "x = 1\n" * 1020, get_parser)
-    want(cross["crosses_threshold"], "990 -> 1011 lines must cross")
-    want(not over["crosses_threshold"], "1010 -> 1020 is over, not crossing")
+    want(cross["crosses_threshold"], "990 to 1011 lines crosses the threshold", "990 -> 1011 lines must cross")
+    want(not over["crosses_threshold"], "1010 to 1020 is over, not crossing", "1010 -> 1020 is over, not crossing")
 
     # No grammar: size only, functions and parse errors unknown. A broken
     # parse names its commit, its lines and the function they fall in.
     haml = file_record(_entry("v.haml", "modified", [1], []), "%p\n",
                        "%p\n%p\n", get_parser)
     want(haml["functions"] is None and haml["parse_errors"] is None
-         and haml["lines_head"] == 2, f"haml record {haml}")
+         and haml["lines_head"] == 2, "a file with no grammar is measured by size alone", f"haml record {haml}")
     clean = "def clean(a):\n    return a\n"
     broken = file_record(
         _entry("b.py", "modified", [4, 5], []), clean,
@@ -687,8 +687,8 @@ def _self_test(get_parser) -> int:
     want(broken["parse_errors"] == [
         {"commit": "head", "lines": [5, 5], "function": "hit"},
         {"commit": "head", "lines": [7, 7], "function": None}],
-         f"broken parse errors {broken['parse_errors']}")
-    want(rec["parse_errors"] == [], f"clean parse errors {rec['parse_errors']}")
+         "a broken parse names its commit, its lines and its function", f"broken parse errors {broken['parse_errors']}")
+    want(rec["parse_errors"] == [], "a clean parse has no errors", f"clean parse errors {rec['parse_errors']}")
     # One error over a function and a line it hides is two runs, and a trailing
     # newline adds no line: acme-hub's HomeLocationTCForm.tsx, shrunk.
     section = "const Section = ({\n}: Props) => (\n  <div>{t}</div>\n);\n"
@@ -697,7 +697,7 @@ def _self_test(get_parser) -> int:
     want(wrapped["parse_errors"] == [
         {"commit": "head", "lines": [1, 4], "function": "Section"},
         {"commit": "head", "lines": [5, 5], "function": None}],
-         f"wrapped parse errors {wrapped['parse_errors']}")
+         "one error over a function and a line it hides is two runs", f"wrapped parse errors {wrapped['parse_errors']}")
 
     # Test paths, and only test paths, are marked; tests rank last.
     for tpath, is_test in {"spec/a_spec.rb": True, "app/tests/x.py": True,
@@ -705,12 +705,12 @@ def _self_test(get_parser) -> int:
                            "test_x.py": True, "app/latest.rb": False,
                            "app/contest_service.rb": False}.items():
         got = bool(TEST_RE.search(tpath))
-        want(got == is_test, f"test({tpath}) = {got}, want {is_test}")
+        want(got == is_test, f"{tpath} is marked a test: {is_test}", f"test({tpath}) = {got}, want {is_test}")
     spec = file_record(_entry("spec/z_spec.rb", "modified", [], []), "", "",
                        get_parser)
     order = [r["path"] for r in rank([spec, rec, over, cross])]
     want(order == ["big.py", "m.py", "over.py", "spec/z_spec.rb"],
-         f"file rank {order}")
+         "files rank a threshold crossing first, then by gain, tests last", f"file rank {order}")
 
     # A rename is read at the merge base under its old path; an added file is
     # never read there, so a stray file at its path cannot leak in.
@@ -721,24 +721,15 @@ def _self_test(get_parser) -> int:
         renamed = {"path": "new.py", "old_path": "old.py",
                    "status": "modified"}
         added = {"path": "fresh.py", "old_path": None, "status": "added"}
-        want(base_text(tmp, renamed) == "a\nb\n", "rename not read at old path")
-        want(base_text(tmp, added) == "", "an added file was read at the base")
+        want(base_text(tmp, renamed) == "a\nb\n", "a rename is read at its old path", "rename not read at old path")
+        want(base_text(tmp, added) == "", "an added file is never read at the base", "an added file was read at the base")
 
     # Deleted files and non-source files are skipped, not measured.
-    want(not measurable(_entry("gone.py", "deleted", [], [])), "deleted kept")
-    want(not measurable(_entry("README.md", "modified", [], [])), ".md kept")
-    want(measurable(_entry("app/x.rb", "modified", [], [])), ".rb skipped")
+    want(not measurable(_entry("gone.py", "deleted", [], [])), "a deleted file is not measured", "deleted kept")
+    want(not measurable(_entry("README.md", "modified", [], [])), "a .md file is not measured", ".md kept")
+    want(measurable(_entry("app/x.rb", "modified", [], [])), "a .rb file is measured", ".rb skipped")
 
-    if fails:
-        print("gh-pr-structure self-test: FAIL\n  " + "\n  ".join(fails),
-              file=sys.stderr)
-        return 1
-    print(f"gh-pr-structure self-test: PASS ({len(FIXTURES)} grammars against "
-          "hand-counted fixtures, innermost-function ownership, "
-          "modified/added/removed matching, threshold crossing, no-grammar "
-          "files, parse errors split into runs by commit, line and function, "
-          "test-path marking, ranking, rename base path, skip rules)")
-    return 0
+    return t.end()
 
 
 def main() -> None:

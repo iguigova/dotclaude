@@ -37,12 +37,13 @@ ssn_report() {
 }
 
 ssn_self_test() {
-  local rc=0 fx out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local fx out
   check() {  # DESCRIPTION WANT GOT
-    if [ "$2" = "$3" ]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [ "$2" = "$3" ]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "session_start_notes.sh --self-test"
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
 
   {
@@ -83,10 +84,9 @@ ssn_self_test() {
   out=$(printf '{"cwd":"%s","source":"startup"}' "$fx/proj" | bash "$SELF_DIR/session_start_notes.sh")
   check "the payload's cwd selects the project" 'notes: 4 open' \
     "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')"
-  return $rc
 }
 
-[ "${1:-}" = "--self-test" ] && { ssn_self_test; exit $?; }
+[ "${1:-}" = "--self-test" ] && { ssn_self_test; tap_end; }
 
 # The payload names the session's directory; without one, this process's own.
 payload=$(timeout 2 cat 2>/dev/null || true)

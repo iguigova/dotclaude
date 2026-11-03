@@ -24,19 +24,18 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
   printf 'x' > "$tmp/a.png"; printf 'y' > "$tmp/b.png"
   out=$("$self" --dry-run XYZ-0 "$tmp/a.png" "$tmp/b.png")
-  sed -n 1p <<<"$out" | grep -qx 'POST /rest/api/2/issue/XYZ-0/attachments' \
-    || { echo "self-test: does not POST to the v2 attachments endpoint" >&2; exit 1; }
-  [[ "$(sed 1d <<<"$out")" == "$tmp/a.png"$'\n'"$tmp/b.png" ]] \
-    || { echo "self-test: dry run does not list every file in order" >&2; exit 1; }
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
+  tap_is "the files are POSTed to the v2 attachments endpoint" \
+    "$(sed -n 1p <<<"$out")" 'POST /rest/api/2/issue/XYZ-0/attachments'
+  tap_is "a dry run lists every file in order" \
+    "$(sed 1d <<<"$out")" "$tmp/a.png"$'\n'"$tmp/b.png"
   # One unreadable file refuses the whole call, so nothing is half-attached.
-  if "$self" --dry-run XYZ-0 "$tmp/a.png" "$tmp/missing.png" >/dev/null 2>&1; then
-    echo "self-test: a missing file was accepted" >&2; exit 1
-  fi
-  if "$self" --dry-run not-a-key "$tmp/a.png" >/dev/null 2>&1; then
-    echo "self-test: a malformed issue key was accepted" >&2; exit 1
-  fi
-  echo "jira-attach self-test: PASS"
-  exit 0
+  tap_fails "a missing file is refused" \
+    "$self" --dry-run XYZ-0 "$tmp/a.png" "$tmp/missing.png"
+  tap_fails "a malformed issue key is refused" \
+    "$self" --dry-run not-a-key "$tmp/a.png"
+  tap_end
 fi
 [[ "${1:-}" == "--dry-run" ]] && { DRY_RUN=1; shift; }
 

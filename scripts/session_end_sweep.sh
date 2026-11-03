@@ -122,7 +122,9 @@ hook() {  # <dry> — reads the payload on stdin
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local tmp rc=0 out p
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp out p
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   export SESSION_END_LOG="$tmp/log" SESSION_END_SWEEP_STATE="$tmp/state"
   export SESSION_END_SWEEP_CMD="$tmp/sweep"
@@ -132,10 +134,9 @@ self_test() {
   printf '#!/usr/bin/env bash\necho "SWEPT $1 $2 sid=${CLAUDE_CODE_SESSION_ID-unset}"; exit 1\n' >"$SWEEP"
   chmod +x "$SWEEP"
   check() {  # <description> <want prefix> <got>
-    if [[ "$3" == "$2"* ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3"; rc=1; fi
+    if [[ "$3" == "$2"* ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "session_end_sweep.sh --self-test"
 
   p="$tmp/project"; mkdir -p "$p/.claude" "$p/api/repo"
   : >"$p/.claude/session_history.md"
@@ -182,11 +183,10 @@ self_test() {
     [[ "$(grep -c 'run finished' "$LOG")" -ge 2 ]] && break; sleep 0.1; done
   check "the hook detaches a run that reaches the log" "2" \
     "$(grep -c '^SWEPT' "$LOG")"
-  return "$rc"
 }
 
 case "${1:-}" in
-  --self-test) self_test; exit $? ;;
+  --self-test) self_test; tap_end ;;
   --run)       mkdir -p "$STATE" "$(dirname "$LOG")"; run "$2"; exit 0 ;;
   --dry-run)   mkdir -p "$STATE" "$(dirname "$LOG")"; hook 1; exit 0 ;;
   "")          mkdir -p "$STATE" "$(dirname "$LOG")"; hook 0; exit 0 ;;

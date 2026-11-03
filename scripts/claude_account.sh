@@ -142,7 +142,9 @@ print(json.dumps({"systemMessage": "Wrong Claude account: this session runs on %
 # ---------------------------------------------------------------- self-test
 # A fake HOME, with a project that names its account and a dir that does not.
 self_test() {
-  local d rc=0 self out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local d self out
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
   unset CLAUDE_CONFIG_DIR  # a session under an account runs this test too
@@ -161,10 +163,9 @@ J
   sync() { HOME="$d/home" "$self" sync "$acct" >/dev/null 2>&1; echo $?; }
   json() { python3 -c "import json,sys;d=json.load(open('$acct/.claude.json'));print($1)"; }
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else echo "  FAIL $1 — want $2, got $3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
-  echo "claude_account.sh --self-test"
 
   check "a first sync is clean" 0 "$(sync)"
   check "a shared entry is linked" "$d/home/.claude/CLAUDE.md" "$(readlink "$acct/CLAUDE.md")"
@@ -183,14 +184,14 @@ J
 
   mkdir "$d/home/.claude/plans"; echo own > "$acct/plans"
   check "a real entry in the way is a conflict" 1 "$(sync)"
-  check "and is kept" own "$(cat "$acct/plans")"
+  check "and the entry in the way is kept" own "$(cat "$acct/plans")"
   rm "$acct/plans"
 
   mkdir "$acct/agents"
   HOME="$d/home" "$self" sync "$acct" >/dev/null 2>"$d/err"; local orc=$?
   check "an entry only the account has is reported" 1 "$orc"
   check "and named on stderr" 0 "$(grep -q 'agents is only in this account' "$d/err" && echo 0 || echo 1)"
-  check "and is kept" present "$([[ -d $acct/agents ]] && echo present || echo absent)"
+  check "and the account's own entry is kept" present "$([[ -d $acct/agents ]] && echo present || echo absent)"
   mkdir "$acct/sessions"; touch "$acct/policy-limits.json.signature.json"
   HOME="$d/home" "$self" sync "$acct" 2>"$d/err" >/dev/null
   check "an account-bound entry is not reported" 1 "$(grep -q 'sessions' "$d/err" && echo 0 || echo 1)"
@@ -230,12 +231,11 @@ J
     "$([[ "$out" == *"runs on $acct"*"uses $d/home/.claude"* ]] && echo 0 || echo 1)"
   check "check emits JSON the harness can read" 0 \
     "$(python3 -c 'import json,sys;json.loads(sys.argv[1])' "$out" >/dev/null 2>&1 && echo 0 || echo 1)"
-  return $rc
 }
 
 # ---------------------------------------------------------------- main
 case "${1:-}" in
-  --self-test) self_test; exit $? ;;
+  --self-test) self_test; tap_end ;;
   dir) ca_dir ;;
   check) ca_check ;;
   sync) (( $# == 2 )) || { echo "usage: claude_account.sh sync <dir>" >&2; exit 2; }

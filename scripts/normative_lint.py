@@ -34,6 +34,8 @@ import html
 import re
 import sys
 
+from tap import Tap
+
 PHRASES = [
     r"previously",
     r"used to be",
@@ -112,22 +114,19 @@ def self_test():
         "Retry now, or wait.", "Added to the queue on arrival.",
         '<a href="https://x.invalid/previously-asked">FAQ</a>',
     ]
-    failures = [s for s in flagged if not hits(s)]
-    failures += [f"benign: {s}" for s in benign if hits(s)]
+    t = Tap()
+    for phrase in flagged:
+        t.check(bool(hits(phrase)), f"flagged: {phrase}")
+    for phrase in benign:
+        t.check(not hits(phrase), f"cleared: {phrase}")
     storage = ('<p class="improved">Intro</p>\n<ac:structured-macro\n'
                'ac:name="info"><p>The cap &mdash; previously\n'
                '30, and it no&nbsp;longer pages.</p>')
     got = [(n, p.replace("\xa0", " ")) for n, p, _ in hits(storage)]
-    if got != [(3, "previously"), (4, "no longer")]:
-        failures.append(f"storage: tags kept or line moved: {got}")
-    if failures:
-        print("normative_lint self-test: FAIL", *failures, sep="\n  ",
-              file=sys.stderr)
-        return 1
-    print(f"normative_lint self-test: PASS ({len(flagged)} phrases flagged, "
-          f"{len(benign)} look-alikes cleared, a storage body read as its "
-          "text: tags dropped, entities decoded, line numbers kept)")
-    return 0
+    t.check(got == [(3, "previously"), (4, "no longer")],
+            "a storage body is read as its text: tags dropped, entities"
+            " decoded, line numbers kept", f"got {got}")
+    return t.end()
 
 
 def main():

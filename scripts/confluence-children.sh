@@ -45,15 +45,13 @@ STUB
   want_flat='[["2","1"],["3","1"]]'
   want_tree='[["2","1"],["3","1"],["4","2"]]'
   want_bodies='[["2","a",200000],["3","b\tc",200000],["4","d",200000]]'
-  if [[ "$flat" == "$want_flat" && "$tree" == "$want_tree" \
-        && "$bodies" == "$want_bodies" ]]; then
-    echo "confluence-children self-test: PASS (one level, recursion, each body" \
-      "over 128 KiB inlined, a tab in a title kept)"
-    exit 0
-  fi
-  echo "confluence-children self-test: FAIL (want [$want_flat] got [$flat];" \
-    "want [$want_tree] got [$tree]; want [$want_bodies] got [$bodies])" >&2
-  exit 1
+  # shellcheck source=tap.sh
+  . "$(dirname "$0")/tap.sh"
+  tap_is "one level lists each child beside its parent" "$flat" "$want_flat"
+  tap_is "--recurse lists the children's children" "$tree" "$want_tree"
+  tap_is "each body over 128 KiB is inlined, and a tab in a title is kept" \
+    "$bodies" "$want_bodies"
+  tap_end
 fi
 
 if [[ $# -lt 1 ]]; then

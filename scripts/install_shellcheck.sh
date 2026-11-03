@@ -32,24 +32,17 @@ url_for() {  # <os> <arch>
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
-  [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fails+=("VERSION is not a pinned release tag: $VERSION")
-  [[ "$SHA256_linux_x86_64" =~ ^[0-9a-f]{64}$ ]] || fails+=("the x86_64 pin is not a sha256")
-  [[ "$(url_for linux x86_64)" == *"/download/$VERSION/shellcheck-$VERSION.linux.x86_64.tar.xz" ]] \
-    || fails+=("url_for does not build the documented asset name")
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  tap_like "VERSION is a pinned release tag" "$VERSION" "v[0-9]*.[0-9]*.[0-9]*"
+  tap_run "the x86_64 pin is a sha256" grep -qxE '[0-9a-f]{64}' <<<"$SHA256_linux_x86_64"
+  tap_like "url_for builds the documented asset name" "$(url_for linux x86_64)" \
+    "*/download/$VERSION/shellcheck-$VERSION.linux.x86_64.tar.xz"
   # An installed shellcheck that is not the pinned one means the lint everyone
   # shares is not the lint this pin describes — the drift the pin exists to catch.
-  if command -v shellcheck >/dev/null 2>&1; then
-    have=$(shellcheck --version | awk '/^version:/ {print "v" $2}')
-    [[ "$have" == "$VERSION" ]] || fails+=("installed shellcheck is $have, pinned is $VERSION")
-  else
-    fails+=("shellcheck is not on PATH — run this script without --self-test")
-  fi
-  if ((${#fails[@]})); then
-    printf 'install_shellcheck self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "install_shellcheck self-test: PASS (pin $VERSION, sha256 well-formed, asset name and installed version agree)"
-  exit 0
+  have=$(shellcheck --version 2>/dev/null | awk '/^version:/ {print "v" $2}')
+  tap_is "the installed shellcheck is the pinned one" "$have" "$VERSION"
+  tap_end
 fi
 
 while [[ $# -gt 0 ]]; do

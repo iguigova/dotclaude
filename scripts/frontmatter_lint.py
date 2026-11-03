@@ -36,6 +36,7 @@ import yaml
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from skill_inventory import skills_in, commands_in   # noqa: E402
+from tap import Tap   # noqa: E402
 
 REQUIRED = ("description", "argument-hint")
 
@@ -115,17 +116,11 @@ def run(roots) -> int:
 
 def self_test() -> int:
     import tempfile
-    rc = 0
+    t = Tap()
 
     def check(desc, want, got):
-        nonlocal rc
-        if want == got:
-            print(f"  ok   {desc}")
-        else:
-            print(f"  FAIL {desc}\n    want: {want}\n    got:  {got}", file=sys.stderr)
-            rc = 1
+        t.check(want == got, desc, f"want: {want}", f"got:  {got}")
 
-    print("frontmatter_lint.py --self-test")
     good = '---\ndescription: does a thing\nargument-hint: "[x]"\n---\nbody\n'
 
     with tempfile.TemporaryDirectory() as d:
@@ -178,7 +173,7 @@ def self_test() -> int:
         (root / "skills/linked/SKILL.md").symlink_to(root / "commands/nofm.md")
         check("a symlinked skill is not ours, so the gate skips it too", [],
               [p for it in items_under(root, "test") for p in lint(it) if it["name"] == "linked"])
-    return rc
+    return t.end()
 
 
 if __name__ == "__main__":

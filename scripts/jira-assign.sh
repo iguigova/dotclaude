@@ -46,40 +46,38 @@ atlassian_curl() {
 STUB
   export JA_PUT="$fx/put.json" JA_STATUS=204
   ja() { "$fx/jira-assign.sh" "$@"; }
-  fail() { echo "self-test: $1" >&2; exit 1; }
+  # shellcheck source=tap.sh
+  . "$HELPER_DIR/tap.sh"
 
   out=$(ja --dry-run ABC-1 me)
-  [[ "$(sed -n 1p <<<"$out")" == "PUT /rest/api/2/issue/ABC-1/assignee" ]] \
-    || fail "a dry run does not name the v2 assignee endpoint"
-  [[ "$(sed 1d <<<"$out" | jq -r .accountId)" == acc-me ]] \
-    || fail "'me' does not resolve to the token's account"
-  [[ ! -e "$JA_PUT" ]] || fail "a dry run assigned"
+  tap_is "a dry run names the v2 assignee endpoint" \
+    "$(sed -n 1p <<<"$out")" "PUT /rest/api/2/issue/ABC-1/assignee"
+  tap_is "'me' resolves to the token's account" \
+    "$(sed 1d <<<"$out" | jq -r .accountId)" acc-me
+  tap_run "a dry run assigns nothing" test ! -e "$JA_PUT"
 
-  [[ "$(ja ABC-1 me)" == "ABC-1: assigned to Me Myself" ]] \
-    || fail "an assignment does not print who"
-  [[ "$(jq -r .accountId < "$JA_PUT")" == acc-me ]] \
-    || fail "the PUT body is not the one the dry run shows"
+  tap_is "an assignment prints who" "$(ja ABC-1 me)" "ABC-1: assigned to Me Myself"
+  tap_is "the PUT body is the one the dry run shows" \
+    "$(jq -r .accountId < "$JA_PUT")" acc-me
   rm -f "$JA_PUT"
 
-  [[ "$(ja --if-unassigned ABC-2 me)" == "ABC-2: kept, assigned to Someone Else" ]] \
-    || fail "--if-unassigned does not keep an assignee"
-  [[ ! -e "$JA_PUT" ]] || fail "--if-unassigned reassigned an assigned issue"
-  [[ "$(ja --if-unassigned ABC-1 me)" == "ABC-1: assigned to Me Myself" ]] \
-    || fail "--if-unassigned does not assign an unassigned issue"
+  tap_is "--if-unassigned keeps an assignee" \
+    "$(ja --if-unassigned ABC-2 me)" "ABC-2: kept, assigned to Someone Else"
+  tap_run "--if-unassigned does not reassign an assigned issue" test ! -e "$JA_PUT"
+  tap_is "--if-unassigned assigns an unassigned issue" \
+    "$(ja --if-unassigned ABC-1 me)" "ABC-1: assigned to Me Myself"
 
-  [[ "$(ja --dry-run ABC-1 acc-9 | sed 1d | jq -r .accountId)" == acc-9 ]] \
-    || fail "an account id is not sent as given"
+  tap_is "an account id is sent as given" \
+    "$(ja --dry-run ABC-1 acc-9 | sed 1d | jq -r .accountId)" acc-9
 
   for bad in "abc-1 me" "ABC-1" ""; do
     read -ra args <<<"$bad"
     st=0; ja --dry-run "${args[@]}" >/dev/null 2>&1 || st=$?
-    [[ "$st" == 2 ]] || fail "'$bad' exited $st, not 2"
+    tap_is "a usage error exits 2: '$bad'" "$st" 2
   done
   st=0; JA_STATUS=400 ja ABC-1 me >/dev/null 2>&1 || st=$?
-  [[ "$st" == 1 ]] || fail "an HTTP 400 exited $st, not 1"
-
-  echo "jira-assign self-test: PASS"
-  exit 0
+  tap_is "an HTTP 400 exits 1" "$st" 1
+  tap_end
 fi
 
 usage() { echo "$1" >&2; echo "Usage: $0 [--dry-run] [--if-unassigned] <KEY> <me|accountId>" >&2; exit 2; }

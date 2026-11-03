@@ -62,38 +62,43 @@ install_units() {
 }
 
 self_test() {
-  local st=0 out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local out
   FX=$(mktemp -d); trap 'rm -rf "$FX"' EXIT
   local fx=$FX
-  fail() { echo "  FAIL $*" >&2; st=1; }
-  ok()   { echo "  ok   $*"; }
   mkdir -p "$fx/bin"
   printf '#!/usr/bin/env bash\necho "$*" >> "%s/systemctl.log"\n' "$fx" > "$fx/bin/systemctl"
   printf '#!/usr/bin/env bash\nif [[ "$1" == -l ]]; then cat "%s/crontab" 2>/dev/null; else cat > "%s/crontab"; fi\n' "$fx" "$fx" > "$fx/bin/crontab"
   chmod +x "$fx/bin/systemctl" "$fx/bin/crontab"
   printf 'SHELL=/bin/bash\n30 4 * * * /h/.claude/scripts/memory_check.sh --all >> /h/log 2>&1\n0 1 * * * other.sh\n' > "$fx/crontab"
 
-  out=$(PATH="$fx/bin:$PATH" XDG_CONFIG_HOME="$fx/cfg" install_units 2>&1) || fail "install failed: $out"
   local d="$fx/cfg/systemd/user"
-  grep -q '^Persistent=true$' "$d/$UNIT.timer" && grep -q '^OnCalendar=\*-\*-\* 04:30:00$' "$d/$UNIT.timer" \
-    && ok "the timer runs at 04:30 and catches up" || fail "timer text"
-  grep -q '^ExecStart=%h/.claude/scripts/memory_check.sh --all$' "$d/$UNIT.service" && ok "the service runs --all" || fail "service text"
-  grep -q "enable --now $UNIT.timer" "$fx/systemctl.log" && ok "the timer is enabled and started" || fail "not enabled"
+  if out=$(PATH="$fx/bin:$PATH" XDG_CONFIG_HOME="$fx/cfg" install_units 2>&1); then
+    tap_ok "the units install"
+  else tap_not_ok "the units install" "$out"; fi
+  tap_run "the timer runs at 04:30" \
+    grep -q '^OnCalendar=\*-\*-\* 04:30:00$' "$d/$UNIT.timer"
+  tap_run "a missed night runs at the next login" \
+    grep -q '^Persistent=true$' "$d/$UNIT.timer"
+  tap_run "the service runs --all" \
+    grep -q '^ExecStart=%h/.claude/scripts/memory_check.sh --all$' "$d/$UNIT.service"
+  tap_run "the timer is enabled and started" \
+    grep -q "enable --now $UNIT.timer" "$fx/systemctl.log"
   if ! grep -q memory_check "$fx/crontab" && grep -q other.sh "$fx/crontab" && grep -q SHELL "$fx/crontab"; then
-    ok "the cron line goes and every other line stays"
+    tap_ok "the cron line goes and every other line stays"
   else
-    fail "crontab: $(cat "$fx/crontab")"
+    tap_not_ok "the cron line goes and every other line stays" "$(cat "$fx/crontab")"
   fi
-  out=$(PATH="$fx/bin:$PATH" XDG_CONFIG_HOME="$fx/cfg" install_units 2>&1) || fail "second install failed"
-  grep -q 'removed the crontab' <<<"$out" && fail "a second install touched cron" || ok "a second install leaves cron alone"
-
-  [[ $st -eq 0 ]] && echo "memory_schedule self-test: PASS" || echo "memory_schedule self-test: FAIL"
-  return "$st"
+  out=$(PATH="$fx/bin:$PATH" XDG_CONFIG_HOME="$fx/cfg" install_units 2>&1)
+  if grep -q 'removed the crontab' <<<"$out"; then
+    tap_not_ok "a second install leaves cron alone" "$out"
+  else tap_ok "a second install leaves cron alone"; fi
 }
 
 case "${1:-}" in
   install)     install_units ;;
   status)      systemctl --user list-timers "$UNIT.timer" --all --no-pager ;;
-  --self-test) self_test ;;
+  --self-test) self_test; tap_end ;;
   *)           echo "usage: memory_schedule.sh install|status|--self-test" >&2; exit 2 ;;
 esac

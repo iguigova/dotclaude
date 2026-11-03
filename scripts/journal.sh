@@ -122,15 +122,16 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local h h2 rc=0 out opened id id2 n entry i old
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local h h2 out opened id id2 n entry i old
   h=$(mktemp)
   printf '# Log\n\n## 2026-01-01 00:00 — chore: older\n\n- b\n' > "$h"
   w() { JOURNAL_HIST="$h" CLAUDE_CODE_SESSION_ID="${SID-s1}" "$0" "$@" 2>&1; }
   check() {  # DESCRIPTION CONDITION…
     local d="$1"; shift
-    if "$@"; then echo "  ok   $d"; else echo "  FAIL $d" >&2; rc=1; fi
+    tap_run "$d" "$@"
   }
-  echo "journal.sh --self-test"
   check "a topic is required"          eval '! w -b b >/dev/null'
   check "a bullet is required"         eval '! w -t "chore: x" >/dev/null'
   old=$(mktemp -d); printf '# Log\n' > "$old/session_history.md"
@@ -388,10 +389,9 @@ self_test() {
   check "an ignored history is written and not committed, without a warning" \
     eval '[[ "$(git -C "$repo" rev-parse HEAD)" == "$head0" && "$out" != *"not committed"* ]]'
   rm -rf "$repo"
-  return $rc
 }
 
-if [[ "${1:-}" == "--self-test" ]]; then self_test; exit $?; fi
+if [[ "${1:-}" == "--self-test" ]]; then self_test; tap_end; fi
 
 # ---------------------------------------------------------------- arguments
 

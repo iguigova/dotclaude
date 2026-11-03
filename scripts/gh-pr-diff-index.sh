@@ -64,6 +64,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gh_pr_ref import RefError, parse_slug  # noqa: E402
+from tap import Tap  # noqa: E402
 
 
 def die(msg: str) -> "None":
@@ -344,27 +345,24 @@ new file mode 100644
 
 def _self_test() -> int:
     files = {f["path"]: f for f in parse_diff(SELF_TEST_DIFF)}
-    fails = []
-
-    def want(cond: bool, msg: str) -> None:
-        if not cond:
-            fails.append(msg)
+    t = Tap()
+    want = t.check
 
     want(set(files) == {"keep.py", "gone.py", "db/q.sql", "new.py", "fresh.py",
                         "prose.py", "app.ts"},
-         f"file set is {sorted(files)}")
+         "every file in the diff is indexed", f"file set is {sorted(files)}")
 
     # A deleted file is its own record, with its own lines and status.
     if "gone.py" in files and "keep.py" in files:
         want(files["gone.py"]["status"] == "deleted",
-             f"gone.py status {files['gone.py'].get('status')}")
+             "a deleted file is its own record, with status deleted", f"gone.py status {files['gone.py'].get('status')}")
         want([ln["old_line"] for ln in files["gone.py"]["lines"]] == [1, 2, 3],
-             "gone.py old_lines wrong")
+             "a deleted file keeps its own old lines", "gone.py old_lines wrong")
         want(all(ln["old_line"] in (10, 11, 12) or ln["old_line"] is None
                  for ln in files["keep.py"]["lines"]),
-             "keep.py absorbed another file's lines")
+             "a file does not absorb a deleted file's lines", "keep.py absorbed another file's lines")
         want(len(files["keep.py"]["lines"]) == 4,
-             f"keep.py has {len(files['keep.py']['lines'])} lines, want 4")
+             "a file keeps exactly its own lines", f"keep.py has {len(files['keep.py']['lines'])} lines, want 4")
 
     # A removed line whose content starts with '-- ' is a removed line, and the
     # old_line numbering after it does not shift.
@@ -373,33 +371,33 @@ def _self_test() -> int:
         want([(ln["old_line"], ln["new_line"], ln["type"]) for ln in sql] ==
              [(1, 1, "context"), (2, None, "removed"), (3, None, "removed"),
               (None, 2, "added"), (4, 3, "context")],
-             f"db/q.sql index wrong: "
+             "a removed line starting with '-- ' is indexed without old_line drift", f"db/q.sql index wrong: "
              f"{[(l['old_line'], l['new_line'], l['type']) for l in sql]}")
         want(any(ln["text"] == "-- legacy note" and ln["old_line"] == 2
                  for ln in sql),
-             "the removed '-- legacy note' line is missing from the index")
+             "the removed '-- legacy note' line is in the index", "the removed '-- legacy note' line is missing from the index")
 
     # Renames index under the new path; new files are 'added' and keep imports.
     if "new.py" in files:
         want(files["new.py"]["status"] == "modified",
-             f"rename status {files['new.py'].get('status')}")
+             "a rename is indexed as modified", f"rename status {files['new.py'].get('status')}")
         want(files["new.py"]["old_path"] == "old.py",
-             f"rename old_path {files['new.py'].get('old_path')}")
+             "a rename keeps its old path", f"rename old_path {files['new.py'].get('old_path')}")
     if "keep.py" in files and "gone.py" in files:
         want(files["keep.py"]["old_path"] == "keep.py",
-             f"keep.py old_path {files['keep.py'].get('old_path')}")
+             "a modified file's old path is its path", f"keep.py old_path {files['keep.py'].get('old_path')}")
         want(files["gone.py"]["old_path"] == "gone.py",
-             f"gone.py old_path {files['gone.py'].get('old_path')}")
+             "a deleted file's old path is its path", f"gone.py old_path {files['gone.py'].get('old_path')}")
     if "fresh.py" in files:
         want(files["fresh.py"]["status"] == "added",
-             f"fresh.py status {files['fresh.py'].get('status')}")
+             "a new file is added", f"fresh.py status {files['fresh.py'].get('status')}")
         want(files["fresh.py"]["old_path"] is None,
-             f"fresh.py old_path {files['fresh.py'].get('old_path')}")
+             "a new file has no old path", f"fresh.py old_path {files['fresh.py'].get('old_path')}")
         want([im["new_line"] for im in files["fresh.py"]["imports"]] == [1],
-             f"fresh.py imports {files['fresh.py']['imports']}")
+             "a new file keeps its imports", f"fresh.py imports {files['fresh.py']['imports']}")
     if "keep.py" in files:
         want([im["new_line"] for im in files["keep.py"]["imports"]] == [12],
-             f"keep.py imports {files['keep.py']['imports']}")
+             "a modified file keeps its imports", f"keep.py imports {files['keep.py']['imports']}")
 
     # English prose that opens with 'from ' is not an import; a real import
     # quoted inside a docstring is one textually, so it is kept and flagged
@@ -408,23 +406,15 @@ def _self_test() -> int:
         got = [(im["new_line"], im["in_docstring"])
                for im in files["prose.py"]["imports"]]
         want(got == [(1, False), (5, True)],
-             f"prose.py imports {got}, want [(1, False), (5, True)]")
+             "prose is not an import, and a docstring import is flagged", f"prose.py imports {got}, want [(1, False), (5, True)]")
 
     # A JS module specifier is always quoted, which is what separates an
     # import from a sentence containing the words 'import' and 'from'.
     if "app.ts" in files:
         got = [im["new_line"] for im in files["app.ts"]["imports"]]
-        want(got == [1, 2, 3], f"app.ts imports {got}, want [1, 2, 3]")
+        want(got == [1, 2, 3], "a JS import needs a quoted specifier", f"app.ts imports {got}, want [1, 2, 3]")
 
-    if fails:
-        print("gh-pr-diff-index self-test: FAIL\n  " + "\n  ".join(fails),
-              file=sys.stderr)
-        return 1
-    print("gh-pr-diff-index self-test: PASS (deleted file kept separate, "
-          "'-- ' removal indexed without old_line drift, "
-          "rename/new-file status and old_path, prose rejected and docstring "
-          "imports flagged, JS specifier required)")
-    return 0
+    return t.end()
 
 
 def main() -> None:

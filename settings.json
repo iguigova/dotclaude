@@ -20,6 +20,51 @@
           {
             "type": "command",
             "command": "$HOME/.claude/scripts/session_end_sweep.sh"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/block_gate.py clear"
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/block_gate.py denied"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/block_gate.py gate"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/block_gate.py clear"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/block_gate.py clear"
           }
         ]
       }

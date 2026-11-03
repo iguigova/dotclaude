@@ -24,22 +24,23 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 if [[ "${1:-}" == --self-test ]]; then
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-  ok() { printf '%s\n' "$1" | "$self" >/dev/null 2>&1 || { echo "self-test: refused clean markup: $1" >&2; exit 1; }; }
-  bad() { if printf '%s\n' "$1" | "$self" >/dev/null 2>&1; then echo "self-test: accepted bad markup: $1" >&2; exit 1; fi; }
-  ok '{{"status":"pending"}} and [PR|https://x/1]'
-  ok '{{\{"a": \[1\]\}}}'
-  ok $'{code:json}\n{"a": [1]}\n{code}'
-  ok $'{noformat}\n{{{x}}}\n{noformat}'
-  bad '{{{"a":1}}}'
-  bad '{{\{"ids":["x"]\}}}'
-  bad '{{a]b}}'
-  bad '{{--only x}} with {{--from 1}}'
-  bad '{{--execute}}'
-  ok '{{\-\-only x}} with {{\-\-from 1 \-\-to 2}}'
-  ok '{{2026-10-22}} and {{a-b}}'
-  ok '{{-b}} and {{-c}}'
-  echo "jira-wiki-check self-test: PASS"
-  exit 0
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
+  ok() { tap_run "$1" "$self" < <(printf '%s\n' "$2"); }
+  bad() { tap_fails "$1" "$self" < <(printf '%s\n' "$2"); }
+  ok "plain monospace and a link are clean" '{{"status":"pending"}} and [PR|https://x/1]'
+  ok "escaped braces and brackets in monospace are clean" '{{\{"a": \[1\]\}}}'
+  ok "JSON in a code block is clean" $'{code:json}\n{"a": [1]}\n{code}'
+  ok "triple braces in a noformat block are clean" $'{noformat}\n{{{x}}}\n{noformat}'
+  bad "an unescaped brace in monospace is refused" '{{{"a":1}}}'
+  bad "an escaped brace around unescaped brackets is refused" '{{\{"ids":["x"]\}}}'
+  bad "an unescaped bracket in monospace is refused" '{{a]b}}'
+  bad "a double dash in monospace is refused" '{{--only x}} with {{--from 1}}'
+  bad "a lone double-dash flag in monospace is refused" '{{--execute}}'
+  ok "escaped double dashes are clean" '{{\-\-only x}} with {{\-\-from 1 \-\-to 2}}'
+  ok "a single dash inside a word is clean" '{{2026-10-22}} and {{a-b}}'
+  ok "a single-dash flag is clean" '{{-b}} and {{-c}}'
+  tap_end
 fi
 
 exec python3 -I -c '

@@ -15,6 +15,8 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # and the fact files it points at — because the facts linted are the ones beside
 # the index.
 if [[ "${1:-}" == "--self-test" ]]; then
+  # shellcheck source=tap.sh
+  . "$SCRIPTS_DIR/tap.sh"
   self="$SCRIPTS_DIR/$(basename "${BASH_SOURCE[0]}")"
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
 
@@ -29,11 +31,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
   fact "$fx/clean" checked '  verify: true\n'
   clean_out=$(lint "$fx/clean"); clean=$?
 
-  rc=0
   expect() {  # DESCRIPTION DIR PATTERN — the store fails and names its defect
     local out; out=$(lint "$2")
-    if [[ $? -eq 1 ]] && grep -q -- "$3" <<<"$out"; then echo "  ok   $1"
-    else echo "  FAIL $1" >&2; rc=1; fi
+    if [[ $? -eq 1 ]] && grep -q -- "$3" <<<"$out"; then tap_ok "$1"
+    else tap_not_ok "$1" "$out"; fi
   }
   broken() {  # NAME — a clean one-fact store to break
     mkdir "$fx/$1"; printf '# F\n\n' > "$fx/$1/MEMORY.md"; fact "$fx/$1" a
@@ -54,10 +55,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   broken unverified; fact "$fx/unverified" u
   expect "a fact with no verify is rejected"       "$fx/unverified" 'u.md: no verify'
 
-  if [[ "$clean" -eq 0 ]]; then echo "  ok   a clean store passes"
-  else echo "  FAIL a clean store passes (exit $clean): $clean_out" >&2; rc=1; fi
-  [[ "$rc" -eq 0 ]] && echo "memory_lint self-test: PASS" || echo "memory_lint self-test: FAIL" >&2
-  exit "$rc"
+  if [[ "$clean" -eq 0 ]]; then tap_ok "a clean store passes"
+  else tap_not_ok "a clean store passes" "exit $clean: $clean_out"; fi
+  tap_end
 fi
 
 MF="${1:-$MEMORY_FILE}"

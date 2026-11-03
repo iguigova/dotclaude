@@ -56,14 +56,12 @@ STUB
   if "$self" 'bad query' >/dev/null 2>"$fx/err"; then bad=accepted; else bad=$(cat "$fx/err"); fi
   want_all='[["1","page","a\tb","PA","https://example.invalid/wiki/p/1"],["2","blogpost","b","W2","https://example.invalid/wiki/p/2"],["3","page","c","PA","https://example.invalid/wiki/p/3"]]'
   want_capped='["1","2"]'
-  if [[ "$all" == "$want_all" && "$capped" == "$want_capped" && "$bad" == *"Could not parse cql"* ]]; then
-    echo "confluence-search self-test: PASS (cursor followed across pages, limit" \
-      "stops early, a 400 exits 1 with Confluence's message)"
-    exit 0
-  fi
-  echo "confluence-search self-test: FAIL (want [$want_all] got [$all];" \
-    "want [$want_capped] got [$capped]; bad query: [$bad])" >&2
-  exit 1
+  # shellcheck source=tap.sh
+  . "$(dirname "$0")/tap.sh"
+  tap_is "the cursor is followed across pages" "$all" "$want_all"
+  tap_is "--limit stops early" "$capped" "$want_capped"
+  tap_like "a 400 exits 1 with Confluence's message" "$bad" "*Could not parse cql*"
+  tap_end
 fi
 
 LIMIT=100

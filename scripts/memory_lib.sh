@@ -203,38 +203,29 @@ metadata:
 name: not-frontmatter
 FACT
   printf -- '---\nname: b\nhook: >-\n---\n' > "$MEM_DIR/b.md"
-  st=0; fail() { echo "  FAIL $1: want [$2] got [$3]" >&2; st=1; }
-  check() { [[ "$2" == "$3" ]] || fail "$1" "$2" "$3"; }
-  check 'mem_field top-level' a "$(mem_field "$MEM_DIR/a.md" name)"
-  check 'mem_field double quotes' 'say "hi"' "$(mem_field "$MEM_DIR/a.md" description)"
-  check 'mem_field metadata, not another block' reference "$(mem_field "$MEM_DIR/a.md" type)"
-  check 'mem_field single quotes' "it's here" "$(mem_field "$MEM_DIR/a.md" verify)"
-  check 'mem_field absent' '' "$(mem_field "$MEM_DIR/a.md" nothing)"
-  check 'mem_block_fields' 'body' "$(mem_block_fields "$MEM_DIR/a.md")"
-  check 'mem_block_fields chomping' 'hook' "$(mem_block_fields "$MEM_DIR/b.md")"
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  check() { tap_is "$1" "$3" "$2"; }
+  check 'mem_field reads a top-level key' a "$(mem_field "$MEM_DIR/a.md" name)"
+  check 'mem_field undoes double quotes' 'say "hi"' "$(mem_field "$MEM_DIR/a.md" description)"
+  check 'mem_field reads metadata, not another block' reference "$(mem_field "$MEM_DIR/a.md" type)"
+  check 'mem_field undoes single quotes' "it's here" "$(mem_field "$MEM_DIR/a.md" verify)"
+  check 'mem_field reads an absent key as empty' '' "$(mem_field "$MEM_DIR/a.md" nothing)"
+  check 'mem_block_fields names a | value' 'body' "$(mem_block_fields "$MEM_DIR/a.md")"
+  check 'mem_block_fields names a >- value' 'hook' "$(mem_block_fields "$MEM_DIR/b.md")"
   check 'mem_facts skips the index' "$MEM_DIR/a.md $MEM_DIR/b.md" "$(mem_facts | paste -sd' ')"
-  check 'mem_tokens' 'platform rails' "$(mem_tokens 'This Rails platform: rails PLATFORM, with an API' | paste -sd' ')"
-  check 'mem_stores' "fact a.md|fact b.md|claude-project proj/CLAUDE.md|claude-global home/.claude/CLAUDE.md|skill proj/.claude/skills/s/SKILL.md|command home/.claude/commands/c.md" \
+  check 'mem_tokens lowercases and drops short and stop words' 'platform rails' "$(mem_tokens 'This Rails platform: rails PLATFORM, with an API' | paste -sd' ')"
+  check 'mem_stores lists facts, both CLAUDE.md, skills and commands' "fact a.md|fact b.md|claude-project proj/CLAUDE.md|claude-global home/.claude/CLAUDE.md|skill proj/.claude/skills/s/SKILL.md|command home/.claude/commands/c.md" \
     "$(mem_stores | sed "s#$fx/##; s#mem/##" | tr '\t' ' ' | paste -sd'|')"
   mkdir -p "$fx/proj/sub/deeper" "$(mem_project_folder "$fx/proj")"
-  check 'mem_project_folder' "$HOME/.claude/projects/-a-b-c-d" "$(mem_project_folder /a/b.c_d)"
-  check 'mem_find_root from a subdirectory' "$fx/proj" "$(mem_find_root "$fx/proj/sub/deeper")"
-  check 'mem_find_root with no folder' "$fx/none" "$(mem_find_root "$fx/none")"
+  check 'mem_project_folder names the folder the harness keeps' "$HOME/.claude/projects/-a-b-c-d" "$(mem_project_folder /a/b.c_d)"
+  check 'mem_find_root walks up from a subdirectory to its project' "$fx/proj" "$(mem_find_root "$fx/proj/sub/deeper")"
+  check 'mem_find_root with no folder answers the directory it was given' "$fx/none" "$(mem_find_root "$fx/none")"
   export MEM_LEAK=x
   mem_verify 'test -z "${MEM_LEAK:-}"'; check 'mem_verify passes none of the caller environment' 0 "$?"
   mem_verify "test \"\$PATH\" = '$MEM_VERIFY_PATH' && test \"\$PWD\" = '$MEM_PROJECT_ROOT'"
   check 'mem_verify runs on the declared PATH from the project root' 0 "$?"
   mem_verify 'exit 75'; check 'mem_verify returns the exit status' 75 "$?"
   mem_verify 'yes | head -1 | grep -q y'; check 'mem_verify runs without pipefail' 0 "$?"
-  if [[ "$st" -eq 0 ]]; then
-    echo "memory_lib self-test: PASS (mem_field reads top-level and metadata keys" \
-      "and undoes both quote styles, mem_block_fields names | and >- values," \
-      "mem_facts skips the index, mem_tokens lowercases and drops short and stop" \
-      "words, mem_stores lists facts, both CLAUDE.md, skills and commands," \
-      "mem_find_root walks up to the folder the harness keeps, mem_verify runs" \
-      "on the declared environment alone)"
-    exit 0
-  fi
-  echo "memory_lib self-test: FAIL" >&2
-  exit 1
+  tap_end
 fi

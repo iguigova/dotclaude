@@ -11,8 +11,9 @@
 # and a copy's own HEAD is the previous export, not a baseline for its names.
 #
 # --keep DIR writes what each self-test of check 3 printed to DIR/<script>.txt,
-# its `ok` and `FAIL` lines, one per case. The showcase page reads them from the
-# run GitHub publishes with it, so each claim shows how its own case went.
+# its TAP, and what it printed to stderr to DIR/<script>.stderr.txt. The
+# showcase page reads the TAP from the run GitHub publishes with it, so each
+# claim shows how its own case went.
 set -uo pipefail
 copy=0; keep=
 while [ $# -gt 0 ]; do
@@ -60,20 +61,34 @@ if need shellcheck "the shell lint"; then
   done
 fi
 
-echo "== 3. every script that offers --self-test =="
+echo "== 3. every script that offers --self-test, and the TAP it prints =="
 # A sweep, not a list: a script's --self-test is enforced the moment it lands,
 # with no registration step to forget. Naming them here instead is how a script
 # with a perfectly good self-test ends up never being run by the gate.
+# Its stdout is held to tap.sh's format, and its exit status to what that says,
+# so every case of every script is a line the page and a reader can find.
+# shellcheck source=tap.sh
+. ./tap.sh
+printed=$(mktemp -d); trap 'rm -rf "$printed"' EXIT
 for f in ./*.sh ./*.py; do
   [ -e "$f" ] || continue
   grep -q -- '--self-test' "$f" || continue
   [ "$(basename "$f")" = "selftest.sh" ] && continue
   if [[ "$f" == *.py ]] || head -1 "$f" | grep -q python; then runner=python3; else runner=bash; fi
-  printed=/dev/null; [ -n "$keep" ] && printed="$keep/$(basename "$f").txt"
-  if timeout 120 "$runner" "$f" --self-test >"$printed" 2>&1; then
-    echo "  ok  $f"
+  out="${keep:-$printed}/$(basename "$f").txt"
+  timeout 120 "$runner" "$f" --self-test >"$out" 2>"${out%.txt}.stderr.txt"; st=$?
+  wrong=$(tap_verify "$out")
+  if [ -n "$wrong" ]; then
+    echo "  FAIL $f --self-test does not print TAP: $wrong"; fail=1
+    continue
+  fi
+  missed=$(grep -c '^not ok' "$out"); cases=$(grep -cE '^(not )?ok' "$out")
+  if [ "$st" -eq 0 ] && [ "$missed" -eq 0 ]; then
+    echo "  ok  $f (cases: $cases)"
+  elif [ "$st" -ne 0 ] && [ "$missed" -ne 0 ]; then
+    echo "  FAIL $f --self-test: $missed of $cases cases"; fail=1
   else
-    echo "  FAIL $f --self-test"; fail=1
+    echo "  FAIL $f --self-test exited $st with $missed of $cases cases failed"; fail=1
   fi
 done
 

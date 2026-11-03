@@ -67,6 +67,8 @@ valid_label() {
 }
 
 self_test() {
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local dir self
   dir=$(mktemp -d)
   trap 'rm -rf "$dir"' RETURN
@@ -74,40 +76,33 @@ self_test() {
 
   printf '%s' '<h2>A &mdash; B</h2><p><ac:link><ri:user ri:account-id="x" /></ac:link> &lt;id&gt; &amp;</p>' \
     > "$dir/good.html"
-  well_formed "$dir/good.html" \
-    || { echo "self-test: valid storage with entities and macros refused" >&2; return 1; }
+  tap_run "valid storage with entities and macros is accepted" \
+    well_formed "$dir/good.html"
 
   printf '%s' '<p><strong>unclosed</p>' > "$dir/bad.html"
-  if well_formed "$dir/bad.html" 2>/dev/null; then
-    echo "self-test: malformed storage accepted" >&2; return 1
-  fi
+  tap_fails "malformed storage is refused" well_formed "$dir/bad.html"
 
   payload_of "T" "PA" "123" "$dir/good.html" > "$dir/payload.json"
-  jq -e '.ancestors == [{id: "123"}] and .space.key == "PA"
-         and .body.storage.representation == "storage"
-         and (.body.storage.value | test("&mdash;"))' "$dir/payload.json" >/dev/null \
-    || { echo "self-test: payload shape wrong" >&2; return 1; }
+  tap_run "the payload names its parent, its space and the storage body" \
+    jq -e '.ancestors == [{id: "123"}] and .space.key == "PA"
+           and .body.storage.representation == "storage"
+           and (.body.storage.value | test("&mdash;"))' "$dir/payload.json"
 
-  labels_payload_of engdocs-serverless-topic x_1 \
-    | jq -e '. == [{prefix: "global", name: "engdocs-serverless-topic"},
-                   {prefix: "global", name: "x_1"}]' >/dev/null \
-    || { echo "self-test: label payload shape wrong" >&2; return 1; }
+  tap_run "each label is sent with the global prefix" \
+    jq -e '. == [{prefix: "global", name: "engdocs-serverless-topic"},
+                 {prefix: "global", name: "x_1"}]' \
+    < <(labels_payload_of engdocs-serverless-topic x_1)
 
   # Every refusal happens before any network call, so they run offline.
-  if printf '' | "$self" --dry-run --parent 1 --title T >/dev/null 2>&1; then
-    echo "self-test: an empty body was accepted" >&2; return 1
-  fi
-  if "$self" --dry-run --parent 1 --title T "$dir/bad.html" >/dev/null 2>&1; then
-    echo "self-test: a malformed body passed the argument path" >&2; return 1
-  fi
+  tap_fails "an empty body is refused" \
+    "$self" --dry-run --parent 1 --title T < <(printf '')
+  tap_fails "a malformed body is refused on the argument path" \
+    "$self" --dry-run --parent 1 --title T "$dir/bad.html"
   local bad
   for bad in "two words" "a:b" ""; do
-    if "$self" --dry-run --parent 1 --title T --label "$bad" "$dir/good.html" >/dev/null 2>&1; then
-      echo "self-test: label \"$bad\" was accepted" >&2; return 1
-    fi
+    tap_fails "the label '$bad' is refused" \
+      "$self" --dry-run --parent 1 --title T --label "$bad" "$dir/good.html"
   done
-
-  echo "confluence-create self-test: PASS"
 }
 
 DRY_RUN=0
@@ -116,7 +111,7 @@ TITLE=""
 LABELS=()
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
-    --self-test) self_test; exit $? ;;
+    --self-test) self_test; tap_end ;;
     --dry-run) DRY_RUN=1; shift ;;
     --parent) PARENT="$2"; shift 2 ;;
     --title) TITLE="$2"; shift 2 ;;

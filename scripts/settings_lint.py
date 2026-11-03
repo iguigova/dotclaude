@@ -30,6 +30,8 @@ import pathlib
 import re
 import sys
 
+from tap import Tap
+
 LISTS = ("allow", "ask", "deny")
 TOOL_RULE = re.compile(r"^(\w+)\((.*)\)$", re.S)
 INLINE_CODE = re.compile(
@@ -139,18 +141,11 @@ def run(files: list[pathlib.Path]) -> int:
 
 def self_test() -> int:
     import tempfile
-    rc = 0
+    t = Tap()
 
     def check(desc, want, got):
-        nonlocal rc
-        if want == got:
-            print(f"  ok   {desc}")
-        else:
-            print(f"  FAIL {desc}\n    want: {want}\n    got:  {got}",
-                  file=sys.stderr)
-            rc = 1
+        t.check(want == got, desc, f"want: {want}", f"got:  {got}")
 
-    print("settings_lint.py --self-test")
     with tempfile.TemporaryDirectory() as d:
         root = pathlib.Path(d)
         tool = root / "tool.sh"
@@ -191,7 +186,7 @@ def self_test() -> int:
         (root / "bad.json").write_text("{")
         check("unparseable JSON is named, not skipped", True,
               "not readable JSON" in lint_file(root / "bad.json")[0])
-    return rc
+    return t.end()
 
 
 def main(args: list[str]) -> int:

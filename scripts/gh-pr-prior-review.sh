@@ -87,13 +87,13 @@ PRIOR_JQ='
     ] }'
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   run() {  # <blob> <me> <jq-filter> -> stdout
     jq -c --arg me "$2" "$PRIOR_JQ | ($3)" <<<"$1"
   }
   want() {  # <label> <blob> <me> <filter> <want>
-    local got; got=$(run "$2" "$3" "$4")
-    [[ "$got" == "$5" ]] || fails+=("$1: got $got, want $5")
+    tap_is "$1" "$(run "$2" "$3" "$4")" "$5"
   }
 
   # A second pass: my review sits on an older commit, the author replied to one
@@ -163,11 +163,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   want "a reply is not a review" "$REPLIED" me '.prior.commit' '"aaa"'
   want "delta past a reply"      "$REPLIED" me '.delta_range'  '"aaa..ccc"'
 
-  if ((${#fails[@]})); then
-    printf 'gh-pr-prior-review self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-prior-review self-test: PASS (first/second/unchanged pass, reply threading, other reviewers' threads, latest-review-per-author fold, thread replies)"
-  exit 0
+  tap_end
 fi
 
 ME="${GH_PR_REVIEWER:-}"

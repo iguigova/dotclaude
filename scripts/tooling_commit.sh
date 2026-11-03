@@ -174,11 +174,13 @@ main() {
 # ---------------------------------------------------------------- self-test
 
 self_test() {
-  local rc=0 tmp out
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  local tmp out
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   check() {  # DESCRIPTION WANT GOT
-    if [[ "$3" == "$2" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$3" == "$2" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
   mkrepo() {  # DIR [GATE] — a repo with one commit, gated by GATE when given
     mkdir -p "$1"; git -C "$1" init -q
@@ -193,7 +195,6 @@ self_test() {
   tc()      { "$SELF" "$@" 2>&1; }
   head_of() { git -C "$1" rev-parse --short HEAD; }
   files_of_head() { git -C "$1" show --no-renames --name-only --format= HEAD | sed '/^$/d' | sort; }
-  echo "tooling_commit.sh --self-test"
 
   local r="$tmp/tools"; mkrepo "$r" .claude/scripts/selftest.sh
 
@@ -252,12 +253,15 @@ moved.txt" "$(files_of_head "$r")"
   check "a path through a symlink commits in the repo holding the file" "y.txt" "$(files_of_head "$g")"
 
   local rm_="$tmp/remote"; mkrepo "$rm_" scripts/selftest.sh
-  git -C "$rm_" remote add origin https://example.invalid/r.git; echo z > "$rm_/z.txt"
+  # A remote a push would reach, so a push the script made would show there.
+  git init -q --bare "$tmp/origin.git"
+  git -C "$rm_" remote add origin "$tmp/origin.git"; echo z > "$rm_/z.txt"
   out=$(tc -m "chore: z" -- "$rm_/z.txt")
   check "a repo with a remote is refused" "1" "$(grep -c 'has a remote' <<<"$out")"
   git -C "$rm_" config tooling.commit true
   out=$(tc -m "chore: z" -- "$rm_/z.txt")
   check "a repo with a remote commits once the clone opts in" "$(head_of "$rm_")" "$out"
+  check "and the commit is never pushed" "" "$(git -C "$tmp/origin.git" for-each-ref)"
 
   local ng="$tmp/nogate"; mkrepo "$ng"; echo z > "$ng/z.txt"
   out=$(tc -m "chore: z" -- "$ng/z.txt")
@@ -295,8 +299,7 @@ moved.txt" "$(files_of_head "$r")"
 
   "$SELF" -- "$r/p.txt" >/dev/null 2>&1
   check "no message is a usage error" "2" "$?"
-  return $rc
 }
 
-[[ "${1:-}" == --self-test ]] && { self_test; exit $?; }
+[[ "${1:-}" == --self-test ]] && { self_test; tap_end; }
 main "$@"

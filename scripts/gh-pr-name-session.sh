@@ -48,30 +48,26 @@ session_title() {
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  fails=()
-  check() { # <want> <ticket> <owner> <repo> <number> <suffix> <label>
-    local got; got=$(session_title "$2" "$3" "$4" "$5" "$6")
-    [[ "$got" == "$1" ]] || fails+=("$7: got '$got', want '$1'")
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
+  check() { # <want> <ticket> <owner> <repo> <number> <suffix> <name>
+    tap_is "$7" "$(session_title "$2" "$3" "$4" "$5" "$6")" "$1"
   }
   check "XYZ-1234 PR https://github.com/Acme/web-app/pull/5236" \
-    "XYZ-1234" "Acme" "web-app" "5236" "PR" "ticket title"
+    "XYZ-1234" "Acme" "web-app" "5236" "PR" "a ticket leads the title"
   check "events-service#13 PR https://github.com/acme-internal/events-service/pull/13" \
-    "" "acme-internal" "events-service" "13" "PR" "fallback title"
+    "" "acme-internal" "events-service" "13" "PR" "with no ticket, the repo and number lead"
   check "events-service#13 PR https://github.com/acme-internal/events-service/pull/13" \
-    "null" "acme-internal" "events-service" "13" "PR" "literal 'null' ticket"
+    "null" "acme-internal" "events-service" "13" "PR" "a literal 'null' ticket is no ticket"
   # The suffix is what keeps /review:bot's session apart from /review:pr's.
   check "ABC-10785 BOT https://github.com/Acme/billing-service/pull/194" \
-    "ABC-10785" "Acme" "billing-service" "194" "BOT" "BOT suffix"
+    "ABC-10785" "Acme" "billing-service" "194" "BOT" "the BOT suffix is kept"
   check "billing-service#194 BOT https://github.com/Acme/billing-service/pull/194" \
-    "" "Acme" "billing-service" "194" "BOT" "BOT fallback"
-  grep -q '\.ticket // empty' "${BASH_SOURCE[0]}" || fails+=("the ticket read does not use '// empty'")
-  [[ -x "$RENAME" ]] || fails+=("$RENAME is missing or not executable — the rename would fail silently")
-  "$HERE/gh_pr_ref.py" --self-test >/dev/null 2>&1 || fails+=("gh_pr_ref.py self-test fails")
-  if ((${#fails[@]})); then
-    printf 'gh-pr-name-session self-test: FAIL\n'; printf '  %s\n' "${fails[@]}"; exit 1
-  fi
-  echo "gh-pr-name-session self-test: PASS (ticket, fallback and literal-null titles, PR and BOT suffixes, PR URL, jq guard and rename script asserted)"
-  exit 0
+    "" "Acme" "billing-service" "194" "BOT" "the BOT suffix is kept with no ticket"
+  tap_run "the ticket read uses '// empty'" grep -q '\.ticket // empty' "${BASH_SOURCE[0]}"
+  tap_run "the rename script is executable" test -x "$RENAME"
+  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_end
 fi
 
 if [[ $# -lt 1 || $# -gt 2 ]]; then

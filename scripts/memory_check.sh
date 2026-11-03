@@ -17,7 +17,10 @@
 # It runs unattended, so it says no on anything it is unsure of:
 #   * a fact reading a repository is checked only against a ref just fetched,
 #     and is left unchecked when the fetch failed — a stale ref answers about
-#     a past the claim was never about — with git's reason for the failure;
+#     a past the claim was never about — with git's reason for the failure.
+#     A fetch first waits for its remote's host to resolve, up to five minutes
+#     for the whole run, since a missed night runs the moment the machine
+#     wakes, before its network is back;
 #   * a contradiction must reproduce, because a verdict that does not repeat
 #     is not evidence, and the fact it would delete may be true;
 #   * an empty store is a missing store — a volume not mounted, say — so the
@@ -40,6 +43,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./memory_lib.sh
 . "$SCRIPTS_DIR/memory_lib.sh"
+# shellcheck source=tap.sh
+. "$SCRIPTS_DIR/tap.sh"
 
 DRY=0; SELFTEST=0; ALL=0
 for a in "$@"; do case "$a" in
@@ -88,6 +93,32 @@ mc_verify() {
 
 declare -A MC_STALE=()   # repository -> why it was not fetched
 
+# The epoch second after which no fetch waits for the network. --all exports it
+# to each store's run, so a night with no network costs one wait, not one per
+# store.
+MC_NET_WAIT=300
+MC_NET_POLL=${MC_NET_POLL:-5}
+: "${MC_NET_DEADLINE:=$(( $(date +%s) + MC_NET_WAIT ))}"
+export MC_NET_DEADLINE
+
+# mc_remote_host CHECKOUT — the host its origin is fetched from, or nothing for
+# an origin on this machine. Reads the URL, scp and path forms git accepts.
+mc_remote_host() {
+  local url
+  url=$(git -C "$1" remote get-url origin 2>/dev/null) || return 0
+  [[ "$url" == *://* || "$url" =~ ^[^/]*: ]] || return 0
+  url=${url#*://}; url=${url#*@}
+  printf '%s' "${url%%[:/]*}"
+}
+
+# mc_await_host HOST — wait until HOST resolves; false once the deadline passed.
+mc_await_host() {
+  until getent hosts "$1" >/dev/null; do
+    (( $(date +%s) < MC_NET_DEADLINE )) || return 1
+    sleep "$MC_NET_POLL"
+  done
+}
+
 # mc_repos_of FILE — the repositories this fact's verify reads, one per line:
 # the <repo> of `git_fact.sh <repo>` and of `git -C <repo>`.
 mc_repos_of() {
@@ -95,7 +126,7 @@ mc_repos_of() {
 }
 
 mc_fetch_repos() {
-  local f repo path err fetch
+  local f repo path host err fetch
   local -A repos=()
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
@@ -109,6 +140,8 @@ mc_fetch_repos() {
     if [[ ! -e "$path/.git" ]]; then
       MC_STALE["$repo"]="no checkout at $path"; continue
     fi
+    host=$(mc_remote_host "$path")
+    [[ -z "$host" ]] || mc_await_host "$host"
     fetch=(timeout 120 git -C "$path" fetch --quiet --prune origin)
     err=$("${fetch[@]}" 2>&1 >/dev/null) \
       || MC_STALE["$repo"]=$(mc_fetch_error "$?" "$err")
@@ -306,7 +339,7 @@ mc_self_test() {
   )
 
   check() { # DESCRIPTION CONDITION
-    if eval "$2"; then echo "  ok   $1"; else echo "  FAIL $1" >&2; rc=1; fi
+    if eval "$2"; then tap_ok "$1"; else tap_not_ok "$1"; rc=1; fi
   }
   check "a fact that holds is left alone"        '[[ -f "$d/holds.md" ]]'
   check "a contradicted fact is deleted"         '[[ ! -f "$d/contradicted.md" ]]'
@@ -339,6 +372,31 @@ mc_self_test() {
   )
   check "a fetch that fails records git's reason" \
     '[[ "$why" == "'\''$d/nowhere'\'' does not appear to be a git repository" ]]'
+  local u hosts=""
+  for u in https://github.com/O/r.git git@github.com:O/r.git \
+           ssh://git@gh.example:22/O/r "$d/nowhere" file:///x/r; do
+    git -C "$d/proj/api/zzq-fixture" remote set-url origin "$u"
+    hosts+="[$(mc_remote_host "$d/proj/api/zzq-fixture")]"
+  done
+  check "a remote's host is read from each URL form, and a local one has none" \
+    '[[ "$hosts" == "[github.com][github.com][gh.example][][]" ]]'
+  # getent stands in for DNS: it fails until its count of calls reaches $ok_at.
+  mkdir -p "$d/bin"
+  printf '#!/usr/bin/env bash\nn=$(( $(cat %s/calls 2>/dev/null || echo 0) + 1 ))\necho $n > %s/calls\n(( n >= ${OK_AT:-1} ))\n' \
+    "$d" "$d" > "$d/bin/getent"
+  chmod +x "$d/bin/getent"
+  # shellcheck disable=SC2034
+  why=$(
+    PATH="$d/bin:$PATH"; MC_NET_POLL=0
+    MC_NET_DEADLINE=$(( $(date +%s) + 60 ))
+    rm -f "$d/calls"; OK_AT=1 mc_await_host h && printf 'now%s ' "$(cat "$d/calls")"
+    rm -f "$d/calls"; OK_AT=3 mc_await_host h && printf 'later%s ' "$(cat "$d/calls")"
+    MC_NET_DEADLINE=$(( $(date +%s) - 1 ))
+    rm -f "$d/calls"; OK_AT=99 mc_await_host h || printf 'gaveup%s' "$(cat "$d/calls")"
+  )
+  check "a host that resolves is not waited for" '[[ "$why" == *"now1 "* ]]'
+  check "a host that does not resolve yet is polled until it does" '[[ "$why" == *"later3 "* ]]'
+  check "past the deadline the wait gives up at once" '[[ "$why" == *gaveup1 ]]'
   check "both forms name the repository to fetch" \
     '[[ "$(MEM_DIR="$d"; mc_repos_of "$d/factfetch.md") $(MEM_DIR="$d"; mc_repos_of "$d/needsfetch.md")" == "api/zzq-fixture api/zzq-fixture" ]]'
   check "a producer killed by SIGPIPE is not a contradiction" '[[ -f "$d/sigpipe.md" ]]'
@@ -362,8 +420,8 @@ mc_e2e_test() {
   local report="$fx/proj/.claude/memory_check.last"
 
   check2() {  # DESCRIPTION WANT GOT
-    if [[ "$2" == "$3" ]]; then echo "  ok   $1"
-    else printf '  FAIL %s\n    want: %s\n    got:  %s\n' "$1" "$2" "$3" >&2; rc=1; fi
+    if [[ "$2" == "$3" ]]; then tap_ok "$1"
+    else tap_not_ok "$1" "want: $2" "got:  $3"; rc=1; fi
   }
   # HOME is redirected so the journal call on a deletion cannot reach the real
   # history; it is silenced and non-fatal, and a test must not write one.
@@ -468,17 +526,15 @@ mc_e2e_test() {
 # --- Main -------------------------------------------------------------------
 
 if [[ "$SELFTEST" -eq 1 ]]; then
-  echo "memory_check --self-test"
-  st=0
-  mc_self_test || st=1
-  mc_e2e_test  || st=1
-  [[ $st -eq 0 ]] && echo "memory_check: self-test PASS" || echo "memory_check: self-test FAIL" >&2
-  exit $st
+  mc_self_test || :
+  mc_e2e_test  || :
+  tap_end
 fi
 
 # The only gate. The store shares a volume with the facts it checks, so a run
-# that reaches here has both or neither. The network needs no gate: a verify
-# asking a live system exits 75 when nobody answers, and 75 deletes nothing.
+# that reaches here has both or neither. The network needs no gate: a fetch
+# waits for its host, a verify asking a live system exits 75 when nobody
+# answers, and neither deletes anything.
 if ! mc_self_test >/dev/null 2>&1; then
   echo "memory_check: own fixtures failed — refusing to touch the store" >&2
   [[ "$ALL" -eq 1 ]] && mc_all_report "failed — memory_check's own fixtures, so no store was checked"$'\n'

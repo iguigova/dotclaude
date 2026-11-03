@@ -97,7 +97,7 @@
       <li><b>1 · rule</b>
         <span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">A rule says what to do, and anything done twice becomes a tested script.</span></li>
       <li><b>2 · test</b>
-        <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">One command runs every script's own self-test,</span>
+        <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test" data-test="scripts/selftest.sh" data-proves="a self-test that does not print TAP fails the sweep">One command runs every script's own self-test,</span>
         and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest" data-test="scripts/tooling_commit.sh" data-proves="a red gate commits nothing">A change is committed only when every test passes,</span>
@@ -275,19 +275,16 @@ const excerpt = (v) => {
 
 // A claim is the words a file holds (data-check, data-says) and, where a
 // self-test proves the behaviour, that test's case (data-test, data-proves):
-// its name in quotes in the test's source, where the case is called, and its
-// line in what the run printed. Its
-// code is the worst of them, as page_claims.py judges a page: a contradiction
-// beats no answer, which beats holding.
+// its line in the TAP the run printed. Its code is the worse of the two, as
+// page_claims.py judges a page: a contradiction beats no answer, which beats
+// holding.
 const worst = (codes) => (codes.includes(1) ? 1 : codes.includes(75) ? 75 : 0);
 const parts = (claim) => {
   const { check, says, test, proves } = claim.dataset;
   const said = { path: check, says, as: 'Says it', judge: verdict, href: BLOB + check };
   if (!test) return [said];
   const printed = `${RUN}${test.split('/').pop()}.txt`;
-  return [said,
-    { path: test, says: `"${proves}"`, as: 'Tested by', judge: verdict, href: BLOB + test },
-    { path: printed, says: proves, as: 'Passed in the run', judge: ran, href: printed }];
+  return [said, { path: printed, says: proves, as: 'Passed in the run', judge: ran, href: printed }];
 };
 
 // Marks: one button after each claim, opening the evidence it found.

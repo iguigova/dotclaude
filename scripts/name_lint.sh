@@ -143,6 +143,11 @@ nl_elsewhere() {
 # nl_resolve TOKEN FILE — 0 when the name exists somewhere it could.
 nl_resolve() {
   local t="$1" r n
+  # Read whole, once: a loop that returns on the first hit would close a pipe
+  # nl_roots is still writing to, and where SIGPIPE is ignored, as on GitHub's
+  # runners, its printf reports the broken pipe on stderr.
+  local -a roots
+  mapfile -t roots < <(nl_roots "$2")
   case "$t" in
     /*)  [[ -e "$t" ]] && return 0 ;;
     '~'/*) [[ -e "${t/#\~/$HOME}" ]] && return 0 ;;
@@ -151,22 +156,22 @@ nl_resolve() {
   if [[ "$t" =~ ^/[a-z][a-z0-9:_-]*$ ]]; then
     n="${t#/}"
     [[ "$BUILTINS" == *" $n "* ]] && return 0
-    while read -r r; do
+    for r in "${roots[@]}"; do
       [[ -f "$r/.claude/commands/$n.md" || -f "$r/.claude/skills/$n/SKILL.md" ]] && return 0
       [[ -f "$r/commands/$n.md"         || -f "$r/skills/$n/SKILL.md"         ]] && return 0
-    done < <(nl_roots "$2")
+    done
     return 1
   fi
-  while read -r r; do
+  for r in "${roots[@]}"; do
     [[ -e "$r/$t" ]] && return 0
-  done < <(nl_roots "$2")
+  done
   # a bare basename: the places a script or helper actually lives
   if [[ "$t" != */* ]]; then
-    while read -r r; do
+    for r in "${roots[@]}"; do
       for n in $NL_SUBDIRS; do
         [[ -e "$r/$n/$t" ]] && return 0
       done
-    done < <(nl_roots "$2")
+    done
   fi
   return 1
 }

@@ -23,8 +23,6 @@
   .evidence[hidden] { display: none; }
   .evidence code { background: none; padding: 0; white-space: pre-wrap; }
   .evidence b { color: var(--ink); }
-  .evidence .row { display: block; }
-  .evidence .row + .row { margin-top: 6px; }
 
   .loop { list-style: none; padding: 0; margin: 0 0 12px; max-width: none;
     display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
@@ -82,11 +80,8 @@
       Each sentence below that makes a claim names a file and the words it should find there.
       When this page loads, your browser reads those files and looks.
       Press any mark to see the line it found.</p>
-    <p>Words alone are a modest check: they show the file says what the sentence says, not that the code does it.
-      So where a self-test proves the behaviour, the claim names that test's case too.
-      GitHub runs every self-test on each push and publishes this page with what each one printed:
-      one line per case, in TAP, the standard plain-text test format.
-      So the mark also says whether that case passed. The second line at the top says how the whole run went.</p>
+    <p>GitHub also runs every script's self-test on each push, and publishes this page with what they printed.
+      The second line at the top says how that run went.</p>
   </div>
 </section>
 
@@ -97,13 +92,13 @@
       <li><b>1 · rule</b>
         <span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">A rule says what to do, and anything done twice becomes a tested script.</span></li>
       <li><b>2 · test</b>
-        <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test" data-test="scripts/selftest.sh" data-proves="a self-test that does not print TAP fails the sweep">One command runs every script's own self-test,</span>
+        <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">One command runs every script's own self-test,</span>
         and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
-        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest" data-test="scripts/tooling_commit.sh" data-proves="a red gate commits nothing">A change is committed only when every test passes,</span>
-        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes" data-test="scripts/tooling_commit.sh" data-proves="and the commit is never pushed">and never pushed by the script.</span></li>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest">A change is committed only when every test passes,</span>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">and never pushed by the script.</span></li>
       <li><b>4 · journal</b>
-        <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history" data-test="scripts/journal.sh" data-proves="a new entry lands at the end, one blank line after the last">Each turn that changed something gets an entry, from one writer.</span></li>
+        <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Each turn that changed something gets an entry, from one writer.</span></li>
       <li><b>5 · note</b>
         <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">What a session notices becomes a note, and each note is done, dropped or kept open.</span></li>
     </ol>
@@ -137,9 +132,9 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <div>
     <p>There are three answers a check can give, and each one does something different.</p>
     <ul>
-      <li><b>0, it holds.</b> <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now" data-test="scripts/memory_fact.sh" data-proves="a fact whose verify does not pass is refused">A fact is only written when its check passes the day it's written.</span></li>
-      <li><b>1, it doesn't.</b> <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted" data-test="scripts/memory_check.sh" data-proves="a contradicted fact is deleted">A fact its own check contradicts is deleted, file and index line.</span></li>
-      <li><b>75, no answer.</b> <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it" data-test="scripts/memory_check.sh" data-proves="a check that got no answer deletes nothing">Nothing is learned, and nothing is deleted on a maybe.</span></li>
+      <li><b>0, it holds.</b> <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now">A fact is only written when its check passes the day it's written.</span></li>
+      <li><b>1, it doesn't.</b> <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted">A fact its own check contradicts is deleted, file and index line.</span></li>
+      <li><b>75, no answer.</b> <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it">Nothing is learned, and nothing is deleted on a maybe.</span></li>
     </ul>
   </div>
 </section>
@@ -148,12 +143,12 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <h2 id="h-away">While I'm away</h2>
   <div>
     <ul>
-      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00" data-test="scripts/memory_schedule.sh" data-proves="the timer runs at 04:30">Every night at 04:30, every fact is checked again,</span>
-        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true" data-test="scripts/memory_schedule.sh" data-proves="a missed night runs at the next login">and a night the machine missed is caught up.</span></li>
-      <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes" data-test="scripts/session_start_notes.sh" data-proves="three are listed by default">A session starts by hearing how many notes are open, and the three oldest.</span></li>
-      <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended" data-test="scripts/session_end_notes.sh" data-proves="a project with one open note is a run">When it ends, what it noticed is placed without me.</span></li>
-      <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR" data-test="scripts/git_sweep.sh" data-proves="squash-merged branch → delete">Once a day, a branch whose pull request merged is deleted.</span></li>
-      <li><span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape" data-test="scripts/dotclaude_export.sh" data-proves="a GitHub token is refused">Nothing reaches this public repo if it looks like a key, a token or a real email.</span></li>
+      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00">Every night at 04:30, every fact is checked again,</span>
+        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true">and a night the machine missed is caught up.</span></li>
+      <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes">A session starts by hearing how many notes are open, and the three oldest.</span></li>
+      <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">When it ends, what it noticed is placed without me.</span></li>
+      <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR">Once a day, a branch whose pull request merged is deleted.</span></li>
+      <li><span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape">Nothing reaches this public repo if it looks like a key, a token or a real email.</span></li>
     </ul>
   </div>
 </section>
@@ -201,14 +196,14 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <div>
     <ul>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The nightly timer only runs while I'm logged in, so a missed night runs at my next login, not at 04:30.</span></li>
-      <li>A claim with no self-test beside it is checked on its words alone. A file can say the right thing and do the wrong one.</li>
+      <li>A claim is checked on its words alone. They show the file says it, not that the code does it: the self-tests check that, and this page doesn't tie a claim to its test.</li>
     </ul>
   </div>
 </section>
 
 </main>
 <footer>
-  <div class="line">The export won't publish this page while one of its claims fails. · <a href="https://github.com/iguigova/dotclaude">github.com/iguigova/dotclaude</a> · <a href="/style.html">Style</a></div>
+  <div class="line"><a href="https://github.com/iguigova/dotclaude">github.com/iguigova/dotclaude</a> · <a href="/style.html">Style</a></div>
   <div class="band" aria-hidden="true"></div>
 </footer>
 </div>
@@ -247,18 +242,6 @@ const verdict = (text, says) => {
   return i < 0 ? { code: 1 } : { code: 0, line: i + 1, text: lines[i], says };
 };
 
-// ran — how a case went in the TAP its self-test printed: a line
-// `ok N - <case>` holds, `not ok N - <case>` does not, and a case that never
-// printed did not pass.
-const CASE = /^(ok|not ok) \d+ - (.*)$/;
-const ran = (text, name) => {
-  if (text === null) return { code: 75 };
-  const lines = text.split('\n');
-  const i = lines.findIndex(l => { const m = l.match(CASE); return m && m[2] === name; });
-  if (i < 0) return { code: 1 };
-  return { code: lines[i].match(CASE)[1] === 'ok' ? 0 : 1, line: i + 1, text: lines[i], says: name };
-};
-
 // excerpt — the words in bold, with a little of the line on either side.
 const AROUND = 40;
 const excerpt = (v) => {
@@ -273,80 +256,53 @@ const excerpt = (v) => {
   ];
 };
 
-// A claim is the words a file holds (data-check, data-says) and, where a
-// self-test proves the behaviour, that test's case (data-test, data-proves):
-// its line in the TAP the run printed. Its code is the worse of the two, as
-// page_claims.py judges a page: a contradiction beats no answer, which beats
-// holding.
-const worst = (codes) => (codes.includes(1) ? 1 : codes.includes(75) ? 75 : 0);
-const parts = (claim) => {
-  const { check, says, test, proves } = claim.dataset;
-  const said = { path: check, says, as: 'Says it', judge: verdict, href: BLOB + check };
-  if (!test) return [said];
-  const printed = `${RUN}${test.split('/').pop()}.txt`;
-  return [said, { path: printed, says: proves, as: 'Passed in the run', judge: ran, href: printed }];
-};
-
 // Marks: one button after each claim, opening the evidence it found.
 const NOTE = {
   1: (path) => `Read ${path}, and it no longer says this. I'd rather you saw it struck out than believed it.`,
   75: (path) => `Couldn't read ${path}, so this is neither true nor false yet.`,
 };
-const UNRUN = (path) => `Read ${path}, and this case failed or never ran.`;
-const row = ({ path, as, judge, href, v }) => {
-  const line = document.createElement('span');
-  line.className = 'row';
-  if (v.code !== 0) {
-    line.textContent = `${as}: ${(v.code === 1 && judge === ran ? UNRUN : NOTE[v.code])(path)}`;
-    return line;
-  }
+const evidence = (path, v) => {
+  if (v.code !== 0) return [NOTE[v.code](path)];
   const link = document.createElement('a');
-  link.href = judge === ran ? href : `${href}#L${v.line}`;
+  link.href = `${BLOB}${path}#L${v.line}`;
   link.textContent = `${path}:${v.line}`;
   const code = document.createElement('code');
   code.append(...excerpt(v));
-  line.append(`${as}: `, link, document.createElement('br'), code);
-  return line;
+  return [link, document.createElement('br'), code];
 };
-const mark = (claim, checked) => {
-  const code = worst(checked.map(c => c.v.code));
-  const tested = checked.some(c => c.judge === ran);
+const mark = (claim, v) => {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'mark';
-  button.dataset.code = claim.dataset.code = code;
-  button.textContent = LABEL[code] + (tested && code === 0 ? ' · tested' : '');
+  button.dataset.code = claim.dataset.code = v.code;
+  button.textContent = LABEL[v.code];
   button.setAttribute('aria-expanded', 'false');
   const box = document.createElement('span');
   box.className = 'evidence';
   box.hidden = true;
-  box.append(...checked.map(row));
+  box.append(...evidence(claim.dataset.check, v));
   button.addEventListener('click', () => {
     box.hidden = !box.hidden;
     button.setAttribute('aria-expanded', String(!box.hidden));
   });
   claim.after(' ', button, box);
-  return { code, tested };
+  return v.code;
 };
 const checkClaim = async (claim) =>
-  mark(claim, await Promise.all(parts(claim).map(async (part) =>
-    ({ ...part, v: part.judge(await read(part.path), part.says) }))));
+  mark(claim, verdict(await read(claim.dataset.check), claim.dataset.says));
 
 // The tally says what every check found.
 const count = (codes, c) => codes.filter(x => x === c).length;
-const tally = (results) => {
-  const codes = results.map(r => r.code);
+const tally = (codes) => {
   const said = [`${count(codes, 0)} hold`];
   const gone = count(codes, 1);
   if (gone) said.push(gone === 1 ? '1 no longer holds and is struck out' : `${gone} no longer hold and are struck out`);
   if (count(codes, 75)) said.push(`${count(codes, 75)} got no answer`);
-  const tested = results.filter(r => r.tested).length;
-  return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${said.join(', ')}. ` +
-    `${tested} of them also name the self-test case that proves them, and how it went in the run.`;
+  return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${said.join(', ')}.`;
 };
 const checkAll = async () => {
-  const results = await Promise.all([...document.querySelectorAll('.claim')].map(checkClaim));
-  document.getElementById('tally').textContent = tally(results);
+  const codes = await Promise.all([...document.querySelectorAll('.claim')].map(checkClaim));
+  document.getElementById('tally').textContent = tally(codes);
 };
 
 // The run published with this page, judged like a claim by the verdict line

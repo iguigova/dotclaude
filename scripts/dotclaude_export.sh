@@ -8,12 +8,13 @@
 #   dotclaude_export.sh --self-test
 #
 # The copy is the allowlist below as committed at the source's HEAD, read with
-# `git archive`, so another session's uncommitted work is never exported. The
+# `git archive`, so another session's uncommitted work is never exported. It
+# holds what only the public repo has too: index.html, the page GitHub Pages
+# serves, README.md, LICENSE, and .github, the workflow that runs the
+# self-tests on every push and publishes the page with what they printed. The
 # target must be clean, so a refusal can restore it exactly. It keeps only its
-# .git, README.md, LICENSE, .gitignore, index.html, the page GitHub Pages
-# serves, .github, the workflow that runs the self-tests on every push and
-# publishes the page with what they printed, and .claude, the clone's own
-# session history, which the clone must ignore and so never publishes; every
+# .git and .claude, the clone's own session history, which the clone's
+# .git/info/exclude ignores, so it is never read and never published; every
 # other file is replaced by the copy, so a file removed from the source is
 # removed from the target too.
 #
@@ -29,8 +30,7 @@
 #   - a binary file, which the checks above read as text and cannot see into.
 # A hit is reported as path:line and its reason, never the line, since the hit
 # may be the secret itself. The copy's own `scripts/selftest.sh --copy` must
-# then pass on it, and every claim index.html makes must hold against the copy
-# and the TAP that run printed, as page_claims.py beside this script judges it.
+# then pass on it. The page's claims are judged by the reader's browser alone.
 #
 # The commit message names the source commit. This script never pushes.
 #
@@ -38,9 +38,9 @@
 # Exit 0 committed or nothing to commit, 1 refused, 2 usage.
 set -uo pipefail
 
-ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts)
-KEEP=(.git README.md LICENSE .gitignore index.html .github .claude)
-CLAIMS="$(dirname "${BASH_SOURCE[0]}")/page_claims.py"
+ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts
+       index.html README.md LICENSE .github)
+KEEP=(.git .claude)
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -105,7 +105,7 @@ refuse() {
 }
 
 export_to() {  # <src> <target> <message>
-  local src=$1 dst=$2 msg=$3 sha k f claims run
+  local src=$1 dst=$2 msg=$3 sha k f
   git -C "$src" rev-parse --verify -q HEAD >/dev/null || die "$src is not a git repo with a commit"
   git -C "$dst" rev-parse --git-dir >/dev/null 2>&1 || die "$dst is not a git clone"
   [[ "$(git -C "$dst" rev-parse --show-toplevel)" == "$(realpath "$dst")" ]] || die "$dst is not the root of its clone"
@@ -122,18 +122,10 @@ export_to() {  # <src> <target> <message>
   scan "$dst" "$src/dotclaude_denylist.txt" >&2 || refuse "$dst" "the copy holds the hits above"
   [[ -x "$dst/scripts/selftest.sh" ]] || refuse "$dst" "the copy has no executable scripts/selftest.sh"
   # Staged before the selftest runs, so what the selftest leaves in the tree,
-  # bytecode or a scratch file, is put back out and never committed. The TAP it
-  # keeps is what the page's tested claims are judged by.
+  # bytecode or a scratch file, is put back out and never committed.
   git -C "$dst" add -A
-  run=$(mktemp -d) || die "no temporary directory for the run"
-  "$dst/scripts/selftest.sh" --copy --keep "$run" >/dev/null 2>&1 \
-    || { rm -rf "$run"; refuse "$dst" "scripts/selftest.sh fails on the copy"; }
+  "$dst/scripts/selftest.sh" --copy >/dev/null 2>&1 || refuse "$dst" "scripts/selftest.sh fails on the copy"
   git -C "$dst" checkout -q -- .; git -C "$dst" clean -qfd
-  if [[ -f "$dst/index.html" ]]; then
-    claims=$("$CLAIMS" --run "$run" "$dst/index.html" 2>&1) \
-      || { echo "$claims" >&2; rm -rf "$run"; refuse "$dst" "index.html makes a claim the copy does not hold"; }
-  fi
-  rm -rf "$run"
 
   git -C "$dst" diff --cached --quiet && { echo "nothing to commit: the target matches $sha"; return 0; }
   git -C "$dst" commit -q -m "${msg:-Export from ~/.claude}" -m "Source commit: $sha" || die "commit failed"
@@ -150,19 +142,17 @@ self_test() {
 
   mkdir -p "$fx/src/scripts" "$fx/src/skills/a" "$fx/src/commands" "$fx/src/projects"
   for f in credo.md statusline.sh settings.json commands/c.md; do echo "$f" > "$fx/src/$f"; done
-  # It leaves bytecode behind, as a Python selftest does, and keeps a TAP with a
-  # case that passed and one that failed.
+  # It leaves bytecode behind, as a Python selftest does.
   printf '%s\n' '#!/usr/bin/env bash' 'mkdir -p "${0%/*}/__pycache__"; : > "${0%/*}/__pycache__/x.pyc"' \
-    '[ "${2:-}" = --keep ] && printf "ok 1 - holds\nnot ok 2 - broke\n1..2\n" > "$3/c.sh.txt"' \
     > "$fx/src/scripts/selftest.sh"
   chmod +x "$fx/src/scripts/selftest.sh"
   echo "rules" > "$fx/src/CLAUDE.md"; echo "go" > "$fx/src/go_coding_guidelines.md"
   echo "skill" > "$fx/src/skills/a/SKILL.md"; echo "private" > "$fx/src/projects/history.md"
   echo "secret-co" > "$fx/src/dotclaude_denylist.txt"
+  echo "page" > "$fx/src/index.html"; echo "readme" > "$fx/src/README.md"; echo "mit" > "$fx/src/LICENSE"
+  mkdir -p "$fx/src/.github/workflows"; echo "on: push" > "$fx/src/.github/workflows/selftest.yml"
   g "$fx/src" init -q; g "$fx/src" add -A; g "$fx/src" commit -qm one
-  g "$fx" init -q dst; echo "readme" > "$fx/dst/README.md"; echo "stale" > "$fx/dst/old.md"
-  mkdir -p "$fx/dst/.github/workflows"; echo "on: push" > "$fx/dst/.github/workflows/selftest.yml"
-  echo '<p data-check="credo.md" data-says="credo">' > "$fx/dst/index.html"
+  g "$fx" init -q dst; echo "stale" > "$fx/dst/old.md"; echo "stale" > "$fx/dst/.gitignore"
   g "$fx/dst" add -A; g "$fx/dst" commit -qm init
   mkdir "$fx/dst/.claude"; echo "history" > "$fx/dst/.claude/session_history.md"
   echo ".claude/" >> "$fx/dst/.git/info/exclude"
@@ -172,8 +162,10 @@ self_test() {
 
   out=$(run "first export") && tap_ok "a clean export succeeds" || tap_not_ok "a clean export succeeds" "$out"
   [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && tap_ok "the allowlist is copied" || tap_not_ok "the allowlist is copied" "allowlist missing"
+  [[ -f "$fx/dst/index.html" && -f "$fx/dst/README.md" && -f "$fx/dst/.github/workflows/selftest.yml" ]] \
+    && tap_ok "the page, the README and the workflow are copied from the source" || tap_not_ok "the page, the README and the workflow are copied from the source" "public files missing"
   [[ ! -e "$fx/dst/projects" && ! -e "$fx/dst/dotclaude_denylist.txt" ]] && tap_ok "paths off the allowlist stay behind" || tap_not_ok "paths off the allowlist stay behind" "an unlisted path was exported"
-  [[ -f "$fx/dst/README.md" && ! -e "$fx/dst/old.md" ]] && tap_ok "README is kept and a stale file is removed" || tap_not_ok "README is kept and a stale file is removed" "keep/remove wrong"
+  [[ ! -e "$fx/dst/old.md" && ! -e "$fx/dst/.gitignore" ]] && tap_ok "a file the source does not hold is removed, dotfiles too" || tap_not_ok "a file the source does not hold is removed, dotfiles too" "a stale file survived"
   [[ -f "$fx/dst/.claude/session_history.md" && -z "$(git -C "$fx/dst" ls-files .claude)" ]] \
     && tap_ok "the clone's ignored .claude is kept and not committed" || tap_not_ok "the clone's ignored .claude is kept and not committed" ".claude removed or committed"
   [[ -z "$(git -C "$fx/dst" ls-files scripts/__pycache__)" && -z "$(git -C "$fx/dst" status --porcelain)" ]] \
@@ -205,22 +197,6 @@ self_test() {
   out=$(run "example email") && tap_ok "an example domain, a reserved TLD and AWS's example key pass" || tap_not_ok "an example domain, a reserved TLD and AWS's example key pass" "examples refused: $out"
   echo "secret-co" >> "$fx/dst/.claude/session_history.md"
   out=$(run "ignored hit") && tap_ok "a hit in the clone's ignored .claude is never read" || tap_not_ok "a hit in the clone's ignored .claude is never read" "ignored .claude refused: $out"
-  head=$(git -C "$fx/dst" rev-parse HEAD)
-  echo "secret-co" >> "$fx/dst/README.md"; g "$fx/dst" commit -qam "readme hit"
-  out=$(run "readme hit") && tap_not_ok "a hit in the kept README is refused" "a hit in the kept README exported" || { grep -q "README.md:2 \[denylist\]" <<<"$out" && tap_ok "a hit in the kept README is refused" || tap_not_ok "a hit in the kept README is refused" "readme: $out"; }
-  g "$fx/dst" reset -q --hard "$head"
-  [[ -f "$fx/dst/index.html" ]] && tap_ok "the page is kept" || tap_not_ok "the page is kept" "index.html removed"
-  [[ -f "$fx/dst/.github/workflows/selftest.yml" ]] && tap_ok "the workflow is kept" || tap_not_ok "the workflow is kept" ".github removed"
-  echo '<p data-check="credo.md" data-says="not in the credo">' > "$fx/dst/index.html"; g "$fx/dst" commit -qam "stale page"
-  out=$(run "stale page") && tap_not_ok "a page whose claim fails is refused" "a page with a failing claim exported" || { grep -q "makes a claim" <<<"$out" && tap_ok "a page whose claim fails is refused" || tap_not_ok "a page whose claim fails is refused" "stale page: $out"; }
-  g "$fx/dst" reset -q --hard "$head"
-  echo '<p data-check="credo.md" data-says="credo" data-test="scripts/c.sh" data-proves="holds">' > "$fx/dst/index.html"; g "$fx/dst" commit -qam "tested page"
-  out=$(run "tested page") && tap_ok "a claim whose case passed in the copy's run is exported" || tap_not_ok "a claim whose case passed in the copy's run is exported" "refused: $out"
-  head=$(git -C "$fx/dst" rev-parse HEAD)
-  echo '<p data-check="credo.md" data-says="credo" data-test="scripts/c.sh" data-proves="broke">' > "$fx/dst/index.html"; g "$fx/dst" commit -qam "broken case"
-  out=$(run "broken case") && tap_not_ok "a claim whose case failed in the copy's run is refused" "exported" || { grep -q "has no passing case: broke" <<<"$out" && tap_ok "a claim whose case failed in the copy's run is refused" || tap_not_ok "a claim whose case failed in the copy's run is refused" "broken case: $out"; }
-  g "$fx/dst" reset -q --hard "$head"
-
   echo "draft" > "$fx/dst/NOTES.md"; echo "edited" >> "$fx/dst/README.md"
   out=$(run "dirty") && tap_not_ok "a dirty target is refused" "a dirty target was exported into" || { grep -q "uncommitted changes" <<<"$out" && tap_ok "a dirty target is refused" || tap_not_ok "a dirty target is refused" "dirty: $out"; }
   [[ -f "$fx/dst/NOTES.md" && "$(tail -1 "$fx/dst/README.md")" == edited ]] && tap_ok "and its uncommitted work is untouched" || tap_not_ok "and its uncommitted work is untouched" "dirty: work lost"

@@ -7,9 +7,9 @@
 #   1..2                  the plan, printed last by tap_end
 #
 # selftest.sh refuses a self-test whose stdout is anything else, so whatever
-# the code under test prints goes to stderr. The showcase page finds a claim's
-# case by its name, so a name is unique in its script, says what holds rather
-# than what broke, and holds no `#`, which TAP reads as a directive.
+# the code under test prints goes to stderr. A case's name is unique in its
+# script, says what holds rather than what broke, and holds no `#`, which TAP
+# reads as a directive.
 #
 # Usage:
 #   tap.sh --self-test

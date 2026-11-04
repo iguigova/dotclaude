@@ -53,16 +53,15 @@ The selftest needs `git`, `python3` and `shellcheck`.
 
 ## How it is published
 
-`~/.claude` is a local-only repo. `scripts/dotclaude_export.sh` copies the
-files above, as committed, into this repo, keeping this README and the page. It
-refuses the copy on any denylisted name, token shape, real email or binary file,
-or while a claim the page makes no longer holds against it, runs the copy's
-selftest, and commits.
+`~/.claude` is a local-only repo, and everything here, this README and the
+page included, is written there. `scripts/dotclaude_export.sh` copies it, as
+committed, into this repo. It refuses the copy on any denylisted name, token
+shape, real email or binary file, runs the copy's selftest, and commits.
 
 Every push then runs the selftest on GitHub, in `.github/workflows/selftest.yml`,
-and a push to `main` publishes the page from that commit, with what each
-self-test printed in `run/`. So the page reads its claims, its counts and how
-each claim's own test case went from one commit, and asks no API.
+and a push to `main` publishes the page from that commit, with what the
+selftest printed beside it. So the page reads its claims, its counts and the
+run's verdict from one commit, and asks no API.
 
 ## License
 

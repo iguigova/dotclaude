@@ -10,27 +10,20 @@
 # because the copy's prose was gated by this check at the source on every commit,
 # and a copy's own HEAD is the previous export, not a baseline for its names.
 #
-# --keep DIR writes what each self-test of check 3 printed to DIR/<script>.txt,
-# its TAP, and what it printed to stderr to DIR/<script>.stderr.txt. The
-# showcase page reads the TAP from the run GitHub publishes with it, so each
-# claim shows how its own case went.
-#
 # --self-test sweeps a folder of small scripts made to pass and fail in each way
 # check 3 tells apart. It never sweeps this folder, so check 3 runs it like any
 # other script's self-test, with no recursion.
 #
 # Usage:
-#   selftest.sh [--copy] [--keep DIR]
+#   selftest.sh [--copy]
 #   selftest.sh --self-test
 set -uo pipefail
-copy=0; keep=; self_test=0
+copy=0; self_test=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --copy) copy=1; shift ;;
-    --keep) [ -n "${2:-}" ] || { echo "selftest.sh: --keep needs a directory" >&2; exit 2; }
-            mkdir -p "$2" && keep=$(cd "$2" && pwd) || exit 2; shift 2 ;;
     --self-test) self_test=1; shift ;;
-    *) echo "selftest.sh: unknown argument: $1 (takes --copy, --keep DIR, --self-test)" >&2; exit 2 ;;
+    *) echo "selftest.sh: unknown argument: $1 (takes --copy, --self-test)" >&2; exit 2 ;;
   esac
 done
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 2   # → ~/.claude/scripts
@@ -72,22 +65,25 @@ each() {  # <fn> <dir> <file…>
 }
 
 # self_test_of — one script's self-test, run in its own folder as ./<name>, so
-# a test that calls "$0" finds it. Its TAP lands in $tapdir, sweep's.
+# a test that calls "$0" finds it. Its TAP and stderr land in $work, sweep's. SIGPIPE
+# is ignored, as GitHub's runners ignore it, so a writer cut off by a reader
+# that quit early fails here with "Broken pipe", not first on a push.
 self_test_of() {  # <script>
   local name=${1##*/} runner=bash
   is_python "$1" && runner=python3
-  (cd "${1%/*}" && timeout 120 "$runner" "./$name" --self-test) \
-    >"$tapdir/$name.txt" 2>"$tapdir/$name.stderr.txt"
+  (trap '' PIPE; cd "${1%/*}" && timeout 120 "$runner" "./$name" --self-test) \
+    >"$work/$name.tap" 2>"$work/$name.err"
 }
 
 # sweep — every script in <dir> that offers --self-test, run JOBS at a time.
 # A sweep, not a list: a script's --self-test is enforced the moment it lands,
 # with no registration step to forget. Its stdout is held to tap.sh's format,
-# and its exit status to what that says, so every case of every script is a line
-# the page and a reader can find. Prints a verdict per script, in file order;
-# returns 1 when any failed.
-sweep() {  # <dir> <tapdir>
-  local dir=$1 tapdir=$2 work f name st wrong missed cases rc=0
+# and its exit status to what that says. Prints a verdict per script, in file
+# order, and under a failed one its failed cases with their details and the
+# last lines of its stderr, so a run's output says why; returns 1 when any
+# failed.
+sweep() {  # <dir>
+  local dir=$1 work f name st wrong missed cases rc=0
   local -a tests=()
   for f in "$dir"/*.sh "$dir"/*.py; do
     [ -e "$f" ] && grep -q -- '--self-test' "$f" && tests+=("$f")
@@ -96,20 +92,22 @@ sweep() {  # <dir> <tapdir>
   each self_test_of "$work" "${tests[@]}"
   for f in "${tests[@]}"; do
     name=${f##*/}; st=$(cat "$work/$name.st")
-    wrong=$(tap_verify "$tapdir/$name.txt")
+    wrong=$(tap_verify "$work/$name.tap")
+    missed=$(grep -c '^not ok' "$work/$name.tap")
+    cases=$(grep -cE '^(not )?ok' "$work/$name.tap")
     if [ -n "$wrong" ]; then
-      echo "  FAIL ./$name --self-test does not print TAP: $wrong"; rc=1
-      continue
-    fi
-    missed=$(grep -c '^not ok' "$tapdir/$name.txt")
-    cases=$(grep -cE '^(not )?ok' "$tapdir/$name.txt")
-    if [ "$st" -eq 0 ] && [ "$missed" -eq 0 ]; then
-      echo "  ok  ./$name (cases: $cases)"
+      echo "  FAIL ./$name --self-test does not print TAP: $wrong"
+    elif [ "$st" -eq 0 ] && [ "$missed" -eq 0 ]; then
+      echo "  ok  ./$name (cases: $cases)"; continue
     elif [ "$st" -ne 0 ] && [ "$missed" -ne 0 ]; then
-      echo "  FAIL ./$name --self-test: $missed of $cases cases"; rc=1
+      echo "  FAIL ./$name --self-test: $missed of $cases cases"
     else
-      echo "  FAIL ./$name --self-test exited $st with $missed of $cases cases failed"; rc=1
+      echo "  FAIL ./$name --self-test exited $st with $missed of $cases cases failed"
     fi
+    rc=1
+    awk '/^not ok /{p=1; print; next} /^#/{if (p) print; next} {p=0}' "$work/$name.tap" \
+      | sed 's/^/      /'
+    tail -n 5 "$work/$name.err" | sed 's/^/      /'
   done
   rm -rf "$work"
   return "$rc"
@@ -117,7 +115,7 @@ sweep() {  # <dir> <tapdir>
 
 if [ "$self_test" -eq 1 ]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  mkdir -p "$fx/s" "$fx/tap" "$fx/green" "$fx/green-tap"
+  mkdir -p "$fx/s" "$fx/green"
   fixture() {  # <name> <body> — a script that offers --self-test
     printf '#!/usr/bin/env bash\n# --self-test\n%s\n' "$2" > "$fx/s/$1"
   }
@@ -125,12 +123,13 @@ if [ "$self_test" -eq 1 ]; then
   fixture good.sh    '[ "$0" = ./good.sh ] && [ -f good.sh ] && printf "ok 1 - here\n1..1\n"; echo noise >&2'
   fixture liar.sh    'printf "not ok 1 - x\n1..1\n"; exit 0'
   fixture gloom.sh   'printf "ok 1 - x\n1..1\n"; exit 1'
-  fixture red.sh     'printf "ok 1 - x\nnot ok 2 - y\n1..2\n"; exit 1'
-  fixture untap.sh   'echo PASS'
+  fixture red.sh     'printf "ok 1 - x\nnot ok 2 - y\n# why\n1..2\n"; exit 1'
+  fixture untap.sh   'echo PASS; echo boom >&2'
+  fixture pipe.sh    '[ -n "$(trap -p PIPE)" ] && printf "ok 1 - deaf\n1..1\n"'
   printf '#!/usr/bin/env bash\necho PASS\n' > "$fx/s/quiet.sh"
   printf '#!/usr/bin/env python3\n# --self-test\nprint("ok 1 - snake\\n1..1")\n' > "$fx/s/snake.sh"
   printf '# --self-test\nprint("ok 1 - py\\n1..1")\n' > "$fx/s/plain.py"
-  out=$(sweep "$fx/s" "$fx/tap"); st=$?
+  out=$(sweep "$fx/s"); st=$?
   line() { grep -F " ./$1 " <<<"$out"; }
   tap_is "a self-test that prints TAP and exits 0 passes the sweep" \
     "$(line good.sh)" "  ok  ./good.sh (cases: 1)"
@@ -142,23 +141,28 @@ if [ "$self_test" -eq 1 ]; then
     "$(line gloom.sh)" "  FAIL ./gloom.sh --self-test exited 1 with 0 of 1 cases failed"
   tap_is "a failed case fails the sweep and is counted" \
     "$(line red.sh)" "  FAIL ./red.sh --self-test: 1 of 2 cases"
+  tap_is "a failed case is printed under its verdict, with its details" \
+    "$(grep -A2 -F " ./red.sh " <<<"$out" | tail -2)" $'      not ok 2 - y\n      # why'
+  tap_is "a self-test that does not print TAP shows the end of its stderr" \
+    "$(grep -A1 -F " ./untap.sh " <<<"$out" | tail -1)" "      boom"
+  tap_is "a self-test runs with SIGPIPE ignored, as on GitHub's runners" \
+    "$(line pipe.sh)" "  ok  ./pipe.sh (cases: 1)"
   tap_is "a script that offers no --self-test is not run" "$(line quiet.sh)" ""
   tap_is "a Python script wearing .sh runs under python3" \
     "$(line snake.sh)" "  ok  ./snake.sh (cases: 1)"
   tap_is "a .py script runs under python3" "$(line plain.py)" "  ok  ./plain.py (cases: 1)"
   tap_is "verdicts print in file order, whatever finishes first" \
-    "$(sed 's/^  [A-Z ok]* \.\/\([^ ]*\) .*/\1/' <<<"$out" | paste -sd' ')" \
-    "a_slow.sh gloom.sh good.sh liar.sh red.sh snake.sh untap.sh plain.py"
-  tap_is "each script's TAP is kept" "$(cat "$fx/tap/good.sh.txt")" $'ok 1 - here\n1..1'
-  tap_is "and its stderr beside it" "$(cat "$fx/tap/good.sh.stderr.txt")" "noise"
+    "$(sed -n 's/^  [A-Z ok]* \.\/\([^ ]*\) .*/\1/p' <<<"$out" | paste -sd' ')" \
+    "a_slow.sh gloom.sh good.sh liar.sh pipe.sh red.sh snake.sh untap.sh plain.py"
+  tap_is "a passing self-test's stderr is not shown" "$(grep -c noise <<<"$out")" 0
   tap_is "a sweep with any failure fails" "$st" 1
   cp "$fx/s/good.sh" "$fx/s/snake.sh" "$fx/green/"
-  sweep "$fx/green" "$fx/green-tap" >/dev/null; tap_is "a sweep of passing self-tests passes" "$?" 0
-  mkdir "$fx/slow" "$fx/slow-tap"
+  sweep "$fx/green" >/dev/null; tap_is "a sweep of passing self-tests passes" "$?" 0
+  mkdir "$fx/slow"
   for i in 1 2 3 4; do
     printf '#!/usr/bin/env bash\n# --self-test\nsleep 2; printf "ok 1 - n\\n1..1\\n"\n' > "$fx/slow/n$i.sh"
   done
-  start=$SECONDS; JOBS=4 sweep "$fx/slow" "$fx/slow-tap" >/dev/null
+  start=$SECONDS; JOBS=4 sweep "$fx/slow" >/dev/null
   tap_is "self-tests run JOBS at a time: four 2 s tests take under 6 s" \
     "$((SECONDS - start < 6))" 1
   tap_end
@@ -186,7 +190,7 @@ if need shellcheck "the shell lint"; then
 fi
 
 echo "== 3. every script that offers --self-test, and the TAP it prints =="
-sweep . "${keep:-$scratch}" || fail=1
+sweep . || fail=1
 
 echo "== 4. skill and command frontmatter, and their allowed-tools =="
 # The census reads frontmatter leniently so it can describe a malformed file.

@@ -1,9 +1,7 @@
 # Every push runs the self-tests on a clean machine, where this checkout is
 # ~/.claude, the tree the scripts were written for. A push to main then
 # publishes the site: this commit's files, and in run/ what the run printed,
-# so the page reads its claims, its counts and their tests from one commit.
-#   run/<script>.txt  the TAP that script's self-test printed, a line per case
-#   run/<script>.stderr.txt  what it printed to stderr
+# so the page reads its claims, its counts and the run's verdict from one commit.
 #   run/selftest.txt  what selftest.sh printed; its last line is the verdict
 #   run/run.json      the commit, the run's page and when it ran
 #   run/files.txt     every file in the commit
@@ -36,7 +34,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/run"
           set +e
-          ~/.claude/scripts/selftest.sh --copy --keep "$RUNNER_TEMP/run" | tee "$RUNNER_TEMP/run/selftest.txt"
+          ~/.claude/scripts/selftest.sh --copy | tee "$RUNNER_TEMP/run/selftest.txt"
           echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
       # The site is built whatever the tests said, so a failure is published
       # too; a run whose tests never ran publishes no selftest.txt verdict.

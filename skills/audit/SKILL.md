@@ -45,8 +45,9 @@ An audit judges what was read, never what was recalled.
 1. **The subject, as read** — each file, answer or output judged, so the
    reader sees what the findings cover.
 2. **Findings, numbered, most severe first.** Each states the mechanism, then
-   the defect, then the fix proposed. Their own numbers are what the user
-   approves.
+   the defect, then the fix proposed. The report ends by asking, in one
+   multi-select question dialog, which findings to apply: one option per
+   finding, named by its number.
 3. **Checked and clean** — each credo line that held and the look-alikes
    cleared, so silence means checked rather than skipped.
 4. **In an ideal world** — the larger change, unnumbered, so it is never

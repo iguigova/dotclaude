@@ -99,7 +99,10 @@ sections below it, or in the opening when there are none.
 - A ticket, page or PR the reader can open is a link. Other ids, hosts
   and commands as code.
 - The reader's own next steps numbered. Choices offered to the reader
-  numbered too, so the reply can name one.
+  of a post numbered too, so the reply can name one. A choice put to the
+  user in this session is asked in the question dialog, never numbered
+  in the reply (`CLAUDE.md`, *A question to the user is the question
+  dialog*).
 - Rows of the same kind, such as members, groups or counts by day, are
   a table, in chat too; a table holds nothing else.
 - The message is the draft's text alone, with nothing about drafting it.

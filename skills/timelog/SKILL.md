@@ -1,6 +1,6 @@
 ---
 name: timelog
-description: "Log billable time to Jira for work that hasn't been logged yet. Scans the project's session history, `<project>/.claude/session_history.md`, for entries that carry no `**Billed:**` mark, groups them by ticket, and logs effort against ALL tickets touched — in one confirmation, then one mark on every entry it settled, naming the worklog that paid for it or why it was skipped; an entry whose POST failed stays unmarked and is offered again. Runs anytime (not just session exit); a second run finds only unmarked work. Scope: a bare `/timelog` bills only the entries this session wrote and counts the rest; a Jira key (e.g. `/timelog XYZ-1235`) bills that ticket's entries from every session; `--all` bills every session's. Invoke ONLY on explicit request (`/timelog`, \"log my time\"). It writes no journal entry, only `**Billed:**` marks — journaling is automatic (see CLAUDE.md \"Session Journaling\")."
+description: "Log billable time to Jira for session-history entries with no `**Billed:**` mark, across every ticket touched, in one confirmation. Writes only those marks to the journal. Invoke ONLY on explicit request (`/timelog`, \"log my time\"). Bare bills this session's entries, a Jira key that ticket's from every session, `--all` every session's."
 argument-hint: "[TICKET | --all]   (default: the entries this session wrote)"
 ---
 

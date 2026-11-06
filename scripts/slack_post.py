@@ -18,7 +18,8 @@ becomes a ``table`` block, its alignment kept; a fenced block stays
 monospace text.
 
 ``post`` sends the message, in the thread at TS with ``--thread``, also
-to the channel with ``--broadcast``. CHANNEL may be a user id, which sends
+to the channel with ``--broadcast``. A TS that is itself a reply is
+refused, naming its thread's TS. CHANNEL may be a user id, which sends
 a direct message; the read-back and the printed ``edit`` hint then use the
 DM's own channel id. ``edit`` replaces the message at
 TS whole. Either then reads the message back, checks that every list
@@ -206,6 +207,14 @@ def pick(messages, ts):
     return next((m for m in messages if m.get('ts') == ts), None)
 
 
+def reply_parent(msg, ts):
+    """The thread a message at ts sits in when it is itself a reply, else
+    None. A search hit or a thread file gives a reply its own ts, and Slack
+    files a post sent with that ts as thread_ts under the reply's parent."""
+    parent = (msg or {}).get('thread_ts')
+    return parent if parent and parent != ts else None
+
+
 def image_of(path):
     """PATH's bytes, or SlackError when there is nothing to upload."""
     path = Path(path)
@@ -345,6 +354,10 @@ def send(method, payload, dry_run):
 def post(channel, path, thread, broadcast, image, dry_run):
     markdown = text_of(path)
     data = image_of(image) if image else None
+    parent = reply_parent(found(channel, thread), thread) if thread else None
+    if parent:
+        raise SlackError(f'--thread {thread} is a reply in thread {parent}; '
+                         f'pass --thread {parent} to post in that thread')
     sent = send('chat.postMessage',
                 post_payload(channel, markdown, thread, broadcast), dry_run)
     if sent is None:
@@ -543,6 +556,13 @@ def self_test(tmp):
     check('a missing message reads back as gone', True, gone(None))
     check('a message still posted is not gone', False,
           gone({'ts': '1.2', 'text': 'x'}))
+    check('a reply names the thread it sits in', '1.0',
+          reply_parent({'ts': '1.2', 'thread_ts': '1.0'}, '1.2'))
+    check('a thread parent is no reply', None,
+          reply_parent({'ts': '1.0', 'thread_ts': '1.0'}, '1.0'))
+    check('a message outside any thread is no reply', None,
+          reply_parent({'ts': '1.2'}, '1.2'))
+    check('a message not found is no reply', None, reply_parent(None, '1.2'))
     check("an error keeps Slack's code", 'thread_not_found',
           error_code({'ok': False, 'error': 'thread_not_found'}))
     return SELF_TEST.end()

@@ -1,6 +1,6 @@
 ---
 name: review:bot
-description: "Address the review-bot comments on a GitHub PR (any `[bot]` login; the confidence score is Greptile's) and every human reviewer's comment beside them, your own `/review:pr` review included when the PR is yours — fetch the unresolved bot and human threads, the findings the bot could not post inline, the reviewers' PR-level notes and your own review's findings, clear every red gate on the PR, fix or reasoned-decline each finding, post a threaded reply per thread, then drive the bot's confidence score to its maximum. Auto-posts replies. User-invoked via `/review:bot [PR-ref]`; with no ref it takes the PR from the session title a previous run wrote, and asks when there is none. Use when the user says \"address the greptile/bot comments on PR X and reply\". This is the *consume-a-bot-review* counterpart to `/review:pr` (which *produces* a review)."
+description: "Address the review-bot comments on a GitHub PR (any `[bot]` login; the confidence score is Greptile's) and every human reviewer's comment beside them: clear every red gate, fix or reasoned-decline each finding, post a threaded reply per thread, then drive the bot's score to its maximum. Auto-posts replies. Use when the user says \"address the greptile/bot comments on PR X and reply\"."
 argument-hint: "<PR-URL | Org/repo#N | #N>   (omit to reuse the PR named in the session title)"
 ---
 

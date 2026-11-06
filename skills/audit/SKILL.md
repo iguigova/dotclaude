@@ -1,6 +1,6 @@
 ---
 name: audit
-description: Judge one thing that has been read — a file, a script, a command, a change, a design, an answer — against the user's credo, and report the technical debt, hacks, holes, defects, gaps and refactors it carries. User-invoked via `/audit [what]`, bare for the answer to the prompt it is in and the answer before it, with the work each describes, run unasked on every answer before it is sent, and invoked by a command that has already gathered the evidence.
+description: "Judge one thing that has been read — a file, a script, a command, a change, a design, an answer — against the user's credo, and report the technical debt, hacks, holes, defects, gaps and refactors it carries. `/audit [what]`, bare for this prompt's answer and the one before it; run unasked on every answer before it is sent, and by a command that has gathered the evidence."
 argument-hint: "[what to audit — defaults to this prompt's answer and the one before it]"
 ---
 

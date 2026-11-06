@@ -1,6 +1,6 @@
 ---
 name: benchmark
-description: "Assess whatever we're working on against industry best practice, then give a grounded, trustworthy opinion. Produces a consistent shape every time — verified standards (cited or tagged), where practitioners disagree, my take conditioned on our context, and a clear recommendation. Triggered by `/benchmark` or the bare word \"benchmark\" when used to request an assessment (not when it means performance measurement)."
+description: "Assess whatever we're working on against industry best practice and give a grounded opinion: verified standards (cited or tagged), where practitioners disagree, my take in our context, and a clear recommendation. Triggered by `/benchmark` or the bare word \"benchmark\" when used to request an assessment (not when it means performance measurement)."
 argument-hint: "[the approach/decision/topic to assess — defaults to whatever we're working on]"
 ---
 

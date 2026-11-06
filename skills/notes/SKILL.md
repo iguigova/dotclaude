@@ -1,6 +1,6 @@
 ---
 name: notes
-description: 'Show and place the open notes — the one-line things a session noticed and wrote to the queue with `journal.sh -n`. Lists them, asks Do, Drop or Keep open for each of the oldest four, and places each one marked Do as a memory fact, skill, command, script, rule, setting or ticket, closes each one marked Drop, and leaves the rest open. Scope: a bare `/notes` shows only the notes this session opened and counts the rest; a ticket key (e.g. `/notes ABC-7703`) shows that ticket''s open notes from every session; `--session <id>` shows another session''s, which is how the SessionEnd hook names the session that just ended; `--all` shows every open note, oldest first. Any other argument is one thing to note and place directly. Triggered by `/notes`, by the bare words note or notes used of the queue, and at session end.'
+description: "Show and place the open notes a session wrote with `journal.sh -n`: asks Do, Drop or Keep open for each of the oldest four, and places each one marked Do as a memory fact, skill, command, script, rule, setting or ticket. An argument that is no ticket key or flag is one thing to note and place directly. Triggered by `/notes`, by the bare words note or notes used of the queue, and at session end."
 argument-hint: "[TICKET | --session <id> | --all | the one thing to place]   (default: this session's notes)"
 ---
 

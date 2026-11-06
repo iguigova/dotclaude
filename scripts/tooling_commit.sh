@@ -28,6 +28,10 @@
 # (--only), so another session's staged or dirty work is left as it was. A
 # deleted path is committed as its deletion.
 #
+# A commit that changes a skill's or command's description, or its trigger cases,
+# also passes those cases through skill_trigger_test.py, whose header states them;
+# a description with no cases is refused.
+#
 # The message's subject, its first line, takes one of two forms: Conventional
 # Commits, `type(scope)!: summary` with the scope and the `!` optional and the
 # type one of TYPES, or ticket-first, `KEY-123: summary`. A subject in neither
@@ -129,6 +133,11 @@ run_gates() {  # TOP
   done
 }
 
+run_trigger_cases() {  # ABS…
+  "$(dirname "$SELF")/skill_trigger_test.py" --changed "$@" >&2 \
+    || die "trigger cases did not pass; nothing committed"
+}
+
 # ---------------------------------------------------------------- commit
 
 commit() {  # TOP MESSAGE REL…
@@ -166,7 +175,7 @@ main() {
   permitted "$top"
   all_known "$top" "${rel[@]}"
   has_changes "$top" "${rel[@]}"
-  if gated "${rel[@]}"; then run_gates "$top"
+  if gated "${rel[@]}"; then run_gates "$top"; run_trigger_cases "${abs[@]}"
   else echo "tooling_commit.sh: the session history alone; no gate reads it" >&2; fi
   commit "$top" "$msg" "${rel[@]}"
 }
@@ -293,6 +302,19 @@ moved.txt"
   tc -m $'feat(tc)!: n\n\nthe body is free' -- "$r/n.txt" >/dev/null
   tap_is "a scoped breaking subject commits, and only the first line is judged" \
     "$(git -C "$r" log -1 --format=%s)" "feat(tc)!: n"
+
+  mkdir -p "$r/skills/s"
+  printf -- '---\ndescription: old\n---\nbody\n' > "$r/skills/s/SKILL.md"
+  h=$(head_of "$r")
+  out=$(tc -m "chore: s" -- "$r/skills/s/SKILL.md")
+  tap_is "a new description with no trigger cases commits nothing" "$(head_of "$r")" "$h"
+  tap_is "and names the file its cases belong in" "$(grep -c 'skill_triggers.json' <<<"$out")" "1"
+  mkdir -p "$r/skills/t"; printf 'no frontmatter\n' > "$r/skills/t/SKILL.md"
+  out=$(tc -m "chore: t" -- "$r/skills/t/SKILL.md")
+  tap_is "a change that leaves no description commits" "$out" "$(head_of "$r")"
+  printf 'still none\n' >> "$r/skills/t/SKILL.md"
+  out=$(tc -m "chore: t body" -- "$r/skills/t/SKILL.md")
+  tap_is "a body edit runs no trigger cases" "$out" "$(head_of "$r")"
 
   "$SELF" -- "$r/p.txt" >/dev/null 2>&1
   tap_is "no message is a usage error" "$?" "2"

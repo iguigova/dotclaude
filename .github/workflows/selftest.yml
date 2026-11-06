@@ -27,6 +27,7 @@ jobs:
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           ~/.claude/scripts/install_shellcheck.sh
+          sudo apt-get update -qq
           sudo apt-get install -y -qq python3-reportlab
           pipx install uv==0.10.3
       - name: Run every self-test

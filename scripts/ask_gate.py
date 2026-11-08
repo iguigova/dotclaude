@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""ask_gate.py — a turn never ends on a question to the user written in prose.
+"""ask_gate.py — a reply asks nothing in prose; a question to the user is the dialog.
 
   ask_gate.py stop          # Stop hook: refuse to end on a question in prose
   ask_gate.py --self-test   # offline
@@ -15,7 +15,12 @@ loses to the habit of a long turn, so the harness enforces it here.
 reply's text (https://code.claude.com/docs/en/hooks#stop). When that text,
 outside code, quotes and URLs, holds a sentence ending in "?", the hook
 blocks the stop and its reason quotes the question and says to ask it with
-AskUserQuestion. A reply that called AskUserQuestion carries the answer, not
+AskUserQuestion. Any such sentence counts, wherever it sits in the reply: a
+question put to the user and a rhetorical one share their syntax ("One
+decision is yours: should it push?" against "it checks one thing: has the
+repo moved?"), so the gate cannot tell them apart and a reply asks nothing
+in prose; a sentence that asks the user nothing is written as a statement.
+A reply that called AskUserQuestion carries the answer, not
 the question, so it passes. ``stop_hook_active`` is true when the turn is
 already continuing because of a stop hook; the hook then lets the turn end,
 so a sentence it misread costs one continuation, never a loop.
@@ -68,13 +73,14 @@ def question(text):
 
 
 def block(asked):
-    reason = (f'This reply ends the turn on a question in prose: "{asked}". '
+    reason = (f'This reply holds a question in prose: "{asked}". '
               f"The user's rule: every choice, approval or question put to "
               f"the user goes through AskUserQuestion and ends the turn on "
-              f"it, the recommended option first. Ask it now with "
-              f"AskUserQuestion, and drop the prose question and any "
-              f"numbered list of options from the reply. If that sentence "
-              f"asks the user nothing, end the turn without it.")
+              f"it, the recommended option first. If it asks the user "
+              f"something, ask it now with AskUserQuestion, and drop the "
+              f"prose question and any numbered list of options from the "
+              f"reply. If it asks the user nothing, it is rhetorical: say it "
+              f"as a statement, since a reply asks nothing in prose.")
     return {'decision': 'block', 'reason': reason}
 
 
@@ -132,6 +138,12 @@ def self_test():
                       'AskUserQuestion' in o))(
               run('stop', json.dumps({'last_assistant_message':
                                       '**Which status should ABC-1 move to?**'}))))
+    check('a rhetorical question mid-reply is refused, its reason says to '
+          'state it', (True, True),
+          (lambda o: ('has the repo moved?' in o, 'as a statement' in o))(
+              run('stop', json.dumps({'last_assistant_message':
+                                      'It checks one thing: has the repo '
+                                      'moved?\n\nThe run passed.'}))))
     check('a question inside fenced code is not asked', None,
           decide('Run this:\n```\nread -p "Continue?" x\n```\nDone.'))
     check('a question in inline code is not asked', None,

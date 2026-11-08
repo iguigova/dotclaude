@@ -24,7 +24,7 @@
 # the sweep opens or closes that session's, so the session's end report
 # would list them as its own.
 #
-# The run is detached with setsid, because a SessionEnd hook is killed at
+# The run is detached with detach.sh, because a SessionEnd hook is killed at
 # 1500 ms and a sweep makes one PR lookup per branch. It holds a
 # non-blocking lock for its whole life, so a second run exits rather than
 # queueing, and it checks the stamp again under the lock, so two session
@@ -75,9 +75,7 @@ decide() {  # <cwd> -> "run <project>" or "skip: <why>"
 }
 
 start_run() {  # <project>
-  setsid nohup bash "$SCRIPTS_DIR/$(basename "$0")" --run "$1" \
-    </dev/null >/dev/null 2>&1 &
-  disown || true
+  "$SCRIPTS_DIR/detach.sh" bash "$SCRIPTS_DIR/$(basename "$0")" --run "$1"
 }
 
 run() {  # <project> — the detached half

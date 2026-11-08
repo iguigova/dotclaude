@@ -24,10 +24,11 @@
 # .claude/session_history.md at or above the session's cwd — the history
 # journal.sh wrote to — so a session inside a nested repo reaches its notes.
 #
-# The run is detached with setsid, not left as a child. The harness is exiting,
-# so a child in its process group is killed with it, and the harness's own async
-# hook mechanism defaults to a 15s timeout — shorter than any real run. Detaching
-# is what lets the run outlive the session that triggered it.
+# The run is detached with detach.sh, not left as a child. The harness is
+# exiting, so a child in its process group or its systemd unit is killed with it,
+# and the harness's own async hook mechanism defaults to a 15s timeout — shorter
+# than any real run. Detaching is what lets the run outlive the session that
+# triggered it.
 #
 # session_end_run.sh is the detached half: it holds the lock, runs the placer, and
 # reports. The placer commits its own work through tooling_commit.sh, as /notes
@@ -92,9 +93,8 @@ decide() {
 # read, linted or self-tested, which is how its first version came to redirect a
 # whole run's output into a file named after a flag.
 start_run() {
-  setsid nohup "$SCRIPTS_DIR/session_end_run.sh" \
-    "$LOCK" "$LOG" "$CWD" "$1" "${@:2}" </dev/null >/dev/null 2>&1 &
-  disown || true
+  "$SCRIPTS_DIR/detach.sh" "$SCRIPTS_DIR/session_end_run.sh" \
+    "$LOCK" "$LOG" "$CWD" "$1" "${@:2}"
 }
 
 # ---------------------------------------------------------------- self-test

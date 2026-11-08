@@ -7,7 +7,10 @@
 # publishes the page. A source commit is handled once, whatever the outcome:
 # exported, nothing to export, or refused. So a commit that touches nothing
 # public costs one export, and a refusal is reported once rather than on every
-# session end.
+# session end. A run counts as handled only when it ends, so a run killed
+# partway leaves its commit for the next session end to try again; if it died
+# mid-export, the clone holds its half-made copy, so that retry is refused as a
+# dirty clone and opens a note.
 #
 # Usage:
 #   session_end_export.sh            # reads the hook payload on stdin
@@ -19,7 +22,7 @@
 # history, naming the source commit and the last line the failure printed.
 # The next ~/.claude commit is a new source commit, so it tries again.
 #
-# The run is detached with setsid, because a SessionEnd hook is killed at
+# The run is detached with detach.sh, because a SessionEnd hook is killed at
 # 1500 ms and the export runs the copy's whole selftest. It holds a
 # non-blocking lock for its whole life, so a second run exits rather than
 # queueing, and it reads the handled commit again under the lock, so two
@@ -44,6 +47,7 @@ JOURNAL="${SESSION_END_EXPORT_JOURNAL:-$SCRIPTS_DIR/journal.sh}"
 say() { printf '%s export %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG"; }
 
 handled() { cat "$STATE/dotclaude_export.handled" 2>/dev/null; }
+done_with() { echo "$1" >"$STATE/dotclaude_export.handled"; }
 
 decide() {  # -> "run <sha>" or "skip: <why>"
   local sha
@@ -71,20 +75,18 @@ run() {  # <sha> — the detached half
   exec 9>"$STATE/dotclaude_export.lock" || { say "$sha the lock could not be opened"; return 0; }
   flock -n 9 || { say "$sha another export holds the lock, skipped"; return 0; }
   [[ "$(handled)" != "$sha" ]] || { say "$sha handled by a racing run, skipped"; return 0; }
-  echo "$sha" >"$STATE/dotclaude_export.handled"
   say "$sha run started"
   out=$(DOTCLAUDE_SRC="$SRC" "$EXPORT" "$CLONE" 2>&1) \
-    || { printf '%s\n' "$out" >>"$LOG"; fail "$sha" "export refused" "$out"; return 0; }
+    || { printf '%s\n' "$out" >>"$LOG"; done_with "$sha"; fail "$sha" "export refused" "$out"; return 0; }
   printf '%s\n' "$out" >>"$LOG"
   out=$(git -C "$CLONE" push -q origin HEAD 2>&1) \
-    || { printf '%s\n' "$out" >>"$LOG"; fail "$sha" "push failed" "$out"; return 0; }
+    || { printf '%s\n' "$out" >>"$LOG"; done_with "$sha"; fail "$sha" "push failed" "$out"; return 0; }
+  done_with "$sha"
   say "$sha run finished, $(git -C "$CLONE" rev-parse --short HEAD) is pushed"
 }
 
 start_run() {  # <sha>
-  setsid nohup bash "$SCRIPTS_DIR/$(basename "$0")" --run "$1" \
-    </dev/null >/dev/null 2>&1 &
-  disown || true
+  "$SCRIPTS_DIR/detach.sh" bash "$SCRIPTS_DIR/$(basename "$0")" --run "$1"
 }
 
 hook() {  # <dry>
@@ -136,6 +138,13 @@ self_test() {
   # run holds its lock on fd 9 until its process exits, so each run below is
   # a subshell: one run in this shell would hold the lock against the next.
   check "a held lock skips the run" "1" "$(grep -c 'holds the lock' <<<"$out")"
+  # The fake export kills the run that started it, as a unit's end would.
+  # shellcheck disable=SC2016  # the fake export expands its own variables
+  printf '#!/usr/bin/env bash\nkill -KILL "$(cat "%s/run.pid")"\n' "$tmp" >"$tmp/killer"
+  chmod +x "$tmp/killer"
+  { (echo "$BASHPID" >"$tmp/run.pid"; EXPORT="$tmp/killer" run "$sha"); } 2>/dev/null
+  until flock -n "$STATE/dotclaude_export.lock" true; do sleep 0.05; done
+  check "a run killed partway leaves its commit to run again" "run $sha" "$(decide)"
   (CLAUDE_CODE_SESSION_ID=ending run "$sha")
   check "a run exports and pushes the clone" "$(git -C "$CLONE" rev-parse HEAD)" \
     "$(git -C "$tmp/origin.git" rev-parse HEAD)"

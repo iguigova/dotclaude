@@ -57,6 +57,8 @@ The selftest needs `git`, `python3` and `shellcheck`.
 page included, is written there. `scripts/dotclaude_export.sh` copies it, as
 committed, into this repo. It refuses the copy on any denylisted name, token
 shape, real email or binary file, runs the copy's selftest, and commits.
+When any session ends, `scripts/session_end_export.sh` runs that export for
+a new `~/.claude` commit and pushes the result; a refusal opens a note.
 
 Every push then runs the selftest on GitHub, in `.github/workflows/selftest.yml`,
 and a push to `main` publishes the page from that commit, with what the

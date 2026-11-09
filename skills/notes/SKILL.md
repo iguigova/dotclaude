@@ -129,9 +129,8 @@ what it contradicts — never file a second copy beside it. Redundant closes as
 
 **3. Choose the placement, in this order.**
 
-- *Is it a work item of a kind the project's `CLAUDE.md` names a command for?*
-  → run that command on it. The command does the work, asks for what it needs,
-  and closes the note itself, so steps 2 and 4 do not apply.
+- *Does a project command own its kind?* → that command does it and closes the
+  note (see Closing); steps 2 and 4 do not apply.
 
 - *Can a command be written that passes now and would fail if the claim became
   false?* → **memory**. Write it through the writer, which runs that command and
@@ -142,9 +141,6 @@ what it contradicts — never file a second copy beside it. Redundant closes as
   …the whole fact file…
   FACT
   ```
-
-  A claim about a file in a repository is checked with
-  `~/.claude/scripts/git_fact.sh`.
 
 - *Is it a way of working — how to read something, what to check first, a trap to
   avoid?* → **skill** or **command**: the one whose procedure it improves, which

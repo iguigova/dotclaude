@@ -909,8 +909,11 @@ def bundled(it: dict) -> list[str]:
 
 
 def scripts_named(it: dict, home: Path, project: Path) -> list[dict]:
+    """The scripts an item's text names, each with whether it exists and is
+    tested. A path under a `<placeholder>` prefix, such as
+    `<project>/.claude/scripts/x.sh`, names no file of this project."""
     text = Path(it["path"]).read_text(encoding="utf-8", errors="replace")
-    refs = dict.fromkeys(SCRIPT_REF.findall(text))
+    refs = dict.fromkeys(r for r in SCRIPT_REF.findall(text) if "<" not in r[0])
     facts = {}
     for ref in refs:
         fact = script_fact(ref, home, project)
@@ -1750,7 +1753,9 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
           " ~/.claude/scripts/gated.sh, ~/.claude/scripts/tool.py"
           " and .claude/scripts/gone.sh\n"
           # A cited line names the script; a glob names no script at all.
-          "See .claude/scripts/probe.sh:12 and .claude/helpers/jira-*.sh\n")
+          "See .claude/scripts/probe.sh:12 and .claude/helpers/jira-*.sh\n"
+          # A <placeholder> prefix names a script some other project may keep.
+          "Gate with <project>/.claude/scripts/ci_gate.sh where it has one\n")
     write(project / ".claude/skills/alpha/scripts/local.sh", "echo\n")
     # A data file the script names beside it is the script's bundled file.
     write(project / ".claude/scripts/probe.sh", "echo no flag < probe.list\n")

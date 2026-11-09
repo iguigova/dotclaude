@@ -27,7 +27,7 @@ Each is fixed, declined with a reason, or shown to be already handled; each gets
 
 Show what it prints; its `pr:` URL is `<pr-ref>` below.
 
-Under plan mode, or any instruction to change nothing, pass `--no-name`.
+Under plan mode, pass `--no-name`; its header states when else.
 
 ```bash
 ~/.claude/scripts/gh-pr-bot-fetch.sh <pr-ref> [bot-login-substr …]

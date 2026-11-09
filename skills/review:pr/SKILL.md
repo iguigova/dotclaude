@@ -174,7 +174,7 @@ The SDLC reviews a change twice, the Reviewer then Security, and a blocking flaw
 ~/.claude/scripts/gh-pr-security.sh <pr-ref>
 ```
 
-- **`classes:`** is the team's incident classes, from the source the project names in `.claude/security_classes`. `Read` it, map the diff to every class it touches, and run each touched class's *Check in the diff* list in full. Name the classes in scope in the report. `classes: none` means the project keeps no list: review security from the persona and the guidelines alone, and say so in the report.
+- **`classes:`** — `Read` it, map the diff to every class it touches, and run each touched class's *Check in the diff* list in full. Name the classes in scope in the report. `classes: none` means the project keeps no list: review security from the persona and the guidelines alone, and say so in the report.
 - **`persona:`** is the repository's Teambuild Security persona, its threat model and security standard. When one exists, `Read` it and review against its assets, attackers and standard. `none` means the repository has not generated one: review against the classes alone, and say so in the report.
 - **Exit 2** means a source could not be read. Say which in the report, under **Open questions**, rather than presenting a short pass as a full one.
 

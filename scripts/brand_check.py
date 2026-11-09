@@ -215,8 +215,7 @@ def check_themes(root, found, rep):
 def check_switch(root, found, rep):
     js = (root / HUB / "brand.js").resolve()
     want = [(f, False) for f, is_doc in pages(root, found) if not is_doc]
-    want += [(f, True) for repo, refs in found.items() if builds_copy(repo)
-             for f, _, _ in refs if f.suffix == ".html"]
+    want += [(f, True) for f in built(root, found)]
     bad = []
     for f, copied in sorted(set(want)):
         srcs = SCRIPT.findall(f.read_text(errors="replace"))
@@ -265,12 +264,25 @@ def check_live(hub, rep):
     return True
 
 
+def built(root, found):
+    """Every HTML page a build copies with brand.css: in a repo whose build
+    copies it, a page whose link misses the hub's file."""
+    brand = (root / HUB / "brand.css").resolve()
+    return sorted({f for repo, refs in found.items() if builds_copy(repo)
+                   for f, _, target in refs
+                   if f.suffix == ".html" and target != brand})
+
+
 def pages(root, found):
-    """Every HTML page styled by brand.css, directly or through its CSS."""
+    """Every HTML page styled by brand.css, directly or through its CSS; in
+    a repo whose build copies it, a page linking the hub's file directly."""
+    brand = (root / HUB / "brand.css").resolve()
     styled = {f.resolve() for refs in found.values() for f, _, _ in refs}
     out = []
-    for repo in found:
+    for repo, refs in found.items():
         if builds_copy(repo):
+            out += [(f, False) for f, _, target in refs
+                    if f.suffix == ".html" and target == brand]
             continue
         for f in walk(repo):
             if f.suffix != ".html":
@@ -486,6 +498,7 @@ def self_test():
         (hub / "brand.css").write_text(good)
         (root / "brand.css").symlink_to(hub / "brand.css")
         (hub / "brand.js").write_text("switch")
+        (root / "brand.js").symlink_to(hub / "brand.js")
         proj = root / "proj" / "demo"
         proj.mkdir(parents=True)
         (proj / "a.css").write_text('@import url("../../brand.css");\n')
@@ -544,6 +557,21 @@ def self_test():
         check_imports(root, brand, {ext: found[ext]}, rep)
         check_switch(root, {ext: found[ext]}, rep)
         expect(not rep.failed, "a repo that builds a copy may link it bare")
+        (ext / "index.html").write_text(
+            '<link href="../brand.css"><script src="brand.js"></script>')
+        found = consumers(root)
+        rep = Report(quiet=True)
+        check_switch(root, {ext: found[ext]}, rep)
+        expect(rep.failed and [p.name for p, _ in pages(root, {ext: found[ext]})]
+               == ["index.html"], "a page beside a build that links the hub's"
+               " brand.css is a page, and loads the hub's brand.js")
+        (ext / "index.html").write_text(
+            '<link href="../brand.css"><script src="../brand.js"></script>')
+        rep = Report(quiet=True)
+        check_switch(root, {ext: consumers(root)[ext]}, rep)
+        expect(not rep.failed, "so it passes when it loads ../brand.js")
+        (ext / "index.html").unlink()
+        found = consumers(root)
         rep = Report(quiet=True)
         check_copies(root, brand, found, rep)
         expect(rep.failed, "a stale built copy of brand.js fails")

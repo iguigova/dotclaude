@@ -12,7 +12,8 @@
 #   gate_shellcheck <file…>          shellcheck -S warning on the shell scripts
 #   gate_self_tests <dir…>           every script there offering --self-test, its
 #                                    stdout held to tap.sh's format; selftest.sh,
-#                                    the gate itself, is not one of them
+#                                    the gate itself, is one of them except while
+#                                    GATE_SELF_TEST is set
 #   gate_run <command…>              a lint: shown, and a FAIL when it exits non-zero
 #   gate_names_changed <repo> [<pathspec>…]
 #                                    name_lint --gate over the prose changed since HEAD
@@ -100,7 +101,9 @@ self_test_of() {  # <script>
 
 # sweep — every script in <dir> that offers --self-test, run JOBS at a time.
 # A sweep, not a list: a script's --self-test is enforced the moment it lands,
-# with no registration step to forget. Its stdout is held to tap.sh's format,
+# with no registration step to forget. A gate's self-test runs a gate on a
+# fixture with GATE_SELF_TEST=1, and that gate skips selftest.sh, so the gate
+# is tested once and never recurses into itself. Its stdout is held to tap.sh's format,
 # and its exit status to what that says. Prints a verdict per script, in file
 # order, and under a failed one its failed cases with their details and the
 # last lines of its stderr, so a run's output says why; returns 1 when any
@@ -109,7 +112,9 @@ sweep() {  # <dir>
   local dir=$1 work f name st wrong missed cases rc=0
   local -a tests=()
   for f in "$dir"/*.sh "$dir"/*.py; do
-    [ -e "$f" ] && [ "${f##*/}" != selftest.sh ] && grep -q -- '--self-test' "$f" && tests+=("$f")
+    [ -e "$f" ] && grep -q -- '--self-test' "$f" || continue
+    [ "${f##*/}" = selftest.sh ] && [ -n "${GATE_SELF_TEST:-}" ] && continue
+    tests+=("$f")
   done
   work=$(mktemp -d) || return 1
   each self_test_of "$work" "${tests[@]}"
@@ -187,7 +192,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   fixture red.sh     'printf "ok 1 - x\nnot ok 2 - y\n# why\n1..2\n"; exit 1'
   fixture untap.sh   'echo PASS; echo boom >&2'
   fixture pipe.sh    '[ -n "$(trap -p PIPE)" ] && printf "ok 1 - deaf\n1..1\n"'
-  fixture selftest.sh 'echo the gate must not sweep itself; exit 1'
+  fixture selftest.sh 'printf "ok 1 - gate\n1..1\n"'
   printf '#!/usr/bin/env bash\necho PASS\n' > "$fx/s/quiet.sh"
   printf '#!/usr/bin/env python3\n# --self-test\nprint("ok 1 - snake\\n1..1")\n' > "$fx/s/snake.sh"
   printf '# --self-test\nprint("ok 1 - py\\n1..1")\n' > "$fx/s/plain.py"
@@ -211,13 +216,16 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a self-test runs with SIGPIPE ignored, as on GitHub's runners" \
     "$(line pipe.sh)" "  ok  s/pipe.sh (cases: 1)"
   tap_is "a script that offers no --self-test is not run" "$(line quiet.sh)" ""
-  tap_is "selftest.sh, the gate itself, is not swept" "$(line selftest.sh)" ""
+  tap_is "selftest.sh, the gate itself, is swept" \
+    "$(line selftest.sh)" "  ok  s/selftest.sh (cases: 1)"
+  tap_is "selftest.sh is not swept inside a gate's own self-test" \
+    "$(GATE_SELF_TEST=1 sweep s | grep -F " s/selftest.sh ")" ""
   tap_is "a Python script wearing .sh runs under python3" \
     "$(line snake.sh)" "  ok  s/snake.sh (cases: 1)"
   tap_is "a .py script runs under python3" "$(line plain.py)" "  ok  s/plain.py (cases: 1)"
   tap_is "verdicts print in file order, whatever finishes first" \
     "$(sed -n 's/^  [A-Z ok]* s\/\([^ ]*\) .*/\1/p' <<<"$out" | paste -sd' ')" \
-    "a_slow.sh gloom.sh good.sh liar.sh pipe.sh red.sh snake.sh untap.sh plain.py"
+    "a_slow.sh gloom.sh good.sh liar.sh pipe.sh red.sh selftest.sh snake.sh untap.sh plain.py"
   tap_is "a passing self-test's stderr is not shown" "$(grep -c noise <<<"$out")" 0
   tap_is "a sweep with any failure fails" "$st" 1
   cp s/good.sh s/snake.sh green/

@@ -58,7 +58,7 @@ For each failing check:
   ~/.claude/scripts/gh-pr-file.sh --base <pr-ref> <path> [<path>...]
   ```
 
-  It prints where each file landed, under `$D/base/`; run the tool on those. A file clean at the base and dirty now is yours. A file dirty at the base is pre-existing: leave it, and say in the reply that you did and why. A file the helper reports not found at the merge base is one the PR added, so everything in it is yours.
+  It prints where each file landed, under `$D/base/`; run the tool on those. A file clean at the base and dirty now is yours. A file dirty at the base is pre-existing: leave it, and say in the reply that you did and why. A file the helper reports not found at the merge base is one the PR added, so everything in it is yours. Compare the two runs by exit status and error output, never by counting lines of stdout: a run that refused its arguments prints a usage error, which a count reads as zero issues.
 - **A pending check is not a pass.** Say the evidence is incomplete rather than implying green.
 - **`mergeable: CONFLICTING`** blocks the merge whatever the code looks like. Report it; do not resolve conflicts unasked.
 
@@ -109,7 +109,7 @@ Two judgements worth making explicitly:
 ## 5. Make the fix in the house style
 
 - **Match the file you are editing**, not a global ideal — quote style, indentation, naming, error-message vocabulary. A four-line fix should not drag in unrelated reformatting.
-- **Never run a formatter across a repo that is not already formatted.** It rewrites untouched lines and buries the fix. The exception is a single file that the §2 base measurement proved clean before this PR: reformatting that one file restores the prior state rather than imposing a new style.
+- **Never run a formatter across a repo that is not already formatted.** It rewrites untouched lines and buries the fix. The exception is a single file that the §2 base measurement proved clean before this PR: reformatting that one file restores the prior state rather than imposing a new style. Read the formatter's diff before keeping it: a formatter can change content, not just layout, as `qlty fmt`'s markdownlint pass did to a README, dropping a heading and cutting a word.
 - When the bot pastes a ```suggestion``` block, treat it as a starting point. Reconcile it with the surrounding patterns — reuse an existing message or exception type so a new branch matches its neighbours.
 - **Lock the fix in with a test** where feasible. Extend the nearest existing test rather than adding a near-duplicate, and assert the thing the bot cared about — the log line, the status code, the message — not just "does not crash".
 

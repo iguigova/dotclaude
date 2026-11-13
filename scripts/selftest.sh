@@ -3,9 +3,9 @@
 # and the name lint over the prose this tree changed. gate_lib.sh holds the checks.
 # Run after editing anything here. Exit 0 = clean, 1 = a check failed.
 #
-# --copy runs it on an exported copy (dotclaude_export.sh): check 6 is skipped,
-# because the copy's prose was gated by this check at the source on every commit,
-# and a copy's own HEAD is the previous export, not a baseline for its names.
+# --copy runs it on an exported copy (dotclaude_export.sh): checks 6 and 7 are
+# skipped, because the copy's prose and code were gated by them at the source on
+# every commit, and a copy's own HEAD is the previous export, not a baseline.
 # --root DIR gates the scripts in DIR, a tree's scripts folder, with this
 # gate's own checks; --self-test uses it to show the gate fails a broken tree.
 #
@@ -40,6 +40,9 @@ if [ "${1:-}" = --self-test ]; then
   printf 'run `scripts/no_such_script_here.sh` first\n' > "$fx/notes.md"
   tap_like "changed prose naming a missing script fails the gate" "$(gate)" "*FAIL name_lint.sh exited*selftest: FAIL"
   rm "$fx/notes.md"
+  printf '#!/usr/bin/env bash\n# offers --self-test\nbig() { [ "$1" -gt 9 ]; }\nbig 10 || exit 1\nprintf "ok 1 - x\\n1..1\\n"\n' > "$fx/scripts/weak.sh"
+  tap_like "a changed script whose self-test lets a mutant live fails the gate" "$(gate)" "*FAIL change_gate.py exited 1*selftest: FAIL"
+  rm "$fx/scripts/weak.sh"
   out=$(gate); tap_is "the tree passes again once each break is undone" "$(tail -1 <<<"$out")" "selftest: PASS"
   tap_end
 fi
@@ -84,6 +87,13 @@ if [ "$copy" -eq 1 ]; then
   echo "  ok  skipped: --copy, the prose was gated at its source"
 else
   gate_names_changed .. ':(exclude)projects/*'
+fi
+
+echo "== 7. changed code: complexity, and every mutant killed =="
+if [ "$copy" -eq 1 ]; then
+  echo "  ok  skipped: --copy, the code was gated at its source"
+else
+  gate_changed_code ..
 fi
 
 gate_end

@@ -1149,6 +1149,28 @@ Each of these has its rule above; this is the review checklist.
 
 ---
 
+## Complexity and mutation
+
+> *Source: [Verification](coding_guidelines.md#verification), [lizard](https://github.com/terryyin/lizard), [RuboCop — Metrics/CyclomaticComplexity](https://docs.rubocop.org/rubocop/cops_metrics.html#metricscyclomaticcomplexity), [mutant — licensing](https://github.com/mbj/mutant#licensing)*
+
+`~/.claude/scripts/change_gate.py` holds a change to both bars.
+
+- **No method above cyclomatic complexity 10**, counted by lizard. RuboCop's
+  `Metrics/CyclomaticComplexity` defaults to a stricter `Max` of 7, and where a
+  project enables it, that bar holds too.
+- **Every mutant on a changed line is killed.** mutant, Ruby's standard
+  mutation tool, is free only for public open-source code, so the gate uses
+  its own mutator: it swaps `<`/`<=`/`>`/`>=`, `==`/`!=`, `&&`/`||`,
+  `and`/`or`, `true`/`false`, `if`/`unless`, `.any?`/`.none?` and
+  `+ 1`/`- 1` in the code of each changed line, never in a string or a
+  comment, and runs the `--test ruby` command for each mutant:
+  `--test 'ruby=bundle exec rspec spec/models/user_spec.rb'`. With no
+  command, a Ruby change fails the gate.
+- **An equivalent mutant is marked on its line:**
+  `# mutation: equivalent — <reason>`.
+
+---
+
 ## Tooling
 
 > *Source: [RuboCop](https://docs.rubocop.org/), [Brakeman](https://brakemanscanner.org/), [Bullet](https://github.com/flyerhzm/bullet), [strong_migrations](https://github.com/ankane/strong_migrations)*

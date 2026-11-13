@@ -27,8 +27,12 @@ gives every page the same Light and Dark switch.
 
 A rule names the script that enforces it. The script carries its own
 `--self-test`, and `scripts/selftest.sh` runs every one of them, with
-`shellcheck`, the frontmatter lint and the settings lint. A change is committed
-only when that selftest passes, and the session records it in a journal.
+`shellcheck`, the frontmatter lint and the settings lint. It then holds the
+code the change touched to `coding_guidelines.md`'s bar through
+`scripts/change_gate.py`: no function above cyclomatic complexity 10, and
+every mutant on a changed line killed by the script's own self-test. A change
+is committed only when that selftest passes, and the session records it in a
+journal.
 
 ## Memory
 
@@ -49,7 +53,8 @@ machine without one; the scripts resolve paths from `$HOME`.
 ~/.claude/scripts/selftest.sh
 ```
 
-The selftest needs `git`, `python3` and `shellcheck`.
+The selftest needs `git`, `python3` with `pytest` and `pytest-cov`, `shellcheck`
+and `uv`.
 
 ## How it is published
 
@@ -59,6 +64,9 @@ committed, into this repo. It refuses the copy on any denylisted name, token
 shape, real email or binary file, runs the copy's selftest, and commits.
 When any session ends, `scripts/session_end_export.sh` runs that export for
 a new `~/.claude` commit and pushes the result; a refusal opens a note.
+Each `~/.claude` commit made through `scripts/tooling_commit.sh` runs the
+export's scan on the new HEAD first and prints any hit to the session that
+committed it, so a refusal is seen before the session ends.
 
 Every push then runs the selftest on GitHub, in `.github/workflows/selftest.yml`,
 and a push to `main` publishes the page from that commit, with what the

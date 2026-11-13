@@ -17,6 +17,8 @@
 #   gate_run <command…>              a lint: shown, and a FAIL when it exits non-zero
 #   gate_names_changed <repo> [<pathspec>…]
 #                                    name_lint --gate over the prose changed since HEAD
+#   gate_changed_code <repo>         change_gate.py over the code changed since HEAD:
+#                                    complexity, and every mutant on a changed line killed
 #   gate_end                         the verdict line, then exit
 #
 # Usage:
@@ -170,6 +172,14 @@ gate_names_changed() {  # <repo> [<pathspec>…]
                          git -C "$repo" ls-files -o --exclude-standard -- '*.md' "$@"; } | sort -u)
   if [ "${#prose[@]}" -eq 0 ]; then echo "  ok  no prose changed since HEAD"; return 0; fi
   ( cd "$repo" && gate_run "$GATE_SCRIPTS/name_lint.sh" --gate "${prose[@]}"; exit "$fail" ) || fail=1
+}
+
+# gate_changed_code — coding_guidelines.md → Verification's complexity and
+# mutation checks over what this round changed, so a tooling repo holds its own
+# scripts to the bar it sets for product code. A self-tested script's mutants
+# run against its own --self-test.
+gate_changed_code() {  # <repo>
+  gate_run "$GATE_SCRIPTS/change_gate.py" --base HEAD "$1"
 }
 
 gate_end() {

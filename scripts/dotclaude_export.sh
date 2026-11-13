@@ -5,6 +5,7 @@
 #
 # Usage:
 #   dotclaude_export.sh [-m "<message>"] <target-clone>
+#   dotclaude_export.sh --scan [<source>]
 #   dotclaude_export.sh --self-test
 #
 # The copy is the allowlist below as committed at the source's HEAD, read with
@@ -26,16 +27,21 @@
 #     private key block. AWS's documented example key is a fixture and passes.
 #   - an email address outside the example domains, the top-level domains
 #     reserved for examples (.example, .invalid, .test, .localhost) and the
-#     commit trailer's.
+#     commit trailer's. The tail of a name@x@y chain, such as lizard's
+#     function@lines@file, is no address; a handle like @a@host.example is.
 #   - a binary file, which the checks above read as text and cannot see into.
 # A hit is reported as path:line and its reason, never the line, since the hit
 # may be the secret itself. The copy's own `scripts/selftest.sh --copy` must
 # then pass on it. The page's claims are judged by the reader's browser alone.
 #
+# --scan runs the same scan on the allowlist as committed at the source's
+# HEAD, with no target, and exits 1 on any hit. tooling_commit.sh runs it
+# after each commit in the source, so the session that made a hit sees it.
+#
 # The commit message names the source commit. This script never pushes.
 #
 # DOTCLAUDE_SRC overrides the source repo (default ~/.claude).
-# Exit 0 committed or nothing to commit, 1 refused, 2 usage.
+# Exit 0 committed, nothing to commit or a clean scan, 1 refused or a hit, 2 usage.
 set -uo pipefail
 
 ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts
@@ -44,10 +50,11 @@ KEEP=(.git .claude)
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
+CHAIN="([A-Za-z0-9._%+-]+@)?$EMAIL"  # a match holding two @ is the tail of a chain
 EMAIL_OK='@(example\.(com|org|net)|test\.com|([A-Za-z0-9-]+\.)*(example|invalid|test|localhost))$|^git@github\.com$|^noreply@anthropic\.com$'
 
 die()   { echo "dotclaude_export.sh: $*" >&2; exit 1; }
-usage() { echo "usage: dotclaude_export.sh [-m <message>] <target-clone>" >&2; exit 2; }
+usage() { echo "usage: dotclaude_export.sh [-m <message>] <target-clone> | --scan [<source>]" >&2; exit 2; }
 
 # files <dir> — every file `git add -A` would leave in the commit, as a path
 # under <dir>: tracked or untracked, never ignored. The scan reads exactly
@@ -90,11 +97,23 @@ scan() {
   done < <(files "$dir" | xargs -r -d '\n' grep -slIE -e "$TOKENS")
   while IFS= read -r f; do
     while IFS=: read -r n e; do
+      [[ "$e" == *@*@* ]] && continue
       grep -qE "$EMAIL_OK" <<<"$e" && continue
       printf '%s:%s [email]\n' "${f#"$dir/"}" "$n"; hits=1
-    done < <(grep -noIE -e "$EMAIL" "$f")
+    done < <(grep -noIE -e "$CHAIN" "$f")
   done < <(files "$dir" | xargs -r -d '\n' grep -slIE -e "$EMAIL")
   return "$hits"
+}
+
+# scan_head <src> — scan the allowlist as committed at <src>'s HEAD, in a
+# scratch repo so files() lists it as the export would.
+scan_head() {
+  local src=$1 tmp st
+  git -C "$src" rev-parse --verify -q HEAD >/dev/null || die "$src is not a git repo with a commit"
+  tmp=$(mktemp -d); git init -q "$tmp"
+  git -C "$src" archive HEAD -- "${ALLOW[@]}" | tar -x -C "$tmp" || { rm -rf "$tmp"; die "git archive of $src failed"; }
+  scan "$tmp" "$src/dotclaude_denylist.txt"; st=$?
+  rm -rf "$tmp"; return "$st"
 }
 
 # refuse <target> <reason> — put the clean target back as it was, index
@@ -172,6 +191,17 @@ self_test() {
     && tap_ok "what the selftest leaves behind is neither committed nor left" || tap_not_ok "what the selftest leaves behind is neither committed nor left" "selftest leftovers reached the target"
   grep -q "Source commit: $(git -C "$fx/src" rev-parse --short HEAD)" <<<"$(g "$fx/dst" log -1 --format=%B)" && tap_ok "the commit names the source commit" || tap_not_ok "the commit names the source commit" "no source commit in message"
 
+  out=$(scan_head "$fx/src") && tap_ok "--scan passes a clean HEAD" || tap_not_ok "--scan passes a clean HEAD" "$out"
+  echo "works at Secret-Co" > "$fx/src/scripts/s.sh"
+  out=$(scan_head "$fx/src") && tap_ok "--scan reads HEAD, not the working tree" || tap_not_ok "--scan reads HEAD, not the working tree" "$out"
+  g "$fx/src" add -A; g "$fx/src" commit -qm scan
+  out=$(scan_head "$fx/src") && tap_not_ok "--scan reports a committed hit" "no hit" \
+    || { grep -qx "scripts/s.sh:1 \[denylist\]" <<<"$out" && tap_ok "--scan reports a committed hit" || tap_not_ok "--scan reports a committed hit" "$out"; }
+  g "$fx/src" rm -q scripts/s.sh; g "$fx/src" commit -qm "undo scan"
+  local self; self=$(realpath "${BASH_SOURCE[0]}")
+  "$self" --scan "$fx/src" >/dev/null 2>&1; tap_is "--scan <source> exits 0 on a clean HEAD" "$?" 0
+  "$self" --scan "$fx/src" extra >/dev/null 2>&1; tap_is "--scan with two arguments is a usage error" "$?" 2
+
   out=$(run "again"); [[ "$out" == nothing\ to\ commit* ]] && tap_ok "a second export with no change commits nothing" || tap_not_ok "a second export with no change commits nothing" "rerun: $out"
 
   head=$(git -C "$fx/dst" rev-parse HEAD)
@@ -190,11 +220,12 @@ self_test() {
   grep -q "$tok" <<<"$out" && tap_not_ok "a token hit never prints the token" || tap_ok "a token hit never prints the token"
   expect_refusal scripts/c.sh "mail me@realmail$(printf .)org" "scripts/c.sh:1 \[email\]" "a real email is refused"
   grep -q "realmail" <<<"$out" && tap_not_ok "an email hit never prints the address" || tap_ok "an email hit never prints the address"
-  echo "fixtures use alice@example.com, ssh://git@gh.example and AKIAIOSFODNN7EXAMPLE" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
+  expect_refusal scripts/h.sh "follow @me@realmail$(printf .)social" "scripts/h.sh:1 \[email\]" "a handle with an address in it is refused"
+  echo "fixtures use alice@example.com, ssh://git@gh.example, f@1-4@a.js and AKIAIOSFODNN7EXAMPLE" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
   printf 'a\0b' > "$fx/src/scripts/e.bin"; g "$fx/src" add -A; g "$fx/src" commit -qm bin
   out=$(run "binary") && tap_not_ok "a binary file is refused" "a binary file exported" || { grep -q "scripts/e.bin \[binary\]" <<<"$out" && tap_ok "a binary file is refused" || tap_not_ok "a binary file is refused" "binary: $out"; }
   g "$fx/src" rm -q scripts/e.bin; g "$fx/src" commit -qm "undo bin"
-  out=$(run "example email") && tap_ok "an example domain, a reserved TLD and AWS's example key pass" || tap_not_ok "an example domain, a reserved TLD and AWS's example key pass" "examples refused: $out"
+  out=$(run "example email") && tap_ok "an example domain, a reserved TLD, an @-chain's tail and AWS's example key pass" || tap_not_ok "an example domain, a reserved TLD, an @-chain's tail and AWS's example key pass" "examples refused: $out"
   echo "secret-co" >> "$fx/dst/.claude/session_history.md"
   out=$(run "ignored hit") && tap_ok "a hit in the clone's ignored .claude is never read" || tap_not_ok "a hit in the clone's ignored .claude is never read" "ignored .claude refused: $out"
   echo "draft" > "$fx/dst/NOTES.md"; echo "edited" >> "$fx/dst/README.md"
@@ -210,6 +241,10 @@ self_test() {
 }
 
 [[ "${1:-}" == "--self-test" ]] && { self_test; tap_end; }
+if [[ "${1:-}" == "--scan" ]]; then
+  [[ $# -le 2 ]] || usage
+  scan_head "${2:-${DOTCLAUDE_SRC:-$HOME/.claude}}"; exit
+fi
 msg=""
 while getopts "m:" o; do case $o in m) msg=$OPTARG ;; *) usage ;; esac; done
 shift $((OPTIND - 1))

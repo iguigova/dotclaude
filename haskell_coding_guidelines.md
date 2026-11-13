@@ -671,6 +671,26 @@ does not tolerate is a gap — every public function has a test, and each covers
 edge cases (empty input, boundaries, the error path) beside the happy one. A
 refactor that reduces coverage is not a refactor.
 
+## Complexity and mutation
+
+> *Source: [Verification](coding_guidelines.md#verification), [lizard](https://github.com/terryyin/lizard)*
+
+`~/.claude/scripts/change_gate.py` holds a change to the mutation bar.
+
+- **Complexity is held in review.** lizard, the gate's counter, reads no
+  Haskell, so the cap of 10 paths per function is a review finding, not a
+  measured one.
+- **Every mutant on a changed line is killed.** The gate's mutator swaps
+  `<`/`<=`/`>`/`>=`, `==`/`/=`, `&&`/`||`, `True`/`False` and `+ 1`/`- 1` in
+  the code of each changed line, never in a string or after `--`. `<-`, `->`
+  and `=>` are not comparisons and are left alone. It runs the
+  `--test haskell` command for each mutant: `--test 'haskell=cabal test'`.
+  With no command, a Haskell change fails the gate. Test files (`*Spec.hs`,
+  and those under a test folder) are not
+  mutated.
+- **An equivalent mutant is marked on its line:**
+  `-- mutation: equivalent — <reason>`.
+
 ## Anti-Patterns to Avoid
 
 ### Code Smells

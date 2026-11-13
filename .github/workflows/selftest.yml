@@ -21,14 +21,15 @@ jobs:
       - name: Make this checkout ~/.claude
         run: rm -rf "$HOME/.claude" && ln -s "$GITHUB_WORKSPACE" "$HOME/.claude"
       # The tools the self-tests run on, at the versions they run on at home:
-      # the pinned shellcheck, ReportLab for gist.py, uv for the parser
-      # gh-pr-structure.sh fetches.
+      # the pinned shellcheck, ReportLab for gist.py, pytest and pytest-cov for
+      # change_gate.py's Python runner, uv for the parser gh-pr-structure.sh
+      # fetches.
       - name: Install what the self-tests need
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
           ~/.claude/scripts/install_shellcheck.sh
           sudo apt-get update -qq
-          sudo apt-get install -y -qq python3-reportlab
+          sudo apt-get install -y -qq python3-reportlab python3-pytest python3-pytest-cov
           pipx install uv==0.10.3
       - name: Run every self-test
         id: tests

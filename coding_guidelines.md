@@ -12,8 +12,9 @@ and clarity of design over performance unless explicitly instructed
 otherwise.
 
 Everything here holds in every language. A rule that only makes sense
-in one language lives in that language's guide — Clojure, Python, Go,
-Haskell — and is never restated here.
+in one language lives in that language's guide — C#, Clojure, Dart, Go,
+Haskell, JavaScript and TypeScript, Python, Ruby, shell — and is never
+restated here.
 
 ## Code Structure and Design
 
@@ -135,8 +136,11 @@ Anything that fails these is dead weight: delete it rather than trim it.
 
 ## Verification
 
-A change is ready to commit when the checks its CI runs pass locally, and
-every source file it changed is fully covered by tests.
+A change is ready to commit when the checks its CI runs pass locally,
+every source file it changed is fully covered by tests, no function in
+those files is above cyclomatic complexity 10, and no mutant on a changed
+line survives its tests. `~/.claude/scripts/change_gate.py` runs the last
+two; each language's guide names the tool it calls there.
 
 - **Run what CI runs.** Take the lint and test commands from the
   repository's CI workflow, and run them over the tree CI runs them on,
@@ -146,6 +150,15 @@ every source file it changed is fully covered by tests.
 - **100% line coverage of every changed source file** — the whole file,
   not only the changed lines. A file no test loads is at 0%. Add tests
   until it holds.
+- **No function above cyclomatic complexity 10** in a changed file. Past
+  ten paths a function wants a test per path and a reader who holds them
+  all; split it until each piece is one idea.
+- **Every mutant on a changed line is killed.** Coverage proves a line
+  ran; a killed mutant proves a test fails when the line is wrong. A
+  mutant no test can tell apart, such as a boundary where both sides
+  return the same value, is accepted only by a comment on its line,
+  `mutation: equivalent — <reason>`, whose reason says why. A mutant a
+  test could kill gets that test, never the comment.
 - **Never loosen a check to pass it.** No skipped step, suppressed rule,
   deselected failing test, excluded line or lowered threshold: fix the
   cause. A tool that is not installed is a failure, never a pass.

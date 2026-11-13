@@ -513,6 +513,26 @@ mechanics of its own.
 
 ---
 
+## Complexity and mutation
+
+> *Source: [Verification](coding_guidelines.md#verification), [lizard](https://github.com/terryyin/lizard)*
+
+`~/.claude/scripts/change_gate.py` holds a change to the mutation bar.
+
+- **Complexity is held in review.** lizard, the gate's counter, reads no
+  Clojure, so the cap of 10 paths per function is a review finding, not a
+  measured one.
+- **Every mutant on a changed line is killed.** The gate's mutator rewrites
+  the head of a form: `(<`/`(<=`/`(>`/`(>=`, `(=`/`(not=`, `(and`/`(or`,
+  `(if`/`(if-not`, `(when`/`(when-not`, `(inc`/`(dec`, and `true`/`false`,
+  never in a string or after a `;`. It runs the `--test clojure` command for
+  each mutant: `--test 'clojure=clojure -M:test'`. With no command, a
+  Clojure change fails the gate. Test files (`*_test.clj[cs]`, and those
+  under a test folder) are
+  not mutated.
+- **An equivalent mutant is marked on its line:**
+  `; mutation: equivalent — <reason>`.
+
 ## LLM Interaction Guidelines
 
 How to take direction, change code and work a problem is governed by

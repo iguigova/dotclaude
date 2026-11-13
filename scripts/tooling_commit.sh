@@ -37,6 +37,11 @@
 # type one of TYPES, or ticket-first, `KEY-123: summary`. A subject in neither
 # form is refused before the gate runs, so a guessed form never lands.
 #
+# A commit in the source of the public dotclaude export, ~/.claude or
+# DOTCLAUDE_SRC, is followed by `dotclaude_export.sh --scan`. Its hits print
+# on stderr as a warning, so the session that made them sees them before the
+# export refuses at session end. The commit stands either way.
+#
 # Prints the new commit's short sha on stdout. Exit 0 committed, 1 refused, 2
 # usage. Every refusal names its reason on stderr.
 set -uo pipefail
@@ -140,6 +145,15 @@ run_trigger_cases() {  # ABS…
 
 # ---------------------------------------------------------------- commit
 
+warn_export() {  # TOP — print what the dotclaude export would refuse at HEAD
+  local out
+  if [[ "$1" == "$(realpath -m -- "${DOTCLAUDE_SRC:-$HOME/.claude}")" ]] \
+     && ! out=$("$(dirname "$SELF")/dotclaude_export.sh" --scan "$1" 2>&1); then
+    printf '%s\n' "$out" >&2
+    echo "tooling_commit.sh: warning: the dotclaude export will refuse this HEAD for the hits above; the commit stands" >&2
+  fi
+}
+
 commit() {  # TOP MESSAGE REL…
   local top="$1" msg="$2"; shift 2
   # A path git mv or git rm took out of the index matches nothing for
@@ -178,6 +192,7 @@ main() {
   if gated "${rel[@]}"; then run_gates "$top"; run_trigger_cases "${abs[@]}"
   else echo "tooling_commit.sh: the session history alone; no gate reads it" >&2; fi
   commit "$top" "$msg" "${rel[@]}"
+  if gated "${rel[@]}"; then warn_export "$top"; fi
 }
 
 # ---------------------------------------------------------------- self-test
@@ -268,6 +283,22 @@ moved.txt"
   out=$(tc -m "chore: z" -- "$rm_/z.txt")
   tap_is "a repo with a remote commits once the clone opts in" "$out" "$(head_of "$rm_")"
   tap_is "and the commit is never pushed" "$(git -C "$tmp/origin.git" for-each-ref)" ""
+
+  # The export's source holds every path on its allowlist, or git archive refuses.
+  local d="$tmp/dotsrc" f; mkdir -p "$d/skills/a" "$d/.github"
+  for f in CLAUDE.md credo.md x_guidelines.md statusline.sh settings.json skills/a/SKILL.md \
+           index.html README.md LICENSE .github/w.yml; do echo "$f" > "$d/$f"; done
+  mkrepo "$d" scripts/selftest.sh; echo "secret-co" > "$d/dotclaude_denylist.txt"
+  echo ok > "$d/scripts/ok.sh"
+  out=$(DOTCLAUDE_SRC="$d" "$SELF" -m "chore: ok" -- "$d/scripts/ok.sh" 2>&1)
+  tap_is "a clean commit in the export's source warns of nothing" "$out" "$(head_of "$d")"
+  echo "works at Secret-Co" > "$d/scripts/hit.sh"
+  out=$(DOTCLAUDE_SRC="$d" "$SELF" -m "chore: hit" -- "$d/scripts/hit.sh" 2>/dev/null)
+  tap_is "a hit in the export's source still commits" "$out" "$(head_of "$d")"
+  echo again >> "$d/scripts/hit.sh"
+  out=$(DOTCLAUDE_SRC="$d" "$SELF" -m "chore: hit2" -- "$d/scripts/hit.sh" 2>&1 >/dev/null)
+  tap_is "and warns with the hit's place" "$(grep -c '^scripts/hit.sh:1 \[denylist\]$' <<<"$out")" "1"
+  tap_is "and says the export will refuse it" "$(grep -c 'export will refuse' <<<"$out")" "1"
 
   local ng="$tmp/nogate"; mkrepo "$ng"; echo z > "$ng/z.txt"
   out=$(tc -m "chore: z" -- "$ng/z.txt")

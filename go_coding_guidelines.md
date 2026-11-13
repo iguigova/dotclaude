@@ -599,6 +599,24 @@ Avoid empty `interface{}` when specific types would work. With Go 1.18+, conside
 
 ---
 
+## Complexity and mutation
+
+> *Source: [Verification](coding_guidelines.md#verification), [lizard](https://github.com/terryyin/lizard), [gremlins](https://github.com/go-gremlins/gremlins)*
+
+`~/.claude/scripts/change_gate.py` holds a change to both bars.
+
+- **No function above cyclomatic complexity 10**, counted by lizard.
+- **Every mutant on a changed line is killed.** The gate runs
+  `gremlins unleash --diff <merge-base>`, which mutates only the changed lines
+  and runs the module's tests. A mutant that lives, or that no test covers,
+  fails the gate. Install it with
+  `go install github.com/go-gremlins/gremlins/cmd/gremlins@latest`.
+- **An equivalent mutant is marked on its line:**
+  `// mutation: equivalent — <reason>`. gremlins has no inline marker of its
+  own; the gate reads this one.
+
+---
+
 ## Tooling
 
 ### Required

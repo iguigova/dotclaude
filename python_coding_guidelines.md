@@ -1120,6 +1120,37 @@ Docstring format above is the Python-specific mechanics. What a comment or docst
 
 ---
 
+## Complexity and mutation
+
+> *Source: [Verification](coding_guidelines.md#verification), [lizard](https://github.com/terryyin/lizard), [Ruff — C901](https://docs.astral.sh/ruff/rules/complex-structure/)*
+
+`~/.claude/scripts/change_gate.py` holds a change to both bars.
+
+- **No function above cyclomatic complexity 10.** The gate counts with lizard.
+  Ruff's `C901` counts the same paths in the editor, at its default
+  `max-complexity` of 10. The cognitive-complexity bar above is a separate
+  measure, and both hold.
+- **Every mutant on a changed line is killed.** The gate's mutator swaps
+  `<`/`<=`/`>`/`>=`, `==`/`!=`, `and`/`or`, `True`/`False`, `+ 1`/`- 1`, and
+  drops `not` and the `not` of `is not`, in the code of each changed line. A
+  string, a docstring and a comment are never mutated. The repo's test
+  command runs once with per-test coverage, so the suite needs `pytest-cov`;
+  each mutant then runs only the tests whose coverage ran its line, or every
+  test for a line run only at import. The command is the one CI runs, test
+  paths included, given as
+  `--test 'python=.venv/bin/python -m pytest tests'`; with none it is
+  `<repo>/.venv/bin/python -m pytest`. When CI's own run already recorded
+  per-test coverage (`--cov-context=test`), `--coverage <file>` hands that
+  file over, and the gate reruns only the tests covering the changed lines
+  instead of the whole suite.
+- **A script that offers `--self-test` is tested by it.** Its `self_test`
+  functions are test code and are not mutated, so the self-test's helpers
+  belong inside them.
+- **An equivalent mutant is marked on its line:**
+  `# mutation: equivalent — <reason>`.
+
+---
+
 ## Tooling
 
 | Tool | Purpose |

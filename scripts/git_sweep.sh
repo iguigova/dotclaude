@@ -36,6 +36,11 @@
 # owner. `gh pr list --head` matches the branch name in every fork, so a
 # stranger's closed PR from a fork branch named `stable` is not this branch's.
 #
+# Every gh lookup runs as the gh account named for the origin's owner, when
+# one is logged in (`gh auth token -u <owner>`), and as the active account
+# otherwise. The active account may be a work one, to which the owner's
+# private repositories do not exist and whose public ones it can only read.
+#
 # A branch is proven finished when its tip equals or precedes the head commit
 # of a merged PR, no linked worktree holds it, and no stash names it. When it
 # is the main checkout's branch, that tree must also be clean, and --apply
@@ -141,7 +146,7 @@ precedes() {  # <clone> <tip> <head> <pr> -> tip equals or precedes head
 pr_rows() {  # <clone> <branch> -> "<number>\t<state>\t<head>" per own PR
   local slug owner n state head who
   slug=$(origin_slug "$1"); owner=${slug%/*}
-  "$GH" pr list -R "$slug" --head "$2" --state all \
+  gh_as "$slug" pr list -R "$slug" --head "$2" --state all \
     --json number,state,headRefOid,headRepositoryOwner \
     --jq '.[] | "\(.number)\t\(.state)\t\(.headRefOid)\t\(.headRepositoryOwner.login)"' \
   | while IFS="$TAB" read -r n state head who; do
@@ -150,10 +155,18 @@ pr_rows() {  # <clone> <branch> -> "<number>\t<state>\t<head>" per own PR
     done
 }
 
+gh_as() {  # <owner/repo> <gh args…> -> gh as the account named for the owner
+  local token
+  token=$("$GH" auth token -u "${1%/*}" 2>/dev/null)
+  shift
+  if [[ -n "$token" ]]; then GH_TOKEN=$token "$GH" "$@"; else "$GH" "$@"; fi
+}
+
 # GitHub's permission names; only these three can push a branch.
 pushable() {  # <clone> -> succeeds when you can push to origin
-  local p
-  p=$("$GH" repo view "$(origin_slug "$1")" --json viewerPermission \
+  local p slug
+  slug=$(origin_slug "$1")
+  p=$(gh_as "$slug" repo view "$slug" --json viewerPermission \
         --jq .viewerPermission) || return 2
   [[ "$p" =~ ^(ADMIN|MAINTAIN|WRITE)$ ]]
 }
@@ -478,8 +491,18 @@ self_test() {
   git -C "$tmp/root" branch stray
   cat >"$tmp/gh" <<'EOF'
 #!/usr/bin/env bash
+# accounts lists the owners a gh account is logged in as; a HIDDEN repository
+# exists only to such an account, as a private one does.
+if [[ "$1 $2" == "auth token" ]]; then
+  grep -qxF -- "$4" "$GIT_SWEEP_PRS/accounts" 2>/dev/null || exit 1
+  echo "token-$4"; exit 0
+fi
 if [[ "$1 $2" == "repo view" ]]; then
   p="$GIT_SWEEP_PRS/perm_${3##*/}"
+  if [[ "$(cat "$p" 2>/dev/null)" == HIDDEN ]]; then
+    [[ -n "${GH_TOKEN:-}" ]] || exit 1
+    echo WRITE; exit 0
+  fi
   [[ -f "$p" ]] && cat "$p" || echo WRITE
   exit 0
 fi
@@ -538,6 +561,13 @@ EOF
   g checkout -b main; commit u0; g push -u origin main
   g remote set-head origin main; g checkout -b stable main; commit u1
   echo READ >"$tmp/prs/perm_upstream"
+  # priv: a repository only the owner's own gh account can see
+  git "${G[@]}" -c init.defaultBranch=main init --bare -q "$tmp/priv.git"
+  git "${G[@]}" clone -q "$tmp/priv.git" "$tmp/root/priv" 2>/dev/null
+  r="$tmp/root/priv"
+  g checkout -b main; commit p0; g push -u origin main
+  g remote set-head origin main; g checkout -b wip main; commit p1
+  echo HIDDEN >"$tmp/prs/perm_priv"
   fixture stable "17${TAB}CLOSED${TAB}x"
   r="$tmp/root/repo"
 
@@ -551,6 +581,7 @@ EOF
   g worktree add --detach "$wt/gone" main; rm -rf "$wt/gone"
   g worktree add -b held "$wt/held" main
 
+  unset GH_TOKEN
   export GIT_SWEEP_GH="$tmp/gh" GIT_SWEEP_PRS="$tmp/prs"
   local me
   me="$SCRIPTS_DIR/$(basename "$0")"
@@ -580,6 +611,13 @@ EOF
   expect "branch worktree → note" '^note	repo	worktree	held	.*holds held'
   expect "its branch defers to it" '^keep	repo	branch	held	held by worktree'
   check "dry run changed nothing" git -C "$r" rev-parse -q --verify squashed
+  expect "a repository hidden from the active account → skip" \
+    '^skip	priv	branch	wip	permission lookup failed'
+
+  echo "$tmp" >"$tmp/prs/accounts"
+  out=$("${sweep[@]}" 2>&1)
+  expect "the owner's own account sees it → judged" '^note	priv	branch	wip	no PR'
+  rm "$tmp/prs/accounts"
 
   check "a moved tip is not deleted" \
     bash -c "! git -C '$r' update-ref -d refs/heads/squashed $(tip nopr)"

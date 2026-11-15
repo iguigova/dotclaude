@@ -24,6 +24,14 @@
   .evidence code { background: none; padding: 0; white-space: pre-wrap; }
   .evidence b { color: var(--ink); }
 
+  .tenets { list-style: none; padding: 0; margin: 0; max-width: 70ch; counter-reset: tenet; }
+  .tenets li { margin: 0 0 20px; padding-left: 2.2em; position: relative; counter-increment: tenet; }
+  .tenets li::before { content: counter(tenet); position: absolute; left: 0; top: 2px;
+    font: 13px var(--mono); color: var(--link); }
+  .tenets h3 { margin: 0 0 4px; }
+  .tenets p { margin: 0; }
+  .tenets .proven { margin-top: 6px; color: var(--muted); font-size: 13px; }
+
   .loop { list-style: none; padding: 0; margin: 0 0 12px; max-width: none;
     display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 12px; }
   .loop li { border-top: 3px solid var(--rule); padding-top: 8px; margin: 0; }
@@ -64,7 +72,7 @@
 <header>
   <div>
     <h1>Don't take my word for it</h1>
-    <p class="tag">My Claude Code setup keeps only what it can check. So does this page.</p>
+    <p class="tag">A Claude Code setup built like software you'd ship. The rules that matter are enforced by code, every script is tested, and every remembered fact is checked. This page is checked too.</p>
     <p class="tally" id="tally" aria-live="polite">Your browser checks every claim marked like this one
       <span class="mark">✓ holds</span> against the file it names.</p>
     <p class="tally" id="ran" aria-live="polite">GitHub runs every self-test on each push and publishes this page with what they printed. Reading the last run…</p>
@@ -75,13 +83,78 @@
 <section aria-labelledby="h-idea">
   <h2 id="h-idea">The idea</h2>
   <div>
-    <p>I don't want an assistant that remembers a lot. I want one whose memory I can trust.</p>
-    <p>So nothing gets kept without a way to check it. Not a fact, not a rule, not a number on this page.
-      Each sentence below that makes a claim names a file and the words it should find there.
-      When this page loads, your browser reads those files and looks.
+    <p>An assistant is only as useful as you can trust it. Most setups chase that by remembering more. This one gets it by checking more.</p>
+    <p>Nothing is kept without a way to check it: not a fact, not a sentence on this page.
+      Each claim below names a file and the words that file should hold.
+      When the page loads, your browser reads those files and looks.
       Press any mark to see the line it found.</p>
-    <p>GitHub also runs every script's self-test on each push, and publishes this page with what they printed.
-      The second line at the top says how that run went.</p>
+  </div>
+</section>
+
+<section aria-labelledby="h-why">
+  <h2 id="h-why">What I believe</h2>
+  <div>
+    <p>It starts from <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">a credo</a>, not a style guide.
+      <span class="claim" data-check="coding_guidelines.md" data-says="1. CORRECT">Code is correct first, then simple, then extensible, then fast,</span>
+      <span class="claim" data-check="credo.md" data-says="with no technical debt and no hacks">with no technical debt and no hacks.</span>
+      Four principles decide the rest.</p>
+    <dl class="why">
+      <dt><span class="claim" data-check="credo.md" data-says="So checking matters more than storing.">Checking matters more than storing.</span></dt>
+      <dd>No fact without a check.</dd>
+      <dt><span class="claim" data-check="credo.md" data-says="Removing is generous, not violent.">Removing is generous, not violent.</span></dt>
+      <dd>A wrong fact deleted makes the rest believable. A struck-out claim on this page is a kindness.</dd>
+      <dt><span class="claim" data-check="credo.md" data-says="Point, don't copy.">Point, don't copy.</span></dt>
+      <dd>This page copies nothing. It points at the files and reads them.</dd>
+      <dt><span class="claim" data-check="credo.md" data-says="Never get ahead of the evidence.">Never get ahead of the evidence.</span></dt>
+      <dd>A file that can't be reached proves nothing, so its claim says "no answer", not "false".</dd>
+    </dl>
+  </div>
+</section>
+
+<section aria-labelledby="h-apart">
+  <h2 id="h-apart">What sets it apart</h2>
+  <div>
+    <ol class="tenets">
+      <li><h3>Rules are enforced, not hoped for</h3>
+        <p><span class="claim" data-check="scripts/ask_gate.py" data-says="loses to the habit of a long turn">A rule read at the start of a session loses to the habit of a long turn.</span>
+          <span class="claim" data-check="README.md" data-says="A rule names the script that enforces it">So a rule that matters names the script that enforces it,</span>
+          and hooks refuse what a prompt can only ask for.
+          <span class="claim" data-check="scripts/block_gate.py" data-says="no other tool runs until the user answers">Once a call is blocked, no other tool runs until I answer.</span></p>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/block_gate.py" data-says="after a block, the next call is refused">“after a block, the next call is refused”</span>, and <span class="claim proof" data-check="scripts/tooling_commit.sh" data-says="a red gate commits nothing">“a red gate commits nothing”</span>.</p></li>
+      <li><h3>The tooling is production code</h3>
+        <p>It's a codebase, not a prompt file.
+          <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">Every script carries its own self-test,</span>
+          <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">and a change lands only when its tests kill every mutant on the lines it touched.</span>
+          <span class="claim" data-check="coding_guidelines.md" data-says="Never loosen a check to pass it">No check is ever loosened to pass.</span></p>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/change_gate.py" data-says="a self-test that misses the boundary lets a mutant live">“a self-test that misses the boundary lets a mutant live”</span>, and <span class="claim proof" data-check="scripts/change_gate.py" data-says="a missing tool fails the gate, naming the fix">“a missing tool fails the gate, naming the fix”</span>.</p></li>
+      <li><h3>Memory that can be wrong out loud</h3>
+        <p>A fact is one claim and the command that checks it.
+          <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now">It's written only if the check passes that day.</span>
+          <span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00">Every night at 04:30 each fact is checked again,</span>
+          <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted">and one its check contradicts is deleted.</span>
+          <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it">A check that gets no answer deletes nothing.</span>
+          Every check has three answers, not two: holds, doesn't hold, and couldn't tell.</p>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/memory_check.sh" data-says="a contradicted fact is deleted">“a contradicted fact is deleted”</span>, and <span class="claim proof" data-check="scripts/memory_check.sh" data-says="a check that got no answer deletes nothing">“a check that got no answer deletes nothing”</span>.</p></li>
+      <li><h3>Nothing noticed gets lost</h3>
+        <p><span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Every turn that changes something is journaled, by one writer.</span>
+          What a session notices but can't finish becomes a note,
+          <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">and every note is done, dropped or kept open on purpose.</span></p>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/journal.sh" data-says="a placement with no reason is refused">“a placement with no reason is refused”</span>.</p></li>
+      <li><h3>It keeps working while nobody watches</h3>
+        <p><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">When a session ends, what it noticed is placed without me.</span>
+          <span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR">Once a day, a branch whose pull request merged is deleted.</span>
+          <span class="claim" data-check="CLAUDE.md" data-says="Read what ran while nobody was here.">And the next session starts by reading what ran while nobody was here.</span></p>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/git_sweep.sh" data-says="squash-merged branch → delete">“squash-merged branch → delete”</span>, and <span class="claim proof" data-check="scripts/git_sweep.sh" data-says="open PR → keep">“open PR → keep”</span>.</p></li>
+      <li><h3>Every answer is audited before it's sent</h3>
+        <p><span class="claim" data-check="skills/audit/SKILL.md" data-says="run unasked on every answer before it is sent">The standing instruction is to judge each answer against the credo, for holes, hacks and debt, before it's sent.</span>
+          <span class="claim" data-check="CLAUDE.md" data-says="Nothing is finished while it leaves debt.">A change isn't finished while it leaves debt,</span>
+          <span class="claim" data-check="CLAUDE.md" data-says="Docs ship with the code.">and its docs ship with it.</span></p></li>
+      <li><h3>Public by construction</h3>
+        <p><span class="claim" data-check="scripts/session_end_export.sh" data-says="publish ~/.claude's public part whenever it has moved">This repo is published from my own setup when a session ends,</span>
+          <span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape">and nothing reaches it if it looks like a key, a token or a real email.</span>
+          What you're reading is what I run.</p>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/dotclaude_export.sh" data-says="a GitHub token is refused">“a GitHub token is refused”</span>, and <span class="claim proof" data-check="scripts/dotclaude_export.sh" data-says="a real email is refused">“a real email is refused”</span>.</p></li>
+    </ol>
   </div>
 </section>
 
@@ -92,20 +165,19 @@
       <li><b>1 · rule</b>
         <span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">A rule says what to do, and anything done twice becomes a tested script.</span></li>
       <li><b>2 · test</b>
-        <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">One command runs every script's own self-test,</span>
+        One command runs every script's own self-test,
         and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest">A change is committed only when every test passes,</span>
         <span class="claim" data-check="coding_guidelines.md" data-says="No function above cyclomatic complexity 10">no function it touched is above complexity 10,</span>
-        <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">and every mutant on a line it changed makes a test fail.</span>
+        and every mutant on a line it changed makes a test fail.
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">The script never pushes it.</span></li>
       <li><b>4 · journal</b>
-        <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Each turn that changed something gets an entry, from one writer.</span></li>
+        Each turn that changed something gets an entry.</li>
       <li><b>5 · note</b>
-        <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">What a session notices becomes a note, and each note is done, dropped or kept open.</span></li>
+        What a session notices becomes a note, and each note is done, dropped or kept open.</li>
     </ol>
-    <p class="again">↺ And the next session starts by
-      <span class="claim" data-check="CLAUDE.md" data-says="Read what ran while nobody was here.">reading what ran while nobody was here.</span></p>
+    <p class="again">↺ And the next session starts by reading what ran while nobody was here.</p>
   </div>
 </section>
 
@@ -129,68 +201,17 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   </div>
 </section>
 
-<section aria-labelledby="h-memory">
-  <h2 id="h-memory">Memory</h2>
-  <div>
-    <p>There are three answers a check can give, and each one does something different.</p>
-    <ul>
-      <li><b>0, it holds.</b> <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now">A fact is only written when its check passes the day it's written.</span></li>
-      <li><b>1, it doesn't.</b> <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted">A fact its own check contradicts is deleted, file and index line.</span></li>
-      <li><b>75, no answer.</b> <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it">Nothing is learned, and nothing is deleted on a maybe.</span></li>
-    </ul>
-  </div>
-</section>
-
-<section aria-labelledby="h-away">
-  <h2 id="h-away">While I'm away</h2>
-  <div>
-    <ul>
-      <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00">Every night at 04:30, every fact is checked again,</span>
-        <span class="claim" data-check="scripts/memory_schedule.sh" data-says="Persistent=true">and a night the machine missed is caught up.</span></li>
-      <li><span class="claim" data-check="scripts/session_start_notes.sh" data-says="a count and the three oldest notes">A session starts by hearing how many notes are open, and the three oldest.</span></li>
-      <li><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">When it ends, what it noticed is placed without me.</span></li>
-      <li><span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR">Once a day, a branch whose pull request merged is deleted.</span></li>
-      <li><span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape">Nothing reaches this public repo if it looks like a key, a token or a real email.</span></li>
-      <li><span class="claim" data-check="scripts/session_end_export.sh" data-says="publish ~/.claude's public part whenever it has moved">When a session ends, what it changed here is published, through those same checks.</span></li>
-    </ul>
-  </div>
-</section>
-
 <section aria-labelledby="h-numbers">
-  <h2 id="h-numbers">Numbers</h2>
+  <h2 id="h-numbers">In numbers</h2>
   <div>
-    <h3>Counted just now, by your browser</h3>
     <dl class="stats">
       <div><dt data-live="scripts">…</dt><dd>scripts</dd></div>
+      <div><dt data-live="tested">…</dt><dd>of them passed their own self-test in GitHub's last run</dd></div>
+      <div><dt data-live="cases">…</dt><dd>test cases in those self-tests</dd></div>
       <div><dt data-live="skills">…</dt><dd>skills</dd></div>
       <div><dt data-live="hooks">…</dt><dd>hooks, at session start and end, around a blocked call, and at the end of each turn</dd></div>
     </dl>
-    <p class="note" id="live-note">From the files of <a href="https://github.com/iguigova/dotclaude">the public repo</a> this page was published with, and its <code>settings.json</code>.</p>
-    <h3>Counted on my machine</h3>
-    <dl class="stats">
-      <div><dt data-count="commits">304</dt><dd>commits to my <code>~/.claude</code> since <span data-count="since">3 September 2026</span></dd></div>
-      <div><dt data-count="entries">3,377</dt><dd>journal entries, across <span data-count="projects">4</span> projects</dd></div>
-      <div><dt data-count="closed">729</dt><dd>notes placed or dropped</dd></div>
-      <div><dt data-count="open">25</dt><dd>notes still open</dd></div>
-    </dl>
-    <p class="note">You can't check these, so they carry the day I counted them: <time data-count="date" datetime="2026-11-08">8 November 2026</time>.</p>
-  </div>
-</section>
-
-<section aria-labelledby="h-why">
-  <h2 id="h-why">Why</h2>
-  <div>
-    <p>Even what I believe is checked, against <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">my credo</a>.</p>
-    <dl class="why">
-      <dt><span class="claim" data-check="credo.md" data-says="So checking matters more than storing.">Checking matters more than storing.</span></dt>
-      <dd>No fact without a check.</dd>
-      <dt><span class="claim" data-check="credo.md" data-says="Removing is generous, not violent.">Removing is generous, not violent.</span></dt>
-      <dd>A struck-out claim on this page is a kindness. You'd rather know.</dd>
-      <dt><span class="claim" data-check="credo.md" data-says="Point, don't copy.">Point, don't copy.</span></dt>
-      <dd>This page copies nothing. It points at the files and reads them.</dd>
-      <dt><span class="claim" data-check="credo.md" data-says="Never get ahead of the evidence.">Never get ahead of the evidence.</span></dt>
-      <dd>A file that can't be reached proves nothing, so its claim says "no answer", not "false".</dd>
-    </dl>
+    <p class="note" id="live-note">Counted just now by your browser, from <a href="https://github.com/iguigova/dotclaude">the public repo</a> this page was published with: its files, its <code>settings.json</code>, and what the self-tests printed.</p>
   </div>
 </section>
 
@@ -199,7 +220,9 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <div>
     <ul>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The nightly timer only runs while I'm logged in, so a missed night runs at my next login, not at 04:30.</span></li>
-      <li>A claim is checked on its words alone. They show the file says it, not that the code does it: the self-tests check that, and a change can't land while a mutant on a line it touched gets past them. This page still doesn't tie a claim to its test.</li>
+      <li>A claim is checked on its words alone. They show the file says it, not that the code does it: the self-tests check that, and a change can't land while a mutant on a line it touched gets past them. Each tenet above names the self-test cases that prove it.</li>
+      <li>A <span class="mark">✓ tested</span> mark shows the case is in the script and that script's self-test passed in GitHub's last run. The run prints a count per script, not each case, so it doesn't show this one case ran.</li>
+      <li>No hook runs the audit. It runs because the instructions say so, which makes it the one tenet here a long turn can forget.</li>
       <li>Mutation only runs on the lines a change touches, so code written before the gate has never been mutated.</li>
       <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell, Clojure and Haskell have no counter">Shell has no complexity counter, so a shell script's functions are mutated but never measured.</span></li>
       <li><span class="claim" data-check="scripts/selftest.sh" data-says="the code was gated at its source">GitHub's run skips the gate, because the code was already gated on my machine before each commit.</span> The copy GitHub tests has no change of its own to compare against.</li>
@@ -227,7 +250,11 @@ const LIVE = {
   skills: /^skills\/[^/]+\/SKILL\.md$/,
 };
 const LABEL = { 0: '✓ holds', 1: '✗ no longer holds', 75: '? no answer' };
+const TESTED = { 0: '✓ tested', 1: '✗ not tested', 75: '? no answer' };
 const reads = new Map();
+// Self-tests that passed in the published run: selftest.sh prints one
+// "ok  <script> (cases: N)" line per script whose self-test passed.
+const PASSED = /^\s+ok\s+\S+ \(cases: (\d+)\)$/;
 
 // read — the file's text, or null when it could not be read.
 const fetchText = (path, signal) =>
@@ -268,20 +295,22 @@ const NOTE = {
   75: (path) => `Couldn't read ${path}, so this is neither true nor false yet.`,
 };
 const evidence = (path, v) => {
-  if (v.code !== 0) return [NOTE[v.code](path)];
+  if (v.code !== 0) return [(v.note ?? NOTE[v.code])(path)];
   const link = document.createElement('a');
   link.href = `${BLOB}${path}#L${v.line}`;
   link.textContent = `${path}:${v.line}`;
   const code = document.createElement('code');
   code.append(...excerpt(v));
-  return [link, document.createElement('br'), code];
+  const shown = [link, document.createElement('br'), code];
+  if (v.ran) shown.push(document.createElement('br'), v.ran);
+  return shown;
 };
 const mark = (claim, v) => {
   const button = document.createElement('button');
   button.type = 'button';
   button.className = 'mark';
   button.dataset.code = claim.dataset.code = v.code;
-  button.textContent = LABEL[v.code];
+  button.textContent = (claim.classList.contains('proof') ? TESTED : LABEL)[v.code];
   button.setAttribute('aria-expanded', 'false');
   const box = document.createElement('span');
   box.className = 'evidence';
@@ -294,8 +323,25 @@ const mark = (claim, v) => {
   claim.after(' ', button, box);
   return v.code;
 };
-const checkClaim = async (claim) =>
-  mark(claim, verdict(await read(claim.dataset.check), claim.dataset.says));
+const checkClaim = async (claim) => {
+  const v = verdict(await read(claim.dataset.check), claim.dataset.says);
+  return mark(claim, claim.classList.contains('proof') ? await proven(claim.dataset.check, v) : v);
+};
+
+// A proof is a self-test case: its name is in the script, as a claim's words
+// are, and the published run shows that script's self-test passed.
+const passedIn = (text, path) => {
+  const name = `./${path.split('/').pop()} (cases: `;
+  return text.split('\n').some(l => PASSED.test(l) && l.includes(name));
+};
+const UNRUN = (path) => `${path} names this case, but its self-test did not pass in GitHub's last run.`;
+const proven = async (path, v) => {
+  if (v.code !== 0) return v;
+  const run = await read(`${RUN}selftest.txt`);
+  if (run === null) return { code: 75 };
+  if (!passedIn(run, path)) return { code: 1, note: UNRUN };
+  return { ...v, ran: 'and its self-test passed in GitHub\'s last run.' };
+};
 
 // The tally says what every check found.
 const count = (codes, c) => codes.filter(x => x === c).length;
@@ -346,6 +392,12 @@ const checkRun = async () => {
 // Numbers counted live. No answer shows as a dash, never as a guess.
 const show = (key, n) => {
   document.querySelector(`[data-live="${key}"]`).textContent = n ?? '—';
+};
+const countCases = async () => {
+  const text = await read(`${RUN}selftest.txt`);
+  const passed = text && text.split('\n').map(l => l.match(PASSED)).filter(Boolean);
+  show('tested', passed && passed.length);
+  show('cases', passed && passed.reduce((n, m) => n + Number(m[1]), 0).toLocaleString());
 };
 const countFiles = async () => {
   const text = await read(`${RUN}files.txt`);
@@ -401,6 +453,7 @@ document.getElementById('cut').addEventListener('click', () => runFact(true));
 checkAll();
 checkRun();
 countFiles();
+countCases();
 countHooks();
 </script>
 </body>

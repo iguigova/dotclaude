@@ -96,7 +96,9 @@
         and GitHub runs it on every push: the second line at the top is its last run.</li>
       <li><b>3 · commit</b>
         <span class="claim" data-check="scripts/tooling_commit.sh" data-says="gated by that repo's selftest">A change is committed only when every test passes,</span>
-        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">and never pushed by the script.</span></li>
+        <span class="claim" data-check="coding_guidelines.md" data-says="No function above cyclomatic complexity 10">no function it touched is above complexity 10,</span>
+        <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">and every mutant on a line it changed makes a test fail.</span>
+        <span class="claim" data-check="scripts/tooling_commit.sh" data-says="this script never pushes">The script never pushes it.</span></li>
       <li><b>4 · journal</b>
         <span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Each turn that changed something gets an entry, from one writer.</span></li>
       <li><b>5 · note</b>
@@ -197,7 +199,10 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <div>
     <ul>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The nightly timer only runs while I'm logged in, so a missed night runs at my next login, not at 04:30.</span></li>
-      <li>A claim is checked on its words alone. They show the file says it, not that the code does it: the self-tests check that, and this page doesn't tie a claim to its test.</li>
+      <li>A claim is checked on its words alone. They show the file says it, not that the code does it: the self-tests check that, and a change can't land while a mutant on a line it touched gets past them. This page still doesn't tie a claim to its test.</li>
+      <li>Mutation only runs on the lines a change touches, so code written before the gate has never been mutated.</li>
+      <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell, Clojure and Haskell have no counter">Shell has no complexity counter, so a shell script's functions are mutated but never measured.</span></li>
+      <li><span class="claim" data-check="scripts/selftest.sh" data-says="the code was gated at its source">GitHub's run skips the gate, because the code was already gated on my machine before each commit.</span> The copy GitHub tests has no change of its own to compare against.</li>
     </ul>
   </div>
 </section>

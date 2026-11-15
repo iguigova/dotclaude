@@ -30,7 +30,11 @@ A rule names the script that enforces it. The script carries its own
 `shellcheck`, the frontmatter lint and the settings lint. It then holds the
 code the change touched to `coding_guidelines.md`'s bar through
 `scripts/change_gate.py`: no function above cyclomatic complexity 10, and
-every mutant on a changed line killed by the script's own self-test. A change
+every mutant on a changed line killed by the script's own self-test. A
+project's gate runs the same script over its own code in Python, Ruby,
+JavaScript and TypeScript, Go, Dart, Clojure and Haskell, naming a language's
+test command with `--test` where the gate cannot find one. For Python it reuses the coverage file CI already wrote.
+C# has no mutation runner yet, so a C# change fails the gate. A change
 is committed only when that selftest passes, and the session records it in a
 journal.
 

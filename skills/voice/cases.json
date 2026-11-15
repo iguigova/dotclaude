@@ -1,0 +1,9 @@
+[
+  {"text": "I've built pieces other developers stand on.", "fails": true, "rule": "Facts, not a pitch: a label for the work instead of the work", "source": "2026-11-15, a cover letter"},
+  {"text": "Please let us know once each location is confirmed, or if any team should be switched off first.", "fails": true, "rule": "Ask, never demand", "source": "2026-10-14, a ticket comment"},
+  {"text": "I'm passionate about building secure systems that make a real difference.", "fails": true, "rule": "Confident, never trying too hard; facts, not a pitch", "source": "job:apply Application voice, which bans \"passionate\""},
+  {"text": "At DeliverySlip I designed a caching layer that 3+ products use.", "fails": true, "rule": "Talk, don't write: \"3+\" is written, not said", "source": "2026-11-15, a cover letter; the user agreed with the review"},
+  {"text": "Is it OK to go ahead once each location is confirmed?", "fails": false, "rule": "", "source": "2026-10-14, the rewrite of the second case"},
+  {"text": "He reviewed nearly as many PRs as he wrote, for engineers across every team, and my own work was better for it more than once.", "fails": false, "rule": "", "source": "2026-08-16, a recommendation the user kept"},
+  {"text": "I haven't written Rust yet.", "fails": false, "rule": "", "source": "2026-11-14, a cover letter"}
+]

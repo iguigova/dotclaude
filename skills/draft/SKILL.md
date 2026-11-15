@@ -127,6 +127,8 @@ reader what the request asked for without it, the sentence goes. Check
 that no two bullets contradict, and that nothing the reader already has
 is repeated.
 
+Then pass it through the `voice` skill.
+
 Then check every number, name, date and link against its source, and
 check them again after the last edit: an edit can make a checked
 sentence false, and a moved sentence can lose the scope it was true in.

@@ -30,7 +30,9 @@
 #
 # A commit that changes a skill's or command's description, or its trigger cases,
 # also passes those cases through skill_trigger_test.py, whose header states them;
-# a description with no cases is refused.
+# a description with no cases is refused. A commit that changes the credo, the
+# voice skill or its cases also passes voice_test.py, whose header
+# states them.
 #
 # The message's subject, its first line, takes one of two forms: Conventional
 # Commits, `type(scope)!: summary` with the scope and the `!` optional and the
@@ -141,6 +143,8 @@ run_gates() {  # TOP
 run_trigger_cases() {  # ABS…
   "$(dirname "$SELF")/skill_trigger_test.py" --changed "$@" >&2 \
     || die "trigger cases did not pass; nothing committed"
+  "$(dirname "$SELF")/voice_test.py" --changed "$@" >&2 \
+    || die "voice cases did not pass; nothing committed"
 }
 
 # ---------------------------------------------------------------- commit

@@ -38,14 +38,23 @@
   .loop > li > b { display: block; font: 400 13px var(--mono); color: var(--link); }
   .again { color: var(--muted); }
 
-  .fact { border: 1px solid var(--hair); padding: 12px 14px; max-width: 70ch; }
-  .fact pre { margin: 0 0 12px; background: none; padding: 0; white-space: pre-wrap;
-    transition: color .6s; }
-  .fact[data-code="1"] pre { color: var(--muted); text-decoration: line-through; }
-  .fact label { display: block; color: var(--muted); font-size: 13px; }
-  .fact input { font: 14px var(--mono); width: 100%; max-width: 40ch;
-    padding: 8px; margin: 4px 0 12px; color: var(--ink); background: var(--bg);
-    border: 1px solid var(--muted); border-radius: 3px; }
+  .scenes { display: grid; gap: 20px; max-width: 80ch; }
+  .scene { margin: 0; }
+  .scene figcaption { font-weight: 600; margin: 0 0 6px; }
+  .scene p { margin: 6px 0 0; }
+  .term { margin: 0; padding: 10px 12px; background: var(--panel); border-left: 2px solid var(--rule);
+    font: 13px/1.6 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; }
+  .term .who { color: var(--muted); }
+  .term .hook { color: var(--link); }
+
+  .fool { border: 1px solid var(--hair); padding: 12px 14px; max-width: 70ch; }
+  .fool label { display: block; color: var(--muted); font-size: 13px; }
+  .fool .file { margin: 0 0 12px; font-size: 13px; }
+  .fool input, .fool select { font: 14px var(--mono); width: 100%;
+    padding: 8px; margin: 4px 0 8px; color: var(--ink); background: var(--bg);
+    border: 1px solid var(--muted); border-radius: 3px; min-height: 44px; }
+  .fool select { font-family: var(--sans); }
+  .claim.flash { outline: 2px solid var(--link); outline-offset: 2px; }
   .buttons { display: flex; flex-wrap: wrap; gap: 8px; }
   .buttons button { font: 14px var(--sans); color: var(--link); background: var(--bg);
     border: 1px solid var(--link); border-radius: 3px; padding: 10px 14px;
@@ -80,34 +89,74 @@
 </header>
 <main>
 
-<section aria-labelledby="h-idea">
-  <h2 id="h-idea">The idea</h2>
+<section aria-labelledby="h-what">
+  <h2 id="h-what">What this is</h2>
   <div>
-    <p>An assistant is only as useful as you can trust it. Most setups chase that by remembering more. This one gets it by checking more.</p>
-    <p>Nothing is kept without a way to check it: not a fact, not a sentence on this page.
-      Each claim below names a file and the words that file should hold.
-      When the page loads, your browser reads those files and looks.
-      Press any mark to see the line it found.</p>
+    <p>Claude Code is Anthropic's AI assistant for programming. It works in a terminal: it reads code, runs commands and makes changes.
+      One conversation with it is a session, and each request with its reply is a turn.</p>
+    <p>It takes its instructions from a folder, <code>~/.claude</code>. For most people that folder is a page of instructions.
+      The assistant reads them at the start. Deep into a long task, it starts to forget them.
+      Mine is a small codebase: <span data-live="scripts">…</span> scripts, each with its own tests.
+      Some of them are hooks: small programs Claude Code runs around every step the assistant takes.
+      A hook can refuse that step.</p>
+    <p>An assistant is only as useful as you can trust it. Most setups chase that by remembering more. This one gets it by checking more.
+      Each claim on this page names a file and the words it should hold.
+      Press any mark to see the line your browser found.</p>
+  </div>
+</section>
+
+<section aria-labelledby="h-no">
+  <h2 id="h-no">Watch it say no</h2>
+  <div>
+    <p>Most setups ask the assistant nicely. Here are three times mine is told no, by code it can't talk its way past.
+      The refusals are the scripts' own words, checked like everything else.</p>
+    <div class="scenes">
+      <figure class="scene">
+        <figcaption>It slips a question into a paragraph</figcaption>
+<pre class="term"><span class="who">Claude</span>      Done, and the tests pass. Shall I commit it too?
+<span class="who hook">ask_gate.py</span> <span class="claim" data-check="scripts/ask_gate.py" data-says="This reply holds a question in prose">This reply holds a question in prose: "Shall I commit it too?" … ask it now with AskUserQuestion.</span></pre>
+        <p>A question buried in prose gets a "sure" nobody thought about. So <code>ask_gate.py</code> sends the reply back. The question comes again in the dialog where I pick an answer. Then the assistant waits for me.</p>
+      </figure>
+      <figure class="scene">
+        <figcaption>It's blocked, and wants to carry on</figcaption>
+<pre class="term"><span class="who">Claude</span>      (a command is blocked by a permission check, so it tries another)
+<span class="who hook">block_gate.py</span> Auto mode blocked Bash … <span class="claim" data-check="scripts/block_gate.py" data-says="Every other tool call is refused until the">Every other tool call is refused until the user replies.</span></pre>
+        <p>A blocked step is a question for me, not an obstacle to route around. Until I answer, the assistant can do nothing else.</p>
+      </figure>
+      <figure class="scene">
+        <figcaption>Something it remembered stops being true</figcaption>
+<pre class="term"><span class="who">04:30</span>       memory_check.sh --all
+<span class="who hook">            </span>DELETED    release-branch — <span class="claim" data-check="scripts/memory_check.sh" data-says="verify contradicted it">verify contradicted it</span></pre>
+        <p>Say it remembered that releases go out from a branch called <code>release</code>, and someone renamed the branch. That night the fact's own check fails, and the fact is gone before the next session can repeat it.</p>
+      </figure>
+    </div>
   </div>
 </section>
 
 <section aria-labelledby="h-why">
-  <h2 id="h-why">What I believe</h2>
+  <h2 id="h-why">Where it comes from</h2>
   <div>
-    <p>It starts from <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">a credo</a>, not a style guide.
-      <span class="claim" data-check="coding_guidelines.md" data-says="1. CORRECT">Code is correct first, then simple, then extensible, then fast,</span>
-      <span class="claim" data-check="credo.md" data-says="with no technical debt and no hacks">with no technical debt and no hacks.</span>
-      Four principles decide the rest.</p>
+    <p>Everything here grows from one short file, <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">a credo</a>:
+      who I am and how I work.
+      <span class="claim" data-check="CLAUDE.md" data-says="@~/.claude/credo.md">It loads into every session before anything else.</span>
+      Its mission is one line,
+      <span class="claim" data-check="credo.md" data-says="Build simple systems people can trust.">“Build simple systems people can trust.”</span></p>
+    <p>It tells the assistant how to work:
+      <span class="claim" data-check="credo.md" data-says="with no technical debt and no hacks">correct first, then simple, with no technical debt and no hacks,</span>
+      <span class="claim" data-check="credo.md" data-says="Find the cause; don't treat the symptom.">find the cause rather than the symptom,</span>
+      <span class="claim" data-check="credo.md" data-says="No inference without concrete evidence">and claim nothing without evidence.</span>
+      Four principles decide the rest, and each one became a mechanism:</p>
     <dl class="why">
       <dt><span class="claim" data-check="credo.md" data-says="So checking matters more than storing.">Checking matters more than storing.</span></dt>
-      <dd>No fact without a check.</dd>
+      <dd>So every remembered fact carries the command that checks it, and every script carries its tests.</dd>
       <dt><span class="claim" data-check="credo.md" data-says="Removing is generous, not violent.">Removing is generous, not violent.</span></dt>
-      <dd>A wrong fact deleted makes the rest believable. A struck-out claim on this page is a kindness.</dd>
+      <dd>So a fact that fails its check is deleted, not flagged, and a claim here that fails is struck out in front of you.</dd>
       <dt><span class="claim" data-check="credo.md" data-says="Point, don't copy.">Point, don't copy.</span></dt>
-      <dd>This page copies nothing. It points at the files and reads them.</dd>
+      <dd>So this page copies nothing. It reads the files it talks about, while you watch.</dd>
       <dt><span class="claim" data-check="credo.md" data-says="Never get ahead of the evidence.">Never get ahead of the evidence.</span></dt>
-      <dd>A file that can't be reached proves nothing, so its claim says "no answer", not "false".</dd>
+      <dd>So every check has three answers: holds, doesn't hold, and couldn't tell. "Couldn't tell" never deletes anything.</dd>
     </dl>
+    <p>But the assistant can forget an instruction. The rest of this page is the code that keeps these ones.</p>
   </div>
 </section>
 
@@ -116,15 +165,16 @@
   <div>
     <ol class="tenets">
       <li><h3>Rules are enforced, not hoped for</h3>
-        <p><span class="claim" data-check="scripts/ask_gate.py" data-says="loses to the habit of a long turn">A rule read at the start of a session loses to the habit of a long turn.</span>
-          <span class="claim" data-check="README.md" data-says="A rule names the script that enforces it">So a rule that matters names the script that enforces it,</span>
-          and hooks refuse what a prompt can only ask for.
+        <p><span class="claim" data-check="README.md" data-says="A rule names the script that enforces it">A rule that matters names the script that enforces it.</span>
+          When that script is a hook, it runs whether the assistant remembers the rule or not.
           <span class="claim" data-check="scripts/block_gate.py" data-says="no other tool runs until the user answers">Once a call is blocked, no other tool runs until I answer.</span></p>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/block_gate.py" data-says="after a block, the next call is refused">“after a block, the next call is refused”</span>, and <span class="claim proof" data-check="scripts/tooling_commit.sh" data-says="a red gate commits nothing">“a red gate commits nothing”</span>.</p></li>
       <li><h3>The tooling is production code</h3>
         <p>It's a codebase, not a prompt file.
-          <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">Every script carries its own self-test,</span>
-          <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">and a change lands only when its tests kill every mutant on the lines it touched.</span>
+          <span class="claim" data-check="scripts/selftest.sh" data-says="every script that offers --self-test">Every script carries its own self-test.</span>
+          <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">And a change lands only when its tests kill every mutant on the lines it touched.</span>
+          A mutant is a copy of the code with one small bug planted on purpose, like <code>&lt;</code> turned into <code>&lt;=</code>.
+          If no test fails, the tests weren't good enough.
           <span class="claim" data-check="coding_guidelines.md" data-says="Never loosen a check to pass it">No check is ever loosened to pass.</span></p>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/change_gate.py" data-says="a self-test that misses the boundary lets a mutant live">“a self-test that misses the boundary lets a mutant live”</span>, and <span class="claim proof" data-check="scripts/change_gate.py" data-says="a missing tool fails the gate, naming the fix">“a missing tool fails the gate, naming the fix”</span>.</p></li>
       <li><h3>Memory that can be wrong out loud</h3>
@@ -132,16 +182,15 @@
           <span class="claim" data-check="CLAUDE.md" data-says="refuses a claim it cannot confirm now">It's written only if the check passes that day.</span>
           <span class="claim" data-check="scripts/memory_schedule.sh" data-says="OnCalendar=*-*-* 04:30:00">Every night at 04:30 each fact is checked again,</span>
           <span class="claim" data-check="scripts/memory_check.sh" data-says="A fact its `verify:` contradicts is deleted">and one its check contradicts is deleted.</span>
-          <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it">A check that gets no answer deletes nothing.</span>
-          Every check has three answers, not two: holds, doesn't hold, and couldn't tell.</p>
+          <span class="claim" data-check="scripts/git_fact.sh" data-says="memory_check.sh reports it unchecked and never deletes on it">A check that gets no answer deletes nothing.</span></p>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/memory_check.sh" data-says="a contradicted fact is deleted">“a contradicted fact is deleted”</span>, and <span class="claim proof" data-check="scripts/memory_check.sh" data-says="a check that got no answer deletes nothing">“a check that got no answer deletes nothing”</span>.</p></li>
       <li><h3>Nothing noticed gets lost</h3>
         <p><span class="claim" data-check="scripts/journal.sh" data-says="The single writer for a project's session history">Every turn that changes something is journaled, by one writer.</span>
           What a session notices but can't finish becomes a note,
           <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">and every note is done, dropped or kept open on purpose.</span></p>
-        <p class="proven">Tested by <span class="claim proof" data-check="scripts/journal.sh" data-says="a placement with no reason is refused">“a placement with no reason is refused”</span>.</p></li>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/journal.sh" data-says="ten entries written at once all land">“ten entries written at once all land”</span>.</p></li>
       <li><h3>It keeps working while nobody watches</h3>
-        <p><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">When a session ends, what it noticed is placed without me.</span>
+        <p><span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">When a session ends, nobody needs to be there. Each note it left becomes a rule, a script, a fact or a ticket, or stays open.</span>
           <span class="claim" data-check="CLAUDE.md" data-says="It deletes a branch whose tip is in a merged PR">Once a day, a branch whose pull request merged is deleted.</span>
           <span class="claim" data-check="CLAUDE.md" data-says="Read what ran while nobody was here.">And the next session starts by reading what ran while nobody was here.</span></p>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/git_sweep.sh" data-says="squash-merged branch → delete">“squash-merged branch → delete”</span>, and <span class="claim proof" data-check="scripts/git_sweep.sh" data-says="open PR → keep">“open PR → keep”</span>.</p></li>
@@ -181,20 +230,21 @@
   </div>
 </section>
 
-<section aria-labelledby="h-try">
-  <h2 id="h-try">Try it</h2>
+<section aria-labelledby="h-fool">
+  <h2 id="h-fool">Try to fool it</h2>
   <div>
-    <p>A memory fact is one claim and a command that checks it. Here's one about this repo.
-      Change the words and run the check. Your browser does what <code>git_fact.sh</code> does: it reads the file and looks for the words.</p>
-    <div class="fact" id="fact">
-<pre><code>name: credo-removing
-claim: the credo says "<span id="echo">Removing is generous</span>"
-verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is generous</span>'</code></pre>
-      <label for="words">The words the credo should hold</label>
-      <input id="words" value="Removing is generous" autocomplete="off" spellcheck="false">
+    <p>Every mark on this page is a check your browser ran. Here's how to break one.
+      Pick a claim, change the words its file should hold, and check again. The claim, wherever it sits on the page, strikes itself out.</p>
+    <div class="fool">
+      <label for="pick">A claim on this page</label>
+      <select id="pick"></select>
+      <p class="file">Its file: <code id="pick-file"></code></p>
+      <label for="words">The words that file should hold</label>
+      <input id="words" autocomplete="off" spellcheck="false">
       <div class="buttons">
-        <button type="button" id="run">Run the check</button>
-        <button type="button" id="cut">Run it with the network cut</button>
+        <button type="button" id="run">Check it</button>
+        <button type="button" id="cut">Cut the network and check everything</button>
+        <button type="button" id="reset">Put it all back</button>
       </div>
       <p class="verdict" id="verdict" aria-live="polite"></p>
     </div>
@@ -208,7 +258,7 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
       <div><dt data-live="scripts">…</dt><dd>scripts</dd></div>
       <div><dt data-live="tested">…</dt><dd>of them passed their own self-test in GitHub's last run</dd></div>
       <div><dt data-live="cases">…</dt><dd>test cases in those self-tests</dd></div>
-      <div><dt data-live="skills">…</dt><dd>skills</dd></div>
+      <div><dt data-live="skills">…</dt><dd>skills, named routines I can call, like <code>/audit</code></dd></div>
       <div><dt data-live="hooks">…</dt><dd>hooks, at session start and end, around a blocked call, and at the end of each turn</dd></div>
     </dl>
     <p class="note" id="live-note">Counted just now by your browser, from <a href="https://github.com/iguigova/dotclaude">the public repo</a> this page was published with: its files, its <code>settings.json</code>, and what the self-tests printed.</p>
@@ -220,7 +270,7 @@ verify: git_fact.sh dotclaude main credo.md '<span id="echo2">Removing is genero
   <div>
     <ul>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The nightly timer only runs while I'm logged in, so a missed night runs at my next login, not at 04:30.</span></li>
-      <li>A claim is checked on its words alone. They show the file says it, not that the code does it: the self-tests check that, and a change can't land while a mutant on a line it touched gets past them. Each tenet above names the self-test cases that prove it.</li>
+      <li>A claim is checked on its words alone. That shows the file says it, not that the code does it. The self-tests check the code. Each tenet above names the self-test cases that prove it.</li>
       <li>A <span class="mark">✓ tested</span> mark shows the case is in the script and that script's self-test passed in GitHub's last run. The run prints a count per script, not each case, so it doesn't show this one case ran.</li>
       <li>No hook runs the audit. It runs because the instructions say so, which makes it the one tenet here a long turn can forget.</li>
       <li>Mutation only runs on the lines a change touches, so code written before the gate has never been mutated.</li>
@@ -320,12 +370,17 @@ const mark = (claim, v) => {
     box.hidden = !box.hidden;
     button.setAttribute('aria-expanded', String(!box.hidden));
   });
-  claim.after(' ', button, box);
+  if (claim.shown) claim.shown.forEach(n => n.remove());
+  claim.shown = [button, box];
+  claim.after(button, box);
+  button.before(' ');
   return v.code;
 };
-const checkClaim = async (claim) => {
-  const v = verdict(await read(claim.dataset.check), claim.dataset.says);
-  return mark(claim, claim.classList.contains('proof') ? await proven(claim.dataset.check, v) : v);
+// cut — an aborted signal, so every read gets no answer, as with the network gone.
+const checkClaim = async (claim, cut) => {
+  const path = claim.dataset.check;
+  const v = verdict(await (cut ? fetchText(path, cut) : read(path)), claim.dataset.says);
+  return mark(claim, claim.classList.contains('proof') && v.code === 0 ? await proven(path, v) : v);
 };
 
 // A proof is a self-test case: its name is in the script, as a claim's words
@@ -352,9 +407,13 @@ const tally = (codes) => {
   if (count(codes, 75)) said.push(`${count(codes, 75)} got no answer`);
   return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${said.join(', ')}.`;
 };
-const checkAll = async () => {
-  const codes = await Promise.all([...document.querySelectorAll('.claim')].map(checkClaim));
-  document.getElementById('tally').textContent = tally(codes);
+const claims = () => [...document.querySelectorAll('.claim')];
+const retally = () => {
+  document.getElementById('tally').textContent = tally(claims().map(c => Number(c.dataset.code)));
+};
+const checkAll = async (cut) => {
+  await Promise.all(claims().map(c => checkClaim(c, cut)));
+  retally();
 };
 
 // The run published with this page, judged like a claim by the verdict line
@@ -391,7 +450,7 @@ const checkRun = async () => {
 
 // Numbers counted live. No answer shows as a dash, never as a guess.
 const show = (key, n) => {
-  document.querySelector(`[data-live="${key}"]`).textContent = n ?? '—';
+  document.querySelectorAll(`[data-live="${key}"]`).forEach(el => { el.textContent = n ?? '—'; });
 };
 const countCases = async () => {
   const text = await read(`${RUN}selftest.txt`);
@@ -413,42 +472,69 @@ const countHooks = async () => {
   show('hooks', hooks && Object.values(hooks).flat().flatMap(g => g.hooks).length);
 };
 
-// Try it: the fact's check, run on the words in the box.
-const fact = document.getElementById('fact');
+// Try to fool it: re-check one claim on other words, or every claim with the
+// network cut, and the marks up the page change in place.
+const pick = document.getElementById('pick');
 const words = document.getElementById('words');
 const out = document.getElementById('verdict');
-const SAID = {
-  0: 'The words are there, so the fact stays.',
-  1: "The file was read and the words aren't there. Tonight's run deletes this fact, file and index line, and the rest are easier to believe.",
-  75: 'The file never arrived, so nothing was learned. The fact stays: nothing is deleted on a maybe.',
-};
-const say = (v) => {
-  fact.dataset.code = v.code;
-  out.innerHTML = '';
-  const b = document.createElement('b');
-  b.textContent = `exit ${v.code}. `;
-  out.append(b, SAID[v.code]);
-};
-const echo = () => {
-  document.getElementById('echo').textContent = words.value;
-  document.getElementById('echo2').textContent = words.value;
-  delete fact.dataset.code;
+const SHORT = 60;
+const fillPick = () => claims().forEach((c, i) => {
+  c.dataset.orig = c.dataset.says;
+  const text = c.textContent.trim().replace(/\s+/g, ' ');
+  pick.append(new Option(text.length > SHORT ? `${text.slice(0, SHORT)}…` : text, i));
+});
+const picked = () => claims()[Number(pick.value)];
+const choose = () => {
+  document.getElementById('pick-file').textContent = picked().dataset.check;
+  words.value = picked().dataset.says;
   out.textContent = '';
 };
-const runFact = async (cut) => {
+const SAID = {
+  0: (path) => `exit 0. ${path} holds those words, so the claim stands.`,
+  1: (path) => `exit 1. ${path} was read and those words aren't in it, so the claim is struck out where it sits. A remembered fact that failed this way would be deleted tonight.`,
+  75: (path) => `exit 75. ${path} never arrived, so nothing was learned.`,
+};
+const showMe = (claim) => {
+  const a = anchor('#', 'Show me');
+  a.addEventListener('click', (e) => {
+    e.preventDefault();
+    claim.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    claim.classList.add('flash');
+    setTimeout(() => claim.classList.remove('flash'), 2000);
+  });
+  return a;
+};
+const fool = async () => {
   if (!words.value) {
-    delete fact.dataset.code;
     out.textContent = 'Type the words first. An empty search is found in every file, so it would prove nothing.';
     words.focus();
     return;
   }
-  const gone = new AbortController();
-  if (cut) gone.abort();
-  say(verdict(await fetchText('credo.md', gone.signal), words.value));
+  const claim = picked();
+  claim.dataset.says = words.value;
+  const code = await checkClaim(claim);
+  retally();
+  out.replaceChildren(SAID[code](claim.dataset.check), ' ', showMe(claim));
 };
-words.addEventListener('input', echo);
-document.getElementById('run').addEventListener('click', () => runFact(false));
-document.getElementById('cut').addEventListener('click', () => runFact(true));
+const cutAll = async () => {
+  const gone = new AbortController();
+  gone.abort();
+  await checkAll(gone.signal);
+  out.textContent = 'Nothing could be read, so every claim on the page now says "no answer". Not one says false: a check that never reached its file proves nothing, and deletes nothing.';
+};
+const putBack = async () => {
+  claims().forEach(c => { c.dataset.says = c.dataset.orig; });
+  await checkAll();
+  choose();
+  out.textContent = 'Every claim is back on its own words and checked again.';
+};
+fillPick();
+pick.value = claims().findIndex(c => c.dataset.says.startsWith('Removing is generous'));
+choose();
+pick.addEventListener('change', choose);
+document.getElementById('run').addEventListener('click', fool);
+document.getElementById('cut').addEventListener('click', cutAll);
+document.getElementById('reset').addEventListener('click', putBack);
 
 checkAll();
 checkRun();

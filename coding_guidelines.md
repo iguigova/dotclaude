@@ -107,6 +107,63 @@ small a try block should be — and never restate the rules below.
   reconciles. Inside a loop over items, guard each item, or one bad
   item abandons the rest half-done.
 
+## Security
+
+> *Source: OWASP Cheat Sheet Series — [Injection Prevention](https://cheatsheetseries.owasp.org/cheatsheets/Injection_Prevention_Cheat_Sheet.html), [Input Validation](https://cheatsheetseries.owasp.org/cheatsheets/Input_Validation_Cheat_Sheet.html), [Deserialization](https://cheatsheetseries.owasp.org/cheatsheets/Deserialization_Cheat_Sheet.html), [Authorization](https://cheatsheetseries.owasp.org/cheatsheets/Authorization_Cheat_Sheet.html), [Secrets Management](https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html), [Logging](https://cheatsheetseries.owasp.org/cheatsheets/Logging_Cheat_Sheet.html), [Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html), [Vulnerable Dependency Management](https://cheatsheetseries.owasp.org/cheatsheets/Vulnerable_Dependency_Management_Cheat_Sheet.html)*
+
+This section is the only place these rules live. Language guides add
+mechanics — which parser, which query API, which framework helper — and
+never restate the rules below.
+
+- **Input is data, never code.** A value from outside the process
+  reaches a query, a shell, a template or an interpreter only as a
+  parameter: a bound query placeholder, an argument list rather than a
+  command string, output escaped by default. Never build the code
+  string by concatenation, and never `eval` it.
+- **Validate against an allowlist.** Accept what is known good — a
+  type, a range, a pattern anchored at both ends, a list of permitted
+  values — and reject everything else. A list of bad inputs is never
+  complete.
+- **Untrusted formats are parsed by a hardened parser.** No native
+  object deserialization of untrusted bytes; XML with external
+  entities off; YAML through its safe loader.
+- **Authorization is checked on every action, on the server, and
+  denies by default.** A new endpoint, job or handler inherits no
+  permission, so a missing check is the defect.
+- **Secrets never sit in source, logs, URLs or output.** They are read
+  at run time from the environment or a secret store, and printed, if
+  at all, as a name or a length, never a prefix of the value.
+- **Use the platform's vetted crypto, never your own.** Passwords are
+  hashed with a password hash (Argon2id, scrypt, bcrypt), tokens come
+  from a cryptographic random source, and secrets are compared in
+  constant time.
+- **Dependencies are pinned and scanned.** A lockfile fixes every
+  version, and a known-vulnerable one is upgraded before the change
+  ships.
+
+## Performance
+
+> *Source: Knuth, "Structured Programming with go to Statements", Computing Surveys 6(4), 1974: "premature optimization is the root of all evil"*
+
+Performance ranks fourth (above). This section is the only place these
+rules live. Language guides add the profiler, the fast built-ins and
+the concurrency model, and never restate the rules below.
+
+- **Measure first, and show the measurement.** Profile to find the hot
+  path, change it, and measure again on the same input. An
+  optimization without a before-and-after number is a guess, and is
+  reverted.
+- **The algorithm before the micro-optimization.** The first fix is
+  the complexity of the hot path: a set or a map for membership, one
+  pass instead of nested scans, a sort done once.
+- **I/O dominates.** Batch round trips, load related records in one
+  query rather than one per item, and stream data too large to hold
+  rather than reading it whole.
+- **A cache has a bound and an invalidation rule.** One without either
+  is a memory leak or a source of stale answers.
+- **Match concurrency to the bottleneck.** Waiting on I/O wants async
+  or threads; a busy CPU wants more processes or cores.
+
 ## Comments
 
 Every comment is normative, concise and useful — or absent.

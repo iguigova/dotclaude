@@ -3,9 +3,9 @@
 My Claude Code setup: the rules it works by, the skills it runs,
 and the tested scripts behind them. It mirrors `~/.claude`.
 
-[iguigova.github.io/dotclaude](https://iguigova.github.io/dotclaude/) shows
-how it keeps itself honest, and checks every claim it makes against the files
-here while you read it.
+[iguigova.github.io/dotclaude](https://iguigova.github.io/dotclaude/) walks
+through a day with it next to a plain setup, shows what it did in real use,
+and checks every claim it makes against the files here while you read it.
 
 | Path | What it holds |
 |---|---|
@@ -64,7 +64,9 @@ and `uv`.
 
 `~/.claude` is a local-only repo, and everything here, this README and the
 page included, is written there. `scripts/dotclaude_export.sh` copies it, as
-committed, into this repo. It refuses the copy on any denylisted name, token
+committed, into this repo, with what `scripts/usage_snapshot.py` counted in
+my session transcripts beside it: counts only, since the transcripts stay on
+my machine. It refuses the copy on any denylisted name, token
 shape, real email or binary file, runs the copy's selftest, and commits.
 When any session ends, `scripts/session_end_export.sh` runs that export for
 a new `~/.claude` commit and pushes the result; a refusal opens a note.

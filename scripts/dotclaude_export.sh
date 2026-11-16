@@ -12,7 +12,9 @@
 # `git archive`, so another session's uncommitted work is never exported. It
 # holds what only the public repo has too: index.html, the page GitHub Pages
 # serves, README.md, LICENSE, and .github, the workflow that runs the
-# self-tests on every push and publishes the page with what they printed. The
+# self-tests on every push and publishes the page with what they printed.
+# Beside the copy it writes usage.json, what usage_snapshot.py counted in the
+# session transcripts, which never leave this machine; the page reads it. The
 # target must be clean, so a refusal can restore it exactly. It keeps only its
 # .git and .claude, the clone's own session history, which the clone's
 # .git/info/exclude ignores, so it is never read and never published; every
@@ -40,13 +42,16 @@
 #
 # The commit message names the source commit. This script never pushes.
 #
-# DOTCLAUDE_SRC overrides the source repo (default ~/.claude).
+# DOTCLAUDE_SRC overrides the source repo (default ~/.claude), and
+# DOTCLAUDE_PROJECTS the transcripts usage.json is counted from (default
+# ~/.claude/projects).
 # Exit 0 committed, nothing to commit or a clean scan, 1 refused or a hit, 2 usage.
 set -uo pipefail
 
 ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts
        index.html README.md LICENSE .github)
 KEEP=(.git .claude)
+HERE=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
 TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
@@ -137,6 +142,8 @@ export_to() {  # <src> <target> <message>
     rm -rf -- "$f"
   done
   git -C "$src" archive HEAD -- "${ALLOW[@]}" | tar -x -C "$dst" || die "git archive of $src failed"
+  "$HERE/usage_snapshot.py" --projects "${DOTCLAUDE_PROJECTS:-$HOME/.claude/projects}" --repo "$src" \
+    > "$dst/usage.json" || refuse "$dst" "usage_snapshot.py could not count the transcripts"
 
   scan "$dst" "$src/dotclaude_denylist.txt" >&2 || refuse "$dst" "the copy holds the hits above"
   [[ -x "$dst/scripts/selftest.sh" ]] || refuse "$dst" "the copy has no executable scripts/selftest.sh"
@@ -176,7 +183,9 @@ self_test() {
   mkdir "$fx/dst/.claude"; echo "history" > "$fx/dst/.claude/session_history.md"
   echo ".claude/" >> "$fx/dst/.git/info/exclude"
 
-  run() { (export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
+  mkdir -p "$fx/transcripts/p"
+  printf '%s\n' '{"type":"user","timestamp":"2026-10-01T08:00:00Z","message":{"content":"hi"}}' > "$fx/transcripts/p/s.jsonl"
+  run() { (export DOTCLAUDE_PROJECTS="$fx/transcripts" GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@example.com GIT_COMMITTER_NAME=t GIT_COMMITTER_EMAIL=t@example.com
            export_to "$fx/src" "$fx/dst" "$1") 2>&1; }
 
   out=$(run "first export") && tap_ok "a clean export succeeds" || tap_not_ok "a clean export succeeds" "$out"
@@ -189,7 +198,10 @@ self_test() {
     && tap_ok "the clone's ignored .claude is kept and not committed" || tap_not_ok "the clone's ignored .claude is kept and not committed" ".claude removed or committed"
   [[ -z "$(git -C "$fx/dst" ls-files scripts/__pycache__)" && -z "$(git -C "$fx/dst" status --porcelain)" ]] \
     && tap_ok "what the selftest leaves behind is neither committed nor left" || tap_not_ok "what the selftest leaves behind is neither committed nor left" "selftest leftovers reached the target"
+  [[ "$(jq -c '[.since, .sessions, .commits]' "$fx/dst/usage.json")" == '["2026-10-01",1,1]' ]] \
+    && tap_ok "usage.json is counted from the transcripts and the source's commits" || tap_not_ok "usage.json is counted from the transcripts and the source's commits" "$(cat "$fx/dst/usage.json")"
   grep -q "Source commit: $(git -C "$fx/src" rev-parse --short HEAD)" <<<"$(g "$fx/dst" log -1 --format=%B)" && tap_ok "the commit names the source commit" || tap_not_ok "the commit names the source commit" "no source commit in message"
+  out=$(run "again"); [[ "$out" == nothing\ to\ commit* ]] && tap_ok "a second export with no change commits nothing" || tap_not_ok "a second export with no change commits nothing" "rerun: $out"
 
   out=$(scan_head "$fx/src") && tap_ok "--scan passes a clean HEAD" || tap_not_ok "--scan passes a clean HEAD" "$out"
   echo "works at Secret-Co" > "$fx/src/scripts/s.sh"
@@ -202,7 +214,6 @@ self_test() {
   "$self" --scan "$fx/src" >/dev/null 2>&1; tap_is "--scan <source> exits 0 on a clean HEAD" "$?" 0
   "$self" --scan "$fx/src" extra >/dev/null 2>&1; tap_is "--scan with two arguments is a usage error" "$?" 2
 
-  out=$(run "again"); [[ "$out" == nothing\ to\ commit* ]] && tap_ok "a second export with no change commits nothing" || tap_not_ok "a second export with no change commits nothing" "rerun: $out"
 
   head=$(git -C "$fx/dst" rev-parse HEAD)
   expect_refusal() {  # <file> <content> <reason> <case, as it prints>

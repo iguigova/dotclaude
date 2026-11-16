@@ -836,7 +836,7 @@ if x == False:      # use 'not x'
 
 > *Source: [Python Performance Tips](https://wiki.python.org/moin/PythonSpeed/PerformanceTips)*
 
-### Profile Before Optimizing
+### Profiling
 
 ```bash
 python -m cProfile -s cumulative my_script.py

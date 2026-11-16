@@ -1,0 +1,10 @@
+{
+  "since": "2026-02-16",
+  "sessions": 1063,
+  "sent_back": 19,
+  "held": 4,
+  "gate_fail": 23,
+  "gate_pass": 10,
+  "audits": 131,
+  "commits": 333
+}

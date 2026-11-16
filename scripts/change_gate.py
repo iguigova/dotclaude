@@ -100,7 +100,10 @@ sys.path.insert(0, str(HERE))
 from tap import Tap  # noqa: E402
 
 LIZARD = ["uvx", "lizard==1.26.0"]
-STRYKER = ["npx", "-y", "-p", "@stryker-mutator/core@10.1.1", "stryker", "run"]
+# Stryker's TypeScript support imports typescript from beside Stryker itself, and
+# npx skips installing a package the current folder already has, so npx runs
+# from outside the repo with both, and its command changes into the repo.
+STRYKER = ["npx", "-y", "-p", "@stryker-mutator/core@10.1.1", "-p", "typescript@5.5.4", "-c"]
 GO_BIN = Path.home() / "go/bin"
 MAX_CCN = 10
 EQUIVALENT = re.compile(r"mutation: equivalent\s*[—-]+\s*\S")
@@ -718,6 +721,15 @@ def ranges(change: Change) -> list[str]:
     return out
 
 
+def symlinked_dirs(repo: Path) -> list[str]:
+    """Each link to a folder under the repo, which Stryker's sandbox copy cannot copy."""
+    found = []
+    for root, dirs, _ in os.walk(repo):
+        dirs[:] = [d for d in dirs if d not in COPY_SKIP]
+        found += [str((Path(root) / d).relative_to(repo)) for d in dirs if (Path(root) / d).is_symlink()]
+    return sorted(found)
+
+
 def mutate_js(repo: Path, files: list[Change], command: list[str], verdict: Verdict) -> None:
     if missing("npx", verdict, "StrykerJS"):
         return None
@@ -726,10 +738,12 @@ def mutate_js(repo: Path, files: list[Change], command: list[str], verdict: Verd
         config.write_text(json.dumps({
             "testRunner": "command", "commandRunner": {"command": shlex.join(command)},
             "reporters": ["json"], "jsonReporter": {"fileName": str(out)},
-            "tempDirName": str(Path(tmp) / "sandbox"), "cleanTempDir": "always", "ignorePatterns": sorted(COPY_SKIP),
+            "tempDirName": str(Path(tmp) / "sandbox"), "cleanTempDir": "always",
+            "ignorePatterns": sorted(COPY_SKIP) + symlinked_dirs(repo),
             "mutate": [r for c in files for r in ranges(c)],
         }))
-        run = subprocess.run([*STRYKER, str(config)], cwd=repo, capture_output=True, text=True)
+        inside = f"cd {shlex.quote(str(repo))} && stryker run {shlex.quote(str(config))}"
+        run = subprocess.run([*STRYKER, inside], cwd=tmp, capture_output=True, text=True)
         if not out.exists():
             return verdict.fail(f"StrykerJS exited {run.returncode} with no report", *run.stdout.splitlines()[-8:])
         report = json.loads(out.read_text())
@@ -1012,12 +1026,15 @@ def self_test_reports(t: Tap) -> None:
 
 
 FAKE_NPX = """#!/usr/bin/env python3
-import json, os, pathlib, shutil, sys
+import json, os, pathlib, shlex, shutil, sys
 if os.environ.get("FAKE_BROKEN"):
     print("stryker broke")
     sys.exit(3)
-config = json.loads(pathlib.Path(sys.argv[-1]).read_text())
-shutil.copy(sys.argv[-1], pathlib.Path(__file__).with_name("stryker.json"))
+here = pathlib.Path(__file__)
+here.with_name("npx.json").write_text(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}))
+path = shlex.split(sys.argv[-1])[-1]
+config = json.loads(pathlib.Path(path).read_text())
+shutil.copy(path, here.with_name("stryker.json"))
 mutants = [{"status": "Survived", "mutatorName": "EqualityOperator", "replacement": "a >= b", "location": {"start": {"line": 1}}},
            {"status": "Killed", "mutatorName": "BlockStatement", "replacement": "{}", "location": {"start": {"line": 1}}}]
 pathlib.Path(config["jsonReporter"]["fileName"]).write_text(json.dumps({"files": {"a.js": {"mutants": mutants}}}))
@@ -1095,6 +1112,19 @@ def self_test_js(t: Tap, repo: Path, fakes: Path) -> None:
             "Stryker mutates only the changed lines, testing with npm test by default", str(config))
     t.check(".venv" in config["ignorePatterns"] and ".git" in config["ignorePatterns"],
             "Stryker leaves out of its sandbox the folders the gate's own copy leaves out", str(config))
+    npx = json.loads((fakes / "npx.json").read_text())
+    t.check("typescript@5.5.4" in npx["argv"] and not Path(npx["cwd"]).is_relative_to(repo),
+            "npx installs typescript beside Stryker, run from outside the repo", str(npx))
+    t.check(npx["argv"][-1].startswith(f"cd {shlex.quote(str(repo))} && stryker run "),
+            "Stryker itself runs in the repo", str(npx))
+    (repo / "logs").symlink_to(fakes, target_is_directory=True)
+    (repo / "node_modules").mkdir(exist_ok=True)
+    (repo / "node_modules" / "linked").symlink_to(fakes, target_is_directory=True)
+    self_test_run(repo, "--check", "mutation")
+    config = json.loads((fakes / "stryker.json").read_text())
+    t.check("logs" in config["ignorePatterns"] and "node_modules/linked" not in config["ignorePatterns"],
+            "a linked folder is left out of Stryker's sandbox, one under a skipped folder is not looked for", str(config))
+    (repo / "logs").unlink()
     self_test_run(repo, "--check", "mutation", "--test", "js=yarn test --ci")
     config = json.loads((fakes / "stryker.json").read_text())
     t.check(config["commandRunner"]["command"] == "yarn test --ci", "Stryker tests with the --test js command", str(config))

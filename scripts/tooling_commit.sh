@@ -20,7 +20,9 @@
 # resolved through symlinks first, so a path reached through a link is committed
 # in the repo that holds the file. A relative path resolves against the cwd, and
 # one that is neither on disk nor tracked in its repo is refused, since it names
-# a file that repo never had. The gate runs before anything is staged, and
+# a file that repo never had. The gate runs before anything is staged, on a
+# scratch clone of HEAD holding only the named paths as they are now, so
+# another session's uncommitted work neither reddens it nor passes through it;
 # a red gate commits nothing. A commit of the session history alone is not
 # gated: the gate checks code, and no check reads the history, so it could
 # neither pass nor fail on it — gating it would only hold the audit trail back
@@ -130,14 +132,30 @@ gated() {
   return 1
 }
 
-run_gates() {  # TOP
-  local -a gates; local g out
+# gate_tree SCRATCH TOP REL… — clone TOP's HEAD into SCRATCH/tree and lay the
+# named paths over it as they are now, a deleted one deleted.
+gate_tree() {
+  local tree="$1/tree" top="$2" p; shift 2
+  git clone -q --shared "$top" "$tree" 2>/dev/null || die "could not clone $top to gate it"
+  for p in "$@"; do
+    rm -rf -- "${tree:?}/$p"
+    [[ -e "$top/$p" || -L "$top/$p" ]] || continue
+    mkdir -p "$(dirname "$tree/$p")"; cp -a -- "$top/$p" "$tree/$p"
+  done
+}
+
+run_gates() {  # TOP REL…
+  local -a gates; local g out scratch st=0
   mapfile -t gates < <(gates_of "$1")
   [[ ${#gates[@]} -gt 0 ]] || die "$1 carries no selftest, so nothing gates the commit"
+  scratch=$(mktemp -d)
+  gate_tree "$scratch" "$@"
   for g in "${gates[@]}"; do
-    out=$(cd "$1" && "$g" 2>&1) \
-      || { printf '%s\n' "$out" | tail -20 >&2; die "gate $g is red; nothing committed"; }
+    g="$scratch/tree/${g#"$1"/}"
+    out=$(cd "$scratch/tree" && "$g" 2>&1) || { st=1; break; }
   done
+  rm -rf "$scratch"
+  [[ "$st" -eq 0 ]] || { printf '%s\n' "$out" | tail -20 >&2; die "gate ${g#"$scratch/tree/"} is red; nothing committed"; }
 }
 
 run_trigger_cases() {  # ABS…
@@ -173,27 +191,35 @@ commit() {  # TOP MESSAGE REL…
   git -C "$top" rev-parse --short HEAD
 }
 
-main() {
-  local msg=""
+# parse_args ARG… — set MSG and PATHS from `-m <message> -- <path>…`.
+parse_args() {
+  MSG=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -m) [[ $# -ge 2 ]] || usage; msg="$2"; shift 2 ;;
+      -m) MSG="${2-}"; shift 2 || usage ;;
       --) shift; break ;;
       *)  usage ;;
     esac
   done
-  [[ -n "$msg" && $# -gt 0 ]] || usage
+  [[ -n "$MSG" && $# -gt 0 ]] || usage
+  PATHS=("$@")
+}
+
+main() {
+  local MSG; local -a PATHS
+  parse_args "$@"
+  local msg=$MSG
   subject_ok "$msg"
 
   local -a abs=() rel=(); local p top
-  for p in "$@"; do abs+=("$(realpath -m -- "$p")"); done
+  for p in "${PATHS[@]}"; do abs+=("$(realpath -m -- "$p")"); done
   top=$(one_repo "${abs[@]}") || exit 1
   for p in "${abs[@]}"; do rel+=("${p#"$top"/}"); done
 
   permitted "$top"
   all_known "$top" "${rel[@]}"
   has_changes "$top" "${rel[@]}"
-  if gated "${rel[@]}"; then run_gates "$top"; run_trigger_cases "${abs[@]}"
+  if gated "${rel[@]}"; then run_gates "$top" "${rel[@]}"; run_trigger_cases "${abs[@]}"
   else echo "tooling_commit.sh: the session history alone; no gate reads it" >&2; fi
   commit "$top" "$msg" "${rel[@]}"
   if gated "${rel[@]}"; then warn_export "$top"; fi
@@ -221,6 +247,8 @@ self_test() {
   files_of_head() { git -C "$1" show --no-renames --name-only --format= HEAD | sed '/^$/d' | sort; }
 
   local r="$tmp/tools"; mkrepo "$r" .claude/scripts/selftest.sh
+  "$SELF" -m >/dev/null 2>&1; tap_is "-m with no message is a usage error" "$?" 2
+  "$SELF" -m "chore: x" -- >/dev/null 2>&1; tap_is "a message with no path is a usage error" "$?" 2
 
   echo a > "$r/a.txt"; echo theirs > "$r/theirs.txt"
   echo staged > "$r/staged.txt"; git -C "$r" add staged.txt
@@ -245,10 +273,19 @@ moved.txt"
 
   local h; h=$(head_of "$r")
   echo b > "$r/b.txt"; touch "$r/.claude/scripts/RED"
-  out=$(tc -m "chore: red" -- "$r/b.txt")
+  out=$(tc -m "chore: red" -- "$r/b.txt" "$r/.claude/scripts/RED")
   tap_is "a red gate commits nothing" "$(head_of "$r")" "$h"
   tap_is "and says the gate was red" "$(grep -c 'is red; nothing committed' <<<"$out")" "1"
+  tap_is "and names the gate as the repo holds it" "$(grep -c 'gate .claude/scripts/selftest.sh is red' <<<"$out")" "1"
+  out=$(tc -m "chore: b" -- "$r/b.txt")
+  tap_is "another session's uncommitted file does not redden the gate" "$(files_of_head "$r")" "b.txt"
   rm "$r/.claude/scripts/RED"
+  h=$(head_of "$r"); echo gone > "$r/.claude/scripts/RED"; git -C "$r" add .claude/scripts/RED
+  git -C "$r" commit -qm "red at HEAD"; rm "$r/.claude/scripts/RED"; echo e > "$r/e.txt"
+  tc -m "chore: un-red" -- "$r/.claude/scripts/RED" "$r/e.txt" >/dev/null
+  tap_is "a named deletion is gated deleted" "$(files_of_head "$r")" ".claude/scripts/RED
+e.txt"
+  h=$(head_of "$r")
 
   mkdir -p "$r/.claude"; echo "## entry" > "$r/.claude/session_history.md"
   touch "$r/.claude/scripts/RED"
@@ -258,7 +295,7 @@ moved.txt"
   tap_is "and says no gate reads it" "$(grep -c 'no gate reads it' <<<"$out")" "1"
   echo "## more" >> "$r/.claude/session_history.md"; echo c > "$r/code.sh"
   h=$(head_of "$r")
-  tc -m "chore: mixed" -- "$r/.claude/session_history.md" "$r/code.sh" >/dev/null
+  tc -m "chore: mixed" -- "$r/.claude/session_history.md" "$r/code.sh" "$r/.claude/scripts/RED" >/dev/null
   tap_is "the history beside any other path is gated" "$(head_of "$r")" "$h"
   git -C "$r" checkout -q -- .claude/session_history.md; rm "$r/code.sh" "$r/.claude/scripts/RED"
 

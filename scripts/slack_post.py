@@ -44,7 +44,9 @@ limits of 100 rows, 20 cells a row and 10,000 characters of cells across
 the message
 (https://docs.slack.dev/reference/block-kit/blocks/table-block), and a
 line that starts with a typed ``•`` or ``–``, which would post as a
-character.
+character. So is a bare ``@name`` outside code: Slack posts it as text and
+tags nobody. A tag is ``<@U…>``, the form ``slack_thread.py`` lists for each
+person in its People block; a literal ``@`` goes in backticks.
 
 It writes with the project's ``.secrets/slack-token-write`` (chat:write
 only) and reads back with ``.secrets/slack-token``;
@@ -74,6 +76,9 @@ TYPED_BULLET = re.compile(r'(?m)^\s*[•–]\s')
 TABLE_ROW = re.compile(r'^\s*\|.*\|\s*$')
 TABLE_RULE = re.compile(r'^:?-+:?$')
 TABLE_ROWS, TABLE_CELLS, TABLE_CHARS = 100, 20, 10000
+# An @ that starts a word: not an email's, a URL path's, or a <@U…> tag's.
+BARE_MENTION = re.compile(r'(?<![\w<@/.])@[A-Za-z](?:[\w.-]*\w)?')
+INLINE_CODE = re.compile(r'`[^`\n]*`')
 
 
 class SlackError(Exception):
@@ -101,11 +106,28 @@ def text_of(path):
     if TYPED_BULLET.search(text):
         raise SlackError(f'{path} has a line starting with a typed bullet; '
                          f'write a list item as "- " so it renders as one')
+    bare = bare_mentions(text)
+    if bare:
+        raise SlackError(f'{path} has {", ".join(bare)}, which Slack posts as '
+                         f'text and tags nobody; write <@U…> from '
+                         f'slack_thread.py\'s People block, or put a literal '
+                         f'@ in backticks')
     over = over_limits(table_rows(text))
     if over:
         raise SlackError(f'{path} has {"; ".join(over)}; Slack refuses '
                          f'such a table, so split it across messages')
     return text
+
+
+def bare_mentions(markdown):
+    """Each bare @name outside fenced and inline code, in order."""
+    found, fenced = [], False
+    for line in markdown.splitlines():
+        if FENCE.match(line):
+            fenced = not fenced
+        elif not fenced:
+            found += BARE_MENTION.findall(INLINE_CODE.sub('', line))
+    return found
 
 
 def over_limits(rows):
@@ -534,6 +556,12 @@ def self_test(tmp):
     check('text over the block limit is refused', True, refused(long_))
     check('a typed bullet is refused', True, refused(typed))
     check('the sample is accepted', False, refused_text(tmp, SAMPLE))
+    check('a bare @name is refused', True, refused_text(tmp, '@amanda hi'))
+    check('a bare @name mid-sentence is found', ['@amanda'],
+          bare_mentions('Thanks, @amanda.'))
+    check('a tag, an email, a URL and code are no bare @name', [],
+          bare_mentions('<@U08SRDTANMT> a@example.com https://x.io/@u `@x`\n'
+                        '```\n@y\n```'))
     check('a missing image is refused', True, image_refused(tmp, None))
     check('an empty image is refused', True, image_refused(tmp, b''))
     check('an image with bytes is read', False,

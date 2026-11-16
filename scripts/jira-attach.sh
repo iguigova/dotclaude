@@ -6,6 +6,8 @@
 #
 # Usage:
 #   jira-attach.sh [--dry-run] <issue-key> <file>...
+#   jira-attach.sh [--dry-run] --list <issue-key>      # "<id> <filename>" per attachment
+#   jira-attach.sh [--dry-run] --delete <attachment-id>...
 #   jira-attach.sh --self-test
 #
 # Example:
@@ -35,9 +37,53 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "$self" --dry-run XYZ-0 "$tmp/a.png" "$tmp/missing.png"
   tap_fails "a malformed issue key is refused" \
     "$self" --dry-run not-a-key "$tmp/a.png"
+  tap_is "a listing reads the issue's attachment field" \
+    "$("$self" --dry-run --list XYZ-0)" 'GET /rest/api/2/issue/XYZ-0?fields=attachment'
+  tap_is "each id is DELETEd on the v2 attachment endpoint" \
+    "$("$self" --dry-run --delete 11 12)" 'DELETE /rest/api/2/attachment/11'$'\n''DELETE /rest/api/2/attachment/12'
+  tap_fails "a non-numeric attachment id is refused" \
+    "$self" --dry-run --delete 11 abc
+  tap_is "a single attachment id is accepted" \
+    "$("$self" --dry-run --delete 11)" 'DELETE /rest/api/2/attachment/11'
+  tap_fails "--delete with no id is refused" "$self" --dry-run --delete
+  # The fake's $FAKE_CODE expands when the fake runs, not here.
+  # shellcheck disable=SC2016
+  printf '%s\n' 'ATLASSIAN_SITE=https://jira.invalid' \
+    'atlassian_curl() { printf %s "$FAKE_CODE"; }' > "$tmp/auth.sh"
+  tap_is "a 204 reports the attachment deleted" \
+    "$(JIRA_AUTH_LIB="$tmp/auth.sh" FAKE_CODE=204 "$self" --delete 11)" 'deleted 11'
+  tap_fails "any other status fails the delete" \
+    env JIRA_AUTH_LIB="$tmp/auth.sh" FAKE_CODE=404 "$self" --delete 11
   tap_end
 fi
 [[ "${1:-}" == "--dry-run" ]] && { DRY_RUN=1; shift; }
+
+HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
+# JIRA_AUTH_LIB stands in for the auth library in the self-test only.
+AUTH_LIB="${JIRA_AUTH_LIB:-${HELPER_DIR}/atlassian-auth.sh}"
+case "${1:-}" in
+  --list)
+    [[ "${2:-}" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]] || { echo "Not an issue key: ${2:-}" >&2; exit 1; }
+    path="/rest/api/2/issue/$2?fields=attachment"
+    [[ "$DRY_RUN" -eq 1 ]] && { echo "GET $path"; exit 0; }
+    # shellcheck source=atlassian-auth.sh
+    source "$AUTH_LIB"
+    atlassian_curl -sf "${ATLASSIAN_SITE}${path}" | jq -r '.fields.attachment[] | "\(.id) \(.filename)"'
+    exit 0 ;;
+  --delete)
+    shift
+    [[ $# -ge 1 ]] || { echo "Usage: $0 --delete <attachment-id>..." >&2; exit 1; }
+    for id in "$@"; do [[ "$id" =~ ^[0-9]+$ ]] || { echo "Not an attachment id: $id; nothing deleted" >&2; exit 1; }; done
+    if [[ "$DRY_RUN" -eq 1 ]]; then printf 'DELETE /rest/api/2/attachment/%s\n' "$@"; exit 0; fi
+    # shellcheck source=atlassian-auth.sh
+    source "$AUTH_LIB"
+    for id in "$@"; do
+      code=$(atlassian_curl -s -o /dev/null -w "%{http_code}" -X DELETE "${ATLASSIAN_SITE}/rest/api/2/attachment/${id}")
+      [[ "$code" == "204" ]] || { echo "HTTP $code deleting $id" >&2; exit 1; }
+      echo "deleted $id"
+    done
+    exit 0 ;;
+esac
 
 if [[ $# -lt 2 ]]; then
   echo "Usage: $0 [--dry-run] <issue-key> <file>..." >&2
@@ -57,9 +103,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
-# shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$AUTH_LIB"
 
 FORM=()
 for f in "$@"; do FORM+=(-F "file=@${f}"); done

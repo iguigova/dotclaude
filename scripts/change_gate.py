@@ -4,8 +4,13 @@ on the code a change touched.
 
   complexity  no function in a changed file has a cyclomatic complexity above
               10, as lizard counts it: Python, JavaScript, TypeScript, Go, Ruby,
-              C# and Dart. Shell, Clojure and Haskell have no counter and are
-              not measured.
+              C# and Dart. Shell is counted here, since lizard reads none: 1,
+              plus one for each if, elif, while, until, for, case arm ended
+              by ;; and each && or ||, in a function's own lines, its nested
+              functions and its quoted text left out. A self-test's lines are
+              not counted, since `cond && tap_ok || tap_not_ok` is an
+              assertion, as t.check is in Python. Clojure and Haskell have no
+              counter and are not measured.
   mutation    every mutant on a changed line is killed by the tests, unless
               that line's comment carries `mutation: equivalent — <reason>`,
               the reason saying why no test can tell the mutant apart.
@@ -216,20 +221,69 @@ def over_limit(csv_text: str) -> list[str]:
     return [f"{r[6]}:{r[9]} {r[7]} (CCN {r[1]})" for r in rows if int(r[1]) > MAX_CCN]
 
 
-def check_complexity(repo: Path, files: list[Change], verdict: Verdict) -> None:
-    print(f"== complexity: no function above CCN {MAX_CCN}")
-    measured = [c.path for c in files if c.language in MEASURED]
-    if not measured:
-        return verdict.ok("no changed file in a measured language")
+SHELL_FUNC = re.compile(r"^(\s*)(?:function\s+([\w:.-]+)\s*(?:\(\s*\))?|([\w:.-]+)\s*\(\s*\))\s*\{")
+SHELL_BRANCH = re.compile(r"\b(?:if|elif|while|until|for)\b|&&|\|\||;;&?|;&")
+
+
+def shell_functions(lines: list[str]) -> list[tuple[str, int, int]]:
+    """Each function as (name, first line, last line), 1-based."""
+    found = []
+    for i, line in enumerate(lines):
+        if m := SHELL_FUNC.match(line):
+            found.append((m[2] or m[3], i + 1, block_end(lines, i, m[1], "shell")))
+    return found
+
+
+def shell_ccn(lines: list[str], span: tuple[int, int], inner: list[tuple[int, int]]) -> int:
+    own = set(range(span[0], span[1] + 1))
+    for first, last in inner:
+        own -= set(range(first, last + 1))
+    return 1 + sum(len(SHELL_BRANCH.findall(code_part(lines[n - 1], "shell"))) for n in own)
+
+
+def shell_over_limit(path: str, text: str) -> list[str]:
+    """The shell functions above the cap, as file:line name (CCN n); a self-test is skipped."""
+    lines = text.splitlines()
+    tests = test_region(lines, "shell")
+    funcs = shell_functions(lines)
+    over = []
+    for name, first, last in funcs:
+        if first in tests or name.endswith("self_test"):
+            continue
+        inner = [(f, e) for _, f, e in funcs if f in range(first + 1, last)]
+        ccn = shell_ccn(lines, (first, last), inner)
+        if ccn > MAX_CCN:
+            over.append(f"{path}:{first} {name} (CCN {ccn})")
+    return over
+
+
+def lizard_over_limit(repo: Path, paths: list[str], verdict: Verdict) -> list[str] | None:
+    """lizard's functions above the cap, or None once it has failed the verdict."""
+    if not paths:
+        return []
     if missing("uvx", verdict, "the complexity check"):
         return None
-    run = subprocess.run([*LIZARD, "--csv", *measured], cwd=repo, capture_output=True, text=True)
+    run = subprocess.run([*LIZARD, "--csv", *paths], cwd=repo, capture_output=True, text=True)
     if run.returncode != 0:
-        return verdict.fail(f"lizard exited {run.returncode}", *run.stderr.splitlines()[-5:])
-    over = over_limit(run.stdout)
+        verdict.fail(f"lizard exited {run.returncode}", *run.stderr.splitlines()[-5:])
+        return None
+    return over_limit(run.stdout)
+
+
+def check_complexity(repo: Path, files: list[Change], verdict: Verdict) -> None:
+    print(f"== complexity: no function above CCN {MAX_CCN}")
+    shell = [c.path for c in files if c.language == "shell"]
+    measured = [c.path for c in files if c.language in MEASURED]
+    if not shell and not measured:
+        return verdict.ok("no changed file in a measured language")
+    over = lizard_over_limit(repo, measured, verdict)
+    if over is None:
+        return None
+    for path in shell:
+        over += shell_over_limit(path, (repo / path).read_text(errors="replace"))
     if over:
         return verdict.fail(f"{len(over)} functions above CCN {MAX_CCN}", *over)
-    return verdict.ok(f"{len(measured)} files, every function at CCN {MAX_CCN} or under")
+    return verdict.ok(f"{len(shell) + len(measured)} files, every function at CCN {MAX_CCN} or under")
 
 
 # ---------------------------------------------------------------- the mutator
@@ -1081,13 +1135,45 @@ def self_test_complexity(t: Tap, repo: Path) -> None:
     t.check(status == 1 and "a.py:1 f (CCN 12)" in out, "a function above CCN 10 fails the gate", out)
     with self_test_env(FAKE_UVX_CSV=over.replace(",12,", ",10,")):
         status, out = self_test_run(repo, "--check", "complexity")
-    t.check(status == 0 and "1 files, every function" in out, "a function at CCN 10 passes, and shell is not measured", out)
+    t.check(status == 0 and "2 files, every function" in out, "a function at CCN 10 passes, and shell is measured beside it", out)
     with self_test_env(FAKE_UVX_FAIL="1"):
         status, out = self_test_run(repo, "--check", "complexity")
     t.check(status == 1 and "lizard exited 1" in out, "a lizard that fails fails the gate", out)
-    self_test_files(repo, {"s.sh": "echo\n"})
+    self_test_files(repo, {"s.clj": "(def x 1)\n"})
     status, out = self_test_run(repo, "--check", "complexity")
     t.check(status == 0 and "no changed file in a measured language" in out, "a change in no measured language passes", out)
+    self_test_files(repo, {"s.sh": SHELL_CCN.format(branches=" && ".join(["a"] * 11))})
+    status, out = self_test_run(repo, "--check", "complexity")
+    t.check(status == 1 and "s.sh:2 busy (CCN 11)" in out, "a shell function above CCN 10 fails the gate, with no lizard", out)
+
+
+SHELL_CCN = """#!/usr/bin/env bash
+busy() {{
+  {branches}
+}}
+"""
+
+
+def self_test_shell_ccn(t: Tap) -> None:
+    def over(text: str) -> list[str]:
+        return shell_over_limit("s.sh", text)
+    ten = " && ".join(["a"] * 11)
+    t.check(over(SHELL_CCN.format(branches=ten)) == ["s.sh:2 busy (CCN 11)"],
+            "ten && make CCN 11, one over the cap", *over(SHELL_CCN.format(branches=ten)))
+    t.check(over(SHELL_CCN.format(branches=" && ".join(["a"] * 10))) == [], "nine && make CCN 10, at the cap")
+    kinds = "if a; then b; elif c; then d; fi\n  while a; do b; done\n  until a; do b; done\n  for x in y; do z; done\n  a || b\n  case $x in a) b ;; c) d ;& e) f ;;& esac\n  a && b && c"
+    t.check(over(SHELL_CCN.format(branches=kinds)) == ["s.sh:2 busy (CCN 12)"],
+            "if, elif, while, until, for, ||, && and each case arm count one", *over(SHELL_CCN.format(branches=kinds)))
+    quoted = "echo '&& && && && && && && && && &&' \"|| || || || || || || || || ||\" # && && && && && && && && && &&"
+    t.check(over(SHELL_CCN.format(branches=quoted)) == [], "&& and || in quotes or a comment are not counted")
+    nested = "inner() {\n    " + ten + "\n  }\n  a && b"
+    t.check(over(SHELL_CCN.format(branches=nested)) == ["s.sh:3 inner (CCN 11)"],
+            "a nested function counts its own lines, and its outer function leaves them out", *over(SHELL_CCN.format(branches=nested)))
+    t.check(over("f() { " + ten + "; }\n") == ["s.sh:1 f (CCN 11)"], "a one-line function is counted", *over("f() { " + ten + "; }\n"))
+    t.check(over("function g {\n  " + ten + "\n}\n") == ["s.sh:1 g (CCN 11)"], "a function declared with the function keyword is counted")
+    tests = ("self_test() {\n  " + ten + "\n}\ncsu_self_test() {\n  " + ten
+             + "\n}\nif [ \"$1\" = --self-test ]; then\n  h() { " + ten + "; }\nfi\n")
+    t.check(over(tests) == [], "a self-test is not counted: self_test, a name ending in it, or the --self-test block", *over(tests))
 
 
 SILENT_SH = """#!/usr/bin/env bash
@@ -1266,6 +1352,7 @@ def self_test() -> int:
     self_test_commands(t)
     self_test_reuse(t)
     self_test_scripts(t)
+    self_test_shell_ccn(t)
     return t.end()
 
 

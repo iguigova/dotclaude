@@ -13,7 +13,8 @@
 #   gate_self_tests <dir…>           every script there offering --self-test, its
 #                                    stdout held to tap.sh's format; selftest.sh,
 #                                    the gate itself, is one of them except while
-#                                    GATE_SELF_TEST is set
+#                                    GATE_SELF_TEST is set; with GATE_TAP_DIR set,
+#                                    each script's TAP is kept there as <name>.tap
 #   gate_run <command…>              a lint: shown, and a FAIL when it exits non-zero
 #   gate_names_changed <repo> [<pathspec>…]
 #                                    name_lint --gate over the prose changed since HEAD
@@ -111,36 +112,53 @@ self_test_of() {  # <script>
 # last lines of its stderr, so a run's output says why; returns 1 when any
 # failed.
 sweep() {  # <dir>
-  local dir=$1 work f name st wrong missed cases rc=0
+  local dir=$1 work f rc=0
   local -a tests=()
   for f in "$dir"/*.sh "$dir"/*.py; do
-    [ -e "$f" ] && grep -q -- '--self-test' "$f" || continue
-    [ "${f##*/}" = selftest.sh ] && [ -n "${GATE_SELF_TEST:-}" ] && continue
-    tests+=("$f")
+    swept "$f" && tests+=("$f")
   done
   work=$(mktemp -d) || return 1
   each self_test_of "$work" "${tests[@]}"
   for f in "${tests[@]}"; do
-    name=${f##*/}; st=$(cat "$work/${f//\//_}.st")
-    wrong=$(tap_verify "$work/$name.tap")
-    missed=$(grep -c '^not ok' "$work/$name.tap")
-    cases=$(grep -cE '^(not )?ok' "$work/$name.tap")
-    if [ -n "$wrong" ]; then
-      echo "  FAIL $f --self-test does not print TAP: $wrong"
-    elif [ "$st" -eq 0 ] && [ "$missed" -eq 0 ]; then
-      echo "  ok  $f (cases: $cases)"; continue
-    elif [ "$st" -ne 0 ] && [ "$missed" -ne 0 ]; then
-      echo "  FAIL $f --self-test: $missed of $cases cases"
-    else
-      echo "  FAIL $f --self-test exited $st with $missed of $cases cases failed"
-    fi
-    rc=1
-    awk '/^not ok /{p=1; print; next} /^#/{if (p) print; next} {p=0}' "$work/$name.tap" \
-      | sed 's/^/      /'
-    tail -n 5 "$work/$name.err" | sed 's/^/      /'
+    verdict_of "$f" "$work" || rc=1
   done
+  # The TAP each script printed, kept when asked, so a reader can see one case
+  # ran and passed rather than only its script's count.
+  if [ -n "${GATE_TAP_DIR:-}" ]; then
+    mkdir -p "$GATE_TAP_DIR" && cp "$work"/*.tap "$GATE_TAP_DIR"/ || rc=1
+  fi
   rm -rf "$work"
   return "$rc"
+}
+
+# swept — whether the sweep runs <file>: a script that offers --self-test, and
+# not selftest.sh inside a gate's own self-test.
+swept() {  # <file>
+  [ -e "$1" ] && grep -q -- '--self-test' "$1" || return 1
+  [ "${1##*/}" != selftest.sh ] || [ -z "${GATE_SELF_TEST:-}" ]
+}
+
+# verdict_of — one script's line from its TAP and exit status in <work>, and
+# under a failure its failed cases and the end of its stderr; 1 on a failure.
+verdict_of() {  # <file> <work>
+  local f=$1 work=$2 name=${1##*/} st wrong missed cases
+  st=$(cat "$work/${f//\//_}.st")
+  wrong=$(tap_verify "$work/$name.tap")
+  missed=$(grep -c '^not ok' "$work/$name.tap")
+  cases=$(grep -cE '^(not )?ok' "$work/$name.tap")
+  if [ -n "$wrong" ]; then
+    echo "  FAIL $f --self-test does not print TAP: $wrong"
+  elif [ "$st" -eq 0 ] && [ "$missed" -eq 0 ]; then
+    echo "  ok  $f (cases: $cases)"; return 0
+  elif [ "$st" -ne 0 ] && [ "$missed" -ne 0 ]; then
+    echo "  FAIL $f --self-test: $missed of $cases cases"
+  else
+    echo "  FAIL $f --self-test exited $st with $missed of $cases cases failed"
+  fi
+  awk '/^not ok /{p=1; print; next} /^#/{if (p) print; next} {p=0}' "$work/$name.tap" \
+    | sed 's/^/      /'
+  tail -n 5 "$work/$name.err" | sed 's/^/      /'
+  return 1
 }
 
 gate_self_tests() {  # <dir…>
@@ -240,6 +258,11 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a sweep with any failure fails" "$st" 1
   cp s/good.sh s/snake.sh green/
   sweep green >/dev/null; tap_is "a sweep of passing self-tests passes" "$?" 0
+  GATE_TAP_DIR=taps sweep green >/dev/null
+  tap_is "keeping the TAP leaves a passing sweep passing" "$?" 0
+  tap_is "with GATE_TAP_DIR set, each script's TAP is kept under its name" \
+    "$(cat taps/good.sh.tap taps/snake.sh.tap)" $'ok 1 - here\n1..1\nok 1 - snake\n1..1'
+  tap_is "without GATE_TAP_DIR, no TAP is kept" "$(sweep green >/dev/null; ls -d taps/* | wc -l)" 2
   mkdir slow
   for i in 1 2 3 4; do
     printf '#!/usr/bin/env bash\n# --self-test\nsleep 2; printf "ok 1 - n\\n1..1\\n"\n' > "slow/n$i.sh"

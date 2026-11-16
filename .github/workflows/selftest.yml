@@ -5,6 +5,7 @@
 #   run/selftest.txt  what selftest.sh printed; its last line is the verdict
 #   run/run.json      the commit, the run's page and when it ran
 #   run/files.txt     every file in the commit
+#   run/tap/<s>.tap   the TAP script <s>'s own self-test printed, case by case
 name: selftest
 on:
   push:
@@ -36,7 +37,7 @@ jobs:
         run: |
           mkdir -p "$RUNNER_TEMP/run"
           set +e
-          ~/.claude/scripts/selftest.sh --copy | tee "$RUNNER_TEMP/run/selftest.txt"
+          GATE_TAP_DIR="$RUNNER_TEMP/run/tap" ~/.claude/scripts/selftest.sh --copy | tee "$RUNNER_TEMP/run/selftest.txt"
           echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
       # The site is built whatever the tests said, so a failure is published
       # too; a run whose tests never ran publishes no selftest.txt verdict.

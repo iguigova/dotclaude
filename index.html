@@ -8,13 +8,32 @@
 <link rel="stylesheet" href="../brand.css">
 <script src="../brand.js"></script>
 <style>
-  .wins { list-style: none; padding: 0; margin: 18px 0 6px; max-width: none;
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; }
-  .wins li { margin: 0; padding: 10px 0 0; border-top: 3px solid var(--rule); }
-  .wins b { display: block; font-size: 30px; line-height: 1.1; font-weight: 400; }
-  .wins span.what { color: var(--muted); font-size: 13px; }
-  .wins p { margin: 6px 0 0; }
-  .note { color: var(--muted); font-size: 13px; }
+  .eyebrow { font: 12px var(--mono); letter-spacing: .12em; text-transform: uppercase;
+    color: var(--good); margin: 0 0 6px; }
+  header h1 { color: var(--ink); }
+  header h1 .hot { color: var(--link); }
+  .flow { list-style: none; padding: 0; margin: 18px 0; max-width: none;
+    display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+  .flow li { margin: 0; font-size: 14px; }
+  .flow li span { display: inline-block; padding: 6px 12px; border: 1px solid var(--hair); border-radius: 999px; }
+  .flow li.gate span { border-color: var(--good); color: var(--good); font-weight: 600; }
+  .flow li + li::before { content: "→"; color: var(--muted); margin-right: 6px; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+  .card { border: 1px solid var(--hair); border-top: 3px solid var(--good); padding: 12px 16px;
+    margin: 0 0 14px; max-width: none; }
+  .card h3 { margin: 0 0 8px; }
+  .card ol { list-style: none; padding: 0; margin: 0; counter-reset: c; }
+  .card ol li { counter-increment: c; position: relative; padding: 8px 0 8px 2.2em;
+    border-top: 1px solid var(--hair); margin: 0; }
+  .card ol li::before { content: counter(c); position: absolute; left: 0; top: 9px;
+    font: 13px var(--mono); color: var(--good); }
+  .card b { display: block; }
+  .card ol span { color: var(--muted); font-size: 14px; }
+  .origins ul { list-style: none; padding: 0; margin: 0; max-width: none; }
+  .origins li { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 16px;
+    padding: 8px 0; border-top: 1px solid var(--hair); margin: 0; }
+  .origins .miss { color: var(--link); }
+  .origins .rule { color: var(--good); }
 
   .day { list-style: none; padding: 0; margin: 0; max-width: 84ch; }
   .day > li { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 0 14px;
@@ -56,12 +75,6 @@
   @media (max-width: 640px) { .why { grid-template-columns: 1fr; }
     .why dt { border-bottom: 0; padding-bottom: 0; } }
 
-  .stats { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
-    gap: 16px 24px; margin: 0 0 8px; }
-  .stats div { border-top: 1px solid var(--hair); padding-top: 6px; }
-  .stats dt { font-size: 28px; line-height: 1.1; }
-  .stats dd { margin: 2px 0 0; color: var(--muted); font-size: 13px; }
-  h3.group { margin: 18px 0 8px; }
 
   .fool { border: 1px solid var(--hair); padding: 12px 14px; max-width: 70ch; margin-top: 14px; }
   .fool label { display: block; color: var(--muted); font-size: 13px; }
@@ -86,21 +99,43 @@
 <div class="wrap">
 <header>
   <div>
-    <h1>An AI assistant that has to show its work</h1>
-    <p class="tag">Claude Code is an AI that writes code from a terminal. It's quick and capable, and it forgets.
-      Deep into a long task, it loses hold of the rules I gave it.
-      So I stopped asking it to remember. Small programs around it keep the rules instead, and they can say no.</p>
-    <ul class="wins">
-      <li><b data-use="sent_back">…</b><span class="what">replies sent back</span>
-        <p>It can't slip a question past me in the middle of a paragraph.</p></li>
-      <li><b data-use="held">…</b><span class="what">calls held</span>
-        <p>It can't find a way around a step I blocked.</p></li>
-      <li><b data-use="gate_fail">…</b><span class="what">changes refused</span>
-        <p>It can't ship code whose tests would miss a bug.</p></li>
-      <li><b>04:30</b><span class="what">every night</span>
-        <p>It can't keep believing something that stopped being true.</p></li>
-    </ul>
-    <p class="note">Counted from my <span data-use="sessions">…</span> sessions since <span data-use="since">…</span>. The numbers section says how.</p>
+    <p class="eyebrow">My Claude Code setup</p>
+    <h1>Instructions get forgotten.<br><span class="hot">Code doesn't.</span></h1>
+    <p class="tag">Claude Code is an AI that writes code from a terminal. On a long task it loses hold of the rules I gave it.
+      So small programs keep them for it, and they can say no.</p>
+    <ol class="flow" aria-label="The loop">
+      <li><span>Session starts</span></li><li class="gate"><span>Hooks</span></li><li><span>Work</span></li><li class="gate"><span>Gate</span></li><li><span>Commit</span></li><li><span>Session ends</span></li><li class="gate"><span>04:30 check</span></li>
+    </ol>
+    <div class="cards">
+      <div class="card" role="group" aria-labelledby="c-on">
+        <p class="eyebrow">While it works</p>
+        <h3 id="c-on">Hooks that say no</h3>
+        <ol>
+          <li><b>Ask, don't bury</b><span>a question in a paragraph is sent back</span></li>
+          <li><b>Blocked means stop</b><span>nothing else runs until I answer</span></li>
+          <li><b>Prove the tests</b><span>every planted bug must fail one</span></li>
+          <li><b>Audit the answer</b><span>asked for, not yet enforced</span></li>
+        </ol>
+      </div>
+      <div class="card" role="group" aria-labelledby="c-off">
+        <p class="eyebrow">While nobody's there</p>
+        <h3 id="c-off">Upkeep that runs itself</h3>
+        <ol>
+          <li><b>Notes placed</b><span>each becomes a rule, a script or a ticket</span></li>
+          <li><b>Branches swept</b><span>merged work is deleted</span></li>
+          <li><b>Facts rechecked</b><span>a wrong one is gone by morning</span></li>
+          <li><b>Page republished</b><span>refused if it holds a secret</span></li>
+        </ol>
+      </div>
+    </div>
+    <div class="card origins" role="group" aria-labelledby="c-from">
+      <p class="eyebrow" id="c-from">What went wrong, and what stops it now</p>
+      <ul>
+        <li><span class="miss">✗ It remembered a login flow that was never true</span><span class="rule">→ ✓ every fact carries its own check</span></li>
+        <li><span class="miss">✗ A helper agent undid my edits</span><span class="rule">→ ✓ helpers never edit my tree</span></li>
+        <li><span class="miss">✗ Its own scripts had no tests</span><span class="rule">→ ✓ every script tests itself</span></li>
+      </ul>
+    </div>
   </div>
 </header>
 <main>
@@ -217,39 +252,12 @@
   </div>
 </section>
 
-<section aria-labelledby="h-numbers">
-  <h2 id="h-numbers">In numbers</h2>
-  <div>
-    <h3 class="group">What it did</h3>
-    <dl class="stats">
-      <div><dt data-use="sessions">…</dt><dd>sessions since <span data-use="since">…</span></dd></div>
-      <div><dt data-use="sent_back">…</dt><dd>replies sent back for a question asked in prose</dd></div>
-      <div><dt data-use="held">…</dt><dd>calls refused while a blocked one waited for me</dd></div>
-      <div><dt data-use="gate_fail">…</dt><dd>gate runs that refused a change</dd></div>
-      <div><dt data-use="gate_pass">…</dt><dd>gate runs that let one through</dd></div>
-      <div><dt data-use="audits">…</dt><dd>answers audited</dd></div>
-      <div><dt data-use="commits">…</dt><dd>commits to the setup itself</dd></div>
-    </dl>
-    <p class="note" id="use-note"><span class="claim" data-check="scripts/usage_snapshot.py" data-says="no project, file, prompt or reply leaves the">Counted on my machine from my session transcripts by <code>usage_snapshot.py</code>, when this page was published.</span>
-      The transcripts stay private and only the counts leave. You can run it on your own.</p>
-    <h3 class="group">What it's made of</h3>
-    <dl class="stats">
-      <div><dt data-live="scripts">…</dt><dd>scripts</dd></div>
-      <div><dt data-live="tested">…</dt><dd>of them passed their own tests in GitHub's last run</dd></div>
-      <div><dt data-live="cases">…</dt><dd>test cases in those tests</dd></div>
-      <div><dt data-live="skills">…</dt><dd>skills: routines I start by name, like <code>/audit</code></dd></div>
-      <div><dt data-live="hooks">…</dt><dd>hooks</dd></div>
-    </dl>
-    <p class="note" id="live-note">Counted just now by your browser, from <a href="https://github.com/iguigova/dotclaude">the public repo</a> this page was published with.</p>
-  </div>
-</section>
-
 <section aria-labelledby="h-check">
   <h2 id="h-check">Don't take my word for it</h2>
   <div>
     <p>Every claim on this page names a file and the exact words that file should hold. Your browser fetched those files when the page loaded, and marks each claim with what it found
       <span class="mark">✓ holds</span>. Press a mark to see the line.
-      A <span class="mark">✓ tested</span> mark also means that test's script passed in GitHub's last run.</p>
+      A <span class="mark">✓ tested</span> mark also means GitHub's last run printed "ok" for that very test case.</p>
     <p class="tally" id="tally" aria-live="polite">Checking…</p>
     <p class="tally" id="ran" aria-live="polite">Reading GitHub's last run…</p>
     <p>You can try to break one, too. If you pick a claim, change the words its file should hold and press Check it, the claim strikes itself out, wherever it is on the page.</p>
@@ -277,7 +285,6 @@
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md"><code>credo.md</code></a>. You could write your own. One line in your <code>CLAUDE.md</code>, <code>@~/.claude/credo.md</code>, loads it into every session.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py"><code>ask_gate.py</code></a>. If you've ever answered "sure" to a question you didn't read, this is the one. It's a Stop hook; <a href="https://github.com/iguigova/dotclaude/blob/main/settings.json"><code>settings.json</code></a> shows how it's wired.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/git_fact.sh"><code>git_fact.sh</code></a>. The idea behind the memory: a fact is only worth keeping with a command that can prove it wrong.</li>
-      <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/usage_snapshot.py"><code>usage_snapshot.py</code></a>. It works on your own transcripts too, if you'd like to see what your setup actually does.</li>
     </ul>
   </div>
 </section>
@@ -288,7 +295,8 @@
     <ul>
       <li>The audit at 15:00 is the one step no code enforces. It happens when the assistant remembers to do it.</li>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The 04:30 check only runs while I'm logged in. A missed night runs at my next login.</span></li>
-      <li>A ✓ shows that a file says something. Only the tests show the code does it, which is why the day above names a test for each step it can.</li>
+      <li>A ✓ holds mark means the file has the words the claim quotes. That's all it means. A ✓ tested mark means GitHub ran that exact test, and it passed. That's why each step of the day names its test, where it has one.</li>
+      <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell is counted here, since lizard reads none">The complexity limit now covers shell scripts too.</span> Both checks look only at the lines a change touches. Older code gets checked the next time someone edits it, and some older shell functions are still above the limit.</li>
     </ul>
   </div>
 </section>
@@ -308,18 +316,11 @@ const BLOB = 'https://github.com/iguigova/dotclaude/blob/main/';
 // What GitHub's run of the self-tests printed, published with this page from
 // the same commit (.github/workflows/selftest.yml).
 const RUN = 'run/';
-// What usage_snapshot.py counted in the transcripts when the page was exported.
-const USAGE = 'usage.json';
-const LIVE = {
-  scripts: /^scripts\/[^/]+\.(sh|py)$/,
-  skills: /^skills\/[^/]+\/SKILL\.md$/,
-};
 const LABEL = { 0: '✓ holds', 1: '✗ no longer holds', 75: '? no answer' };
 const TESTED = { 0: '✓ tested', 1: '✗ not tested', 75: '? no answer' };
 const reads = new Map();
-// Self-tests that passed in the published run: selftest.sh prints one
-// "ok  <script> (cases: N)" line per script whose self-test passed.
-const PASSED = /^\s+ok\s+\S+ \(cases: (\d+)\)$/;
+// One case that passed, as tap.sh and tap.py print it: "ok <n> - <name>".
+const OK = /^ok \d+ - (.*)$/;
 
 // read — the file's text, or null when it could not be read.
 const fetchText = (path, signal) =>
@@ -402,18 +403,15 @@ const checkClaim = async (claim, cut) => {
 };
 
 // A proof is a self-test case: its name is in the script, as a claim's words
-// are, and the published run shows that script's self-test passed.
-const passedIn = (text, path) => {
-  const name = `./${path.split('/').pop()} (cases: `;
-  return text.split('\n').some(l => PASSED.test(l) && l.includes(name));
-};
-const UNRUN = (path) => `${path} names this case, but its self-test did not pass in GitHub's last run.`;
+// are, and the TAP that script printed in the published run says "ok" for it.
+const ranOk = (tap, name) => tap.split('\n').some(l => OK.exec(l)?.[1] === name);
+const UNRUN = (path) => `${path} names this case, but GitHub's last run did not print "ok" for it.`;
 const proven = async (path, v) => {
   if (v.code !== 0) return v;
-  const run = await read(`${RUN}selftest.txt`);
-  if (run === null) return { code: 75 };
-  if (!passedIn(run, path)) return { code: 1, note: UNRUN };
-  return { ...v, ran: 'and its self-test passed in GitHub\'s last run.' };
+  const tap = await read(`${RUN}tap/${path.split('/').pop()}.tap`);
+  if (tap === null) return { code: 75 };
+  if (!ranOk(tap, v.says)) return { code: 1, note: UNRUN };
+  return { ...v, ran: 'and GitHub\'s last run printed "ok" for this case.' };
 };
 
 // The tally says what every check found.
@@ -464,39 +462,6 @@ const checkRun = async () => {
   const day = new Date(run.time).toLocaleDateString(undefined, { day: 'numeric', month: 'long' });
   el.replaceChildren(`GitHub ran every script's own tests on this page's commit, ${run.commit.slice(0, 7)}, on ${day}: `,
     badge, ' · ', anchor(run.url, 'see the run'), ' · ', anchor(`${RUN}selftest.txt`, 'what it printed'));
-};
-
-// Numbers counted live. No answer shows as a dash, never as a guess.
-const show = (attr, key, n) => {
-  document.querySelectorAll(`[data-${attr}="${key}"]`).forEach(el => { el.textContent = n ?? '—'; });
-};
-const countCases = async () => {
-  const text = await read(`${RUN}selftest.txt`);
-  const passed = text && text.split('\n').map(l => l.match(PASSED)).filter(Boolean);
-  show('live', 'tested', passed && passed.length);
-  show('live', 'cases', passed && passed.reduce((n, m) => n + Number(m[1]), 0).toLocaleString());
-};
-const countFiles = async () => {
-  const text = await read(`${RUN}files.txt`);
-  const paths = text && text.split('\n');
-  Object.entries(LIVE).forEach(([key, re]) =>
-    show('live', key, paths && paths.filter(p => re.test(p)).length));
-  if (!paths) document.getElementById('live-note').textContent =
-    'This copy of the page was published without its file list, so these show a dash rather than a guess.';
-};
-const countHooks = async () => {
-  const hooks = parse(await read('settings.json'))?.hooks;
-  show('live', 'hooks', hooks && Object.values(hooks).flat().flatMap(g => g.hooks).length);
-};
-// usage.json: since is a day, the rest are counts; a count missing shows a dash.
-const showUsage = async () => {
-  const usage = parse(await read(USAGE));
-  const day = (d) => new Date(`${d}T00:00:00Z`).toLocaleDateString(undefined,
-    { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'UTC' });
-  document.querySelectorAll('[data-use]').forEach(el => {
-    const v = usage?.[el.dataset.use];
-    el.textContent = v == null ? '—' : el.dataset.use === 'since' ? day(v) : Number(v).toLocaleString();
-  });
 };
 
 // Try to fool it: re-check one claim on other words, or every claim with the
@@ -565,10 +530,6 @@ document.getElementById('reset').addEventListener('click', putBack);
 
 checkAll();
 checkRun();
-showUsage();
-countFiles();
-countCases();
-countHooks();
 </script>
 </body>
 </html>

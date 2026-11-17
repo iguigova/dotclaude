@@ -39,7 +39,8 @@ Mutation runs per kind of file:
   Ruby, Clojure,      this script's mutator, running the --test command for
   Haskell             the language for each mutant; with none, it fails.
   JavaScript, TS      StrykerJS over the changed line ranges, testing with the
-                      --test js command, else `npm test`
+                      --test js command, else `npm test` when package.json
+                      has a test script; with neither, it fails
   Go                  gremlins --diff, testing with `go test`
   Dart                mutation_test over the changed lines, testing with the
                       --test dart command, else `flutter test` in a Flutter
@@ -454,6 +455,17 @@ def copy_tree(source: Path, target: Path) -> Path:
     return target
 
 
+def copy_listed(repo: Path, target: Path) -> Path:
+    """A copy of the files git lists in the working tree, tracked or untracked and not ignored: the repo as it stands, without
+    the ignored state beside it, so a self-test that reads a file outside its script's folder finds it in the copy."""
+    for name in filter(None, git(repo, "ls-files", "-z", "--cached", "--others", "--exclude-standard").split("\0")):
+        source, copy = repo / name, target / name
+        if source.is_symlink() or source.is_file():
+            copy.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source, copy, follow_symlinks=False)  # mutation: equivalent — a file link copied as its target reads the same
+    return target
+
+
 TAP_PLAN = re.compile(r"^1\.\.\d+$", re.M)
 
 
@@ -529,7 +541,7 @@ def report_mutation(what: str, total: int, lived: list[str], verdict: Verdict, e
 def mutate_self_tested(repo: Path, change: Change, verdict: Verdict) -> None:
     language = "shell" if change.path.endswith(".sh") else "python"
     with tempfile.TemporaryDirectory() as tmp:
-        work = copy_tree((repo / change.path).parent, Path(tmp) / "w")
+        work = (copy_listed(repo, Path(tmp) / "w") / change.path).parent
         name = Path(change.path).name
         command = [runner(work / name), f"./{name}", "--self-test"]
         took, tail = timed(command, work, tap=True)
@@ -831,16 +843,29 @@ def check_mutation(repo: Path, base: str, files: list[Change], options: "Options
     return None
 
 
+NO_COMMAND = {"js": ("and package.json has no test script for `npm test`",)}
+
+
+def npm_test(repo: Path) -> list[str]:
+    """`npm test` when the repo's package.json has a test script, else no command."""
+    try:
+        scripts = json.loads((repo / "package.json").read_text()).get("scripts")
+    except (OSError, ValueError, AttributeError):
+        return []
+    return ["npm", "test"] if isinstance(scripts, dict) and "test" in scripts else []
+
+
 def run_language(repo: Path, base: str, language: str, files: list[Change], options: "Options", verdict: Verdict) -> None:
     names, command = ", ".join(c.path for c in files), options.tests.get(language, [])
     if language == "shell":
         return verdict.fail(f"shell: {names} offers no --self-test, so no test can kill a mutant")
+    command = command or (npm_test(repo) if language == "js" else [])
+    if language in ("ruby", "clojure", "haskell", "js") and not command:
+        return verdict.fail(f"{language}: no --test {language}=<command> for {names}", *NO_COMMAND.get(language, ()))
     if language in ("ruby", "clojure", "haskell"):
-        if not command:
-            return verdict.fail(f"{language}: no --test {language}=<command> for {names}")
         return mutate_with_command(repo, files, language, command, verdict)
     runners = {"python": lambda: mutate_python(repo, files, command, options.coverage, verdict),
-               "js": lambda: mutate_js(repo, files, command or ["npm", "test"], verdict),
+               "js": lambda: mutate_js(repo, files, command, verdict),
                "go": lambda: mutate_go(repo, base, verdict), "dart": lambda: mutate_dart(repo, files, command, verdict)}
     if language in runners:
         return runners[language]()
@@ -1112,8 +1137,17 @@ def self_test_tools(t: Tap) -> None:
             self_test_complexity(t, repo)
 
 
+def self_test_js_command(t: Tap, repo: Path) -> None:
+    for package in (None, "[]", "{", '{"scripts": {"build": "x"}}', '{"scripts": ["test"]}'):
+        self_test_files(repo, {"a.js": "if (a > b) x()\n"} | ({"package.json": package} if package else {}))
+        status, out = self_test_run(repo, "--check", "mutation")
+        t.check(status == 1 and "js: no --test js=<command> for a.js" in out and "no test script for `npm test`" in out,
+                f"with no --test js and package.json {package or 'missing'}, the gate fails naming the flag", out)
+
+
 def self_test_js(t: Tap, repo: Path, fakes: Path) -> None:
-    self_test_files(repo, {"a.js": "if (a > b) x()\n"})
+    self_test_js_command(t, repo)
+    self_test_files(repo, {"a.js": "if (a > b) x()\n", "package.json": '{"scripts": {"test": "node --test"}}'})
     status, out = self_test_run(repo, "--check", "mutation")
     t.check(status == 1 and "a.js:1: EqualityOperator → a >= b (Survived)" in out, "a StrykerJS survivor fails the gate", out)
     config = json.loads((fakes / "stryker.json").read_text())
@@ -1137,7 +1171,7 @@ def self_test_js(t: Tap, repo: Path, fakes: Path) -> None:
     self_test_run(repo, "--check", "mutation", "--test", "js=yarn test --ci")
     config = json.loads((fakes / "stryker.json").read_text())
     t.check(config["commandRunner"]["command"] == "yarn test --ci", "Stryker tests with the --test js command", str(config))
-    self_test_files(repo, {"a.js": "if (a > b) x() // mutation: equivalent — x is idempotent\n"})
+    self_test_files(repo, {"a.js": "if (a > b) x() // mutation: equivalent — x is idempotent\n", "package.json": '{"scripts": {"test": "t"}}'})
     status, out = self_test_run(repo, "--check", "mutation")
     t.check(status == 0 and "1 marked equivalent" in out, "a survivor on a line marked equivalent is accepted and counted apart", out)
 
@@ -1151,7 +1185,7 @@ def self_test_go_dart(t: Tap, repo: Path, fakes: Path) -> None:
     self_test_files(repo, {"lib/d.dart": "bool f(a, b) => a > b;\n", "pubspec.yaml": "name: d\n"})
     status, out = self_test_run(repo, "--check", "mutation")
     t.check(status == 1 and "dart: 1 of 2 mutants lived" in out and "lib/d.dart:1:" in out, "a mutation_test survivor fails the gate", out)
-    self_test_files(repo, {"a.js": "x()\n", "b.go": "package b\n"})
+    self_test_files(repo, {"a.js": "x()\n", "b.go": "package b\n", "package.json": '{"scripts": {"test": "t"}}'})
     with self_test_env(FAKE_BROKEN="1"):
         status, out = self_test_run(repo, "--check", "mutation")
     t.check(status == 1 and "StrykerJS exited 3 with no report\n        stryker broke\n" in out
@@ -1215,6 +1249,14 @@ def self_test_shell_ccn(t: Tap) -> None:
     t.check(over(tests) == [], "a self-test is not counted: self_test, a name ending in it, or the --self-test block", *over(tests))
 
 
+READS_ABOVE_SH = """#!/usr/bin/env bash
+self_test() {
+  [ -f ../data.txt ] && printf 'ok 1 - x\\n1..1\\n'
+}
+[ "${1:-}" = --self-test ] && self_test
+"""
+
+
 SILENT_SH = """#!/usr/bin/env bash
 self_test() {
   printf 'ok 1 - x\\n1..1\\n'
@@ -1230,6 +1272,11 @@ def self_test_scripts(t: Tap) -> None:
         status, out = self_test_run(repo, "--check", "mutation")
         t.check(status == 0 and "s.sh: 1 mutants, 1 killed" in out,
                 "a mutant that silences the self-test is killed: exit 0 with no plan is not a pass", out)
+        self_test_files(repo, {"bin/r.sh": READS_ABOVE_SH, "data.txt": "x\n"})
+        status, out = self_test_run(repo, "--check", "mutation")
+        t.check(status == 0 and "bin/r.sh: 1 mutants, 1 killed" in out,
+                "a self-test reading a file outside its script's folder finds it in the copy", out)
+        self_test_files(repo, {"s.sh": SILENT_SH})
         (repo / "s.sh").write_text("#!/usr/bin/env bash\n# offers --self-test and prints nothing\n")
         status, out = self_test_run(repo, "--check", "mutation")
         t.check(status == 1 and "its --self-test fails before any mutation" in out, "a self-test that prints no plan unmutated fails the gate", out)
@@ -1380,7 +1427,7 @@ def self_test_refusals(t: Tap) -> None:
         bare = Path(tmp) / "bin"
         bare.mkdir()
         (bare / "git").symlink_to(shutil.which("git"))
-        self_test_files(repo, {"a.js": "module.exports = 1\n"})
+        self_test_files(repo, {"a.js": "module.exports = 1\n", "package.json": '{"scripts": {"test": "t"}}'})
         with self_test_env(PATH=str(bare)):
             status, out = self_test_run(repo, "--check", "mutation")
         t.check(status == 1 and "npx is not installed" in out, "a missing tool fails the gate, naming the fix", out)

@@ -144,7 +144,8 @@ Two probes report a defect that has a right answer. A bash block using a
 variable it never sets expands it to empty, because each block runs in its
 own shell. A fixed /tmp path is shared between sessions and survives none.
 Both read only a document's bash blocks, the steps a reader runs: a path
-the prose or a table describes is a fact about something else. The block is read as bash reads it: continued lines are one command, nothing
+the prose or a table describes is a fact about something else, and a coding
+guideline's blocks show how code is written, so a guideline is not probed. The block is read as bash reads it: continued lines are one command, nothing
 in single quotes, a comment or a quoted-delimiter heredoc is a use, and an
 assignment sets a variable only when no command follows it (`X=1 cmd` is
 that command's environment). A file the block sources is read for what it
@@ -204,16 +205,19 @@ TOKEN_FIELDS = (
     "cache_read_input_tokens",
 )
 # List prices in USD per million tokens: base input, 5-minute cache write,
-# 1-hour cache write, cache read, output. Read 2026-10-19 from
+# 1-hour cache write, cache read, output. Read 2026-11-17 from
 # https://platform.claude.com/docs/en/about-claude/pricing; a model missing
 # here is reported as unpriced rather than guessed.
-PRICES_READ = "2026-10-19"
+PRICES_READ = "2026-11-17"
 PRICES = {
+    "fable-5-2": (8, 10, 16, 0.20, 40),
+    "fable-5-1": (10, 12.50, 20, 0.25, 50),
     "opus-5-5": (4, 5, 8, 0.20, 20),
     "opus-5": (5, 6.25, 10, 0.50, 25),
     "opus-4-8": (5, 6.25, 10, 0.50, 25),
     "opus-4-7": (5, 6.25, 10, 0.50, 25),
     "opus-4-6": (5, 6.25, 10, 0.50, 25),
+    "sonnet-5-5": (2, 2.50, 4, 0.10, 10),
     "sonnet-5": (2, 2.50, 4, 0.20, 10),
     "sonnet-4-6": (3, 3.75, 6, 0.30, 15),
     "fable-5": (10, 12.50, 20, 1, 50),
@@ -459,6 +463,22 @@ def model_key(model: str) -> str:
     return re.sub(r"^claude-|\[\w+\]$|-\d{8}$", "", model or "")
 
 
+def tokens(source: dict, field: str) -> int:
+    """A token count the usage may leave out or write as null: zero then."""
+    return source.get(field) or 0
+
+
+def priced(rates: tuple | None, usage: dict) -> bool:
+    """Whether a message has a list price: a model PRICES holds, standard
+    speed, inference not pinned to the US, and any cache writes split into
+    their 5-minute and 1-hour parts."""
+    if rates is None or usage.get("speed") not in (None, "standard"):
+        return False
+    unsplit = not isinstance(usage.get("cache_creation"), dict)
+    return (usage.get("inference_geo") != "us"
+            and not (tokens(usage, "cache_creation_input_tokens") and unsplit))
+
+
 def dollars(model: str, usage: dict) -> float | None:
     """One message's list price, or None when the price is not known: a model
     PRICES lacks, fast mode, US-only inference, or cache writes with no
@@ -467,18 +487,14 @@ def dollars(model: str, usage: dict) -> float | None:
         return 0.0
     key = model_key(model)
     rates = PRICES.get(key)
-    split = usage.get("cache_creation")
-    writes = usage.get("cache_creation_input_tokens") or 0
-    if (rates is None or usage.get("speed") not in (None, "standard")
-            or usage.get("inference_geo") == "us"
-            or (writes and not isinstance(split, dict))):
+    if not priced(rates, usage):
         return None
-    split = split or {}
-    counts = (usage.get("input_tokens") or 0,
-              split.get("ephemeral_5m_input_tokens") or 0,
-              split.get("ephemeral_1h_input_tokens") or 0,
-              usage.get("cache_read_input_tokens") or 0,
-              usage.get("output_tokens") or 0)
+    split = usage.get("cache_creation") or {}
+    counts = (tokens(usage, "input_tokens"),
+              tokens(split, "ephemeral_5m_input_tokens"),
+              tokens(split, "ephemeral_1h_input_tokens"),
+              tokens(usage, "cache_read_input_tokens"),
+              tokens(usage, "output_tokens"))
     if key in LONG_PROMPT and sum(counts[:4]) > LONG_PROMPT[key][0]:
         rates = LONG_PROMPT[key][1]
     return sum(n * r for n, r in zip(counts, rates)) / 1e6
@@ -673,15 +689,21 @@ def invoked(command: str, cwd: str, home: Path) -> list[str]:
     return out
 
 
+def bash_calls(rec: dict) -> list[dict]:
+    """The Bash tool calls one transcript record makes: an assistant's
+    tool_use blocks naming Bash."""
+    if rec.get("type") != "assistant":
+        return []
+    return [b for b in blocks(rec) if isinstance(b, dict)
+            and b.get("type") == "tool_use" and b.get("name") == "Bash"]
+
+
 def scan_invocations(recs, sid: str, home: Path, acc: dict) -> None:
     """Every Bash call in one transcript, keyed by the files it runs. A call
     copied into a second transcript keeps its tool_use id, so it counts once."""
     for rec in recs:
-        if rec.get("type") != "assistant":
-            continue
-        for b in blocks(rec):
-            if (not isinstance(b, dict) or b.get("type") != "tool_use"
-                    or b.get("name") != "Bash" or b.get("id") in acc["calls"]):
+        for b in bash_calls(rec):
+            if b.get("id") in acc["calls"]:
                 continue
             acc["calls"].add(b.get("id"))
             command = (b.get("input") or {}).get("command") or ""
@@ -968,17 +990,25 @@ def set_in(block: str) -> set:
     while SUBSTITUTION.search(text):
         text = SUBSTITUTION.sub("SUBST", text)
     found = {g for m in LOOP_VAR.finditer(text) for g in m.groups() if g}
-    for segment in COMMAND_SPLIT.split(text):
-        words = words_of(segment)
-        while words and words[0] in KEYWORDS:
-            words = words[1:]
-        if words and words[0] in DECLARERS:
-            found |= {m.group(1) for w in words[1:] if (m := ASSIGNMENT.match(w))}
-            continue
-        lead = [m.group(1) for w in words if (m := ASSIGNMENT.match(w))]
-        if lead and len(lead) == len(words):
-            found |= set(lead)
-    return found
+    return found.union(*map(segment_sets, COMMAND_SPLIT.split(text)))
+
+
+def command_words(segment: str) -> list[str]:
+    """A command's words past the keywords that lead it."""
+    words = words_of(segment)
+    while words and words[0] in KEYWORDS:
+        words = words[1:]
+    return words
+
+
+def segment_sets(segment: str) -> set:
+    """The variables one command sets: every assignment behind a declarer, or
+    its assignments when nothing but assignments follows its keywords."""
+    words = command_words(segment)
+    if words and words[0] in DECLARERS:
+        return {m.group(1) for w in words[1:] if (m := ASSIGNMENT.match(w))}
+    lead = [m.group(1) for w in words if (m := ASSIGNMENT.match(w))]
+    return set(lead) if lead and len(lead) == len(words) else set()
 
 
 def used_in(block: str) -> set:
@@ -1029,8 +1059,10 @@ def path_end(path: str) -> str:
 def probes(it: dict) -> list[str]:
     """What a reader would run from this item. A script's source is skipped
     for the reason its references are: a path there may be a usage example or
-    a fixture, and is not a step anyone runs."""
-    if it["kind"] == "script":
+    a fixture, and is not a step anyone runs. A coding guideline is skipped
+    too: its code blocks show how code is written, a fragment or a Good/Bad
+    pair, and are not steps anyone runs either."""
+    if it["kind"] == "script" or it["name"].endswith("_guidelines.md"):
         return []
     text = Path(it["path"]).read_text(encoding="utf-8", errors="replace")
     return unset_vars(text, Path(it["path"]).parent) + tmp_paths(text)
@@ -1044,24 +1076,33 @@ def prose(path: str) -> str:
     frontmatter but its description, a .py's module docstring, a .sh's
     leading comment block. A settings or memory file has none here."""
     p = Path(path)
-    text = p.read_text(encoding="utf-8", errors="replace")
-    if p.suffix == ".py":
-        m = DOCSTRING.search(text)
-        return "\n" * text.count("\n", 0, m.start(1)) + m.group(1) if m else ""
-    if p.suffix == ".sh":
-        lines = []
-        for ln in text.splitlines():
-            if not ln.startswith("#"):
-                break
-            lines.append("" if ln.startswith("#!") else re.sub(r"^# ?", "", ln))
-        return "\n".join(lines)
-    if p.suffix != ".md":
-        return ""
+    read = PROSE_OF.get(p.suffix)
+    return read(p.read_text(encoding="utf-8", errors="replace")) if read else ""
+
+
+def py_prose(text: str) -> str:
+    m = DOCSTRING.search(text)
+    return "\n" * text.count("\n", 0, m.start(1)) + m.group(1) if m else ""
+
+
+def sh_prose(text: str) -> str:
+    lines = []
+    for ln in text.splitlines():
+        if not ln.startswith("#"):
+            break
+        lines.append("" if ln.startswith("#!") else re.sub(r"^# ?", "", ln))
+    return "\n".join(lines)
+
+
+def md_prose(text: str) -> str:
     fm = FRONTMATTER.match(text)
     head = "\n".join(ln if ln.startswith("description:") else ""
                      for ln in fm.group(0).split("\n")) if fm else ""
     return PROSE_FENCE.sub(lambda m: "\n" * m.group(0).count("\n"),
                            head + text[fm.end() if fm else 0:])
+
+
+PROSE_OF = {".py": py_prose, ".sh": sh_prose, ".md": md_prose}
 
 
 def sentences(path: str) -> list[tuple[int, frozenset]]:
@@ -1088,29 +1129,49 @@ def fill_restates(rows: list[dict]) -> None:
     matched against its own body, which it summarises by design."""
     said = {r["path"]: sentences(r["path"]) for r in rows
             if r["kind"] in PROCEDURE | {"rules", "script"}}
-    desc = {r["path"]: FRONTMATTER.match(Path(r["path"]).read_text(
-        encoding="utf-8", errors="replace")) for r in rows
-        if r["kind"] in PROCEDURE}
     for row in rows:
-        if row["kind"] not in PROCEDURE:
+        if row["kind"] in PROCEDURE:
+            row["restates"] = restates_of(row["path"], said)
+
+
+def restates_of(path: str, said: dict) -> list[dict]:
+    """The sentences of one item that restate another, each with the closest."""
+    head = frontmatter_lines(path)
+    found = {}
+    for line, words in said[path]:
+        if len(words) < RESTATE_WORDS:
             continue
-        fm = desc[row["path"]]
-        head = fm.group(0).count("\n") if fm else 0
-        found = {}
-        for line, words in said[row["path"]]:
-            if len(words) < RESTATE_WORDS:
-                continue
-            best = max(((len(words & other) / len(words), path, at)
-                        for path, theirs in said.items()
-                        for at, other in theirs
-                        if path != row["path"]
-                        or (at != line and (at > head) == (line > head))),
-                       default=(0, "", 0))
-            key = (line, best[1], best[2])
-            if best[0] >= RESTATE_SHARE and best[0] > found.get(key, 0):
-                found[key] = best[0]
-        row["restates"] = [{"line": k[0], "path": k[1], "at": k[2],
-                            "share": round(v, 2)} for k, v in found.items()]
+        share, there, at = closest(said, path, line, words, head)
+        key = (line, there, at)
+        if share >= RESTATE_SHARE:
+            found[key] = max(share, found.get(key, 0))
+    return [{"line": k[0], "path": k[1], "at": k[2], "share": round(v, 2)}
+            for k, v in found.items()]
+
+
+def frontmatter_lines(path: str) -> int:
+    """How many lines a file's frontmatter spans, or 0 with none."""
+    fm = FRONTMATTER.match(Path(path).read_text(encoding="utf-8",
+                                                errors="replace"))
+    return fm.group(0).count("\n") if fm else 0
+
+
+def in_body(line: int, head: int) -> bool:
+    """Whether a line comes after the frontmatter, which ends at line head."""
+    return line > head  # mutation: equivalent — closest compares two lines' sides, so flipping both changes nothing, and line head, the closing ---, holds no sentence
+
+
+def closest(said: dict, path: str, line: int, words: frozenset,
+            head: int) -> tuple[float, str, int]:
+    """The sentence sharing the largest part of words, as (share, path, line):
+    any other item's, or one of this item's own on the same side of its
+    frontmatter."""
+    return max(((len(words & other) / len(words), there, at)
+                for there, theirs in said.items()
+                for at, other in theirs
+                if there != path
+                or (at != line and in_body(at, head) == in_body(line, head))),
+               default=(0, "", 0))
 
 
 # ------------------------------------------------------------------ journal
@@ -1284,21 +1345,26 @@ def reference(it: dict) -> re.Pattern:
 
 
 def journal(it: dict, entries: list[dict], todos: list[str]) -> dict:
-    name = it["name"]
-    pat, via = reference(it), f"(via /{name})"
+    pat, via = reference(it), f"(via /{it['name']})"
     vias = sorted(e["ts"] for e in entries if e["header"].endswith(via))
-    notes = list(dict.fromkeys(
-        n for e in entries for n in queue_lines(e) if pat.search(n)))
-    placed = list(dict.fromkeys(
-        c for e in entries for c in close_lines(e) if places(c, it)))
+    placed = dict.fromkeys(
+        c for e in entries for c in close_lines(e) if places(c, it))
+    return {"via_entries": len(vias),
+            "via_last": vias[-1][:10] if vias else None,
+            "captured": captured(pat, entries, todos),
+            "open": [queued(t) for t in todos if pat.search(t)],
+            "placed": [close_fact(c) for c in placed]}
+
+
+def captured(pat: re.Pattern, entries: list[dict], todos: list[str]) -> list[dict]:
+    """Each note an entry wrote whose text names the item, once, with what
+    became of it."""
+    notes = dict.fromkeys(
+        n for e in entries for n in queue_lines(e) if pat.search(n))
     closed = {m.group(1) for e in entries for c in close_lines(e)
               if (m := CLOSE_ID.match(c))}
     queue = {q["id"]: q for q in map(queued, todos)}
-    return {"via_entries": len(vias),
-            "via_last": vias[-1][:10] if vias else None,
-            "captured": [captured_note(n, closed, queue) for n in notes],
-            "open": [queued(t) for t in todos if pat.search(t)],
-            "placed": [close_fact(c) for c in placed]}
+    return [captured_note(n, closed, queue) for n in notes]
 
 
 # ---------------------------------------------------------------- inventory
@@ -1489,7 +1555,12 @@ def attention(items) -> list[list[str]]:
     script is one row however many items name it. An open note is no row:
     /notes works the queue.
     """
-    label, rows = labeller(items), []
+    label = labeller(items)
+    return [row for check in ATTENTION for row in check(items, label)]
+
+
+def upkeep_rows(items, label) -> list[list[str]]:
+    rows = []
     for i in items:
         u = i["upkeep"]
         if u["tracked"] in UNTRACKED:
@@ -1497,22 +1568,42 @@ def attention(items) -> list[list[str]]:
         elif u.get("uncommitted"):
             rows.append(["uncommitted", label(i),
                          f"last commit {dash(u.get('last_edit'))}"])
-    rows += [["missing script", label(i), short(s["script"])]
-             for i in items for s in i["scripts"] if not s["exists"]]
-    rows += [["no self-test", label(i), named_by(i["named_by"])]
-             for i in items if i["kind"] == "script" and not i["tested"]]
-    rows += [["unused", label(i), "named by nothing, no run in any project"]
-             for i in items if i.get("named_by") == []
-             and not i["usage"]["runs"] and not i["usage"]["elsewhere"]]
-    rows += [["probe", label(i), q] for i in items for q in i["probes"]]
-    rows += [["restates", label(i), f"{len(r)} restatement{'s' * (len(r) > 1)};"
-              f" /inventory {i['name']} lists them"]
-             for i in items if (r := i.get("restates"))]
-    rows += [["unpriced", label(i), f"{n} {model} messages: no list price,"
-              " so the dollars leave them out"]
-             for i in items for model, n in
-             ((i["cost"] or {}).get("unpriced") or {}).items()]
     return rows
+
+
+def script_rows(items, label) -> list[list[str]]:
+    """A script a body names that does not exist, one with no --self-test,
+    and one nothing names and nothing has run."""
+    return ([["missing script", label(i), short(s["script"])]
+             for i in items for s in i["scripts"] if not s["exists"]]
+            + [["no self-test", label(i), named_by(i["named_by"])]
+               for i in items if i["kind"] == "script" and not i["tested"]]
+            + [["unused", label(i), "named by nothing, no run in any project"]
+               for i in items if unused(i)])
+
+
+def unused(i: dict) -> bool:
+    return (i.get("named_by") == [] and not i["usage"]["runs"]
+            and not i["usage"]["elsewhere"])
+
+
+def text_rows(items, label) -> list[list[str]]:
+    """A probe hit, and a procedure that restates, as one row."""
+    return ([["probe", label(i), q] for i in items for q in i["probes"]]
+            + [["restates", label(i),
+                f"{len(r)} restatement{'s' * (len(r) > 1)};"
+                f" /inventory {i['name']} lists them"]
+               for i in items if (r := i.get("restates"))])
+
+
+def unpriced_rows(items, label) -> list[list[str]]:
+    return [["unpriced", label(i), f"{n} {model} messages: no list price,"
+             " so the dollars leave them out"]
+            for i in items for model, n in
+            ((i["cost"] or {}).get("unpriced") or {}).items()]
+
+
+ATTENTION = (upkeep_rows, script_rows, text_rows, unpriced_rows)
 
 
 def month_span(since: str, until: str) -> list[str]:
@@ -1649,25 +1740,32 @@ def render(inv: dict) -> str:
              "last run", "$ total", "$/run", "$ subagent", "growth",
              "late %", "commits", "last edit", "named by", "what it is"]
     rows = census_rows(items, months)
-    # A column no row fills measures nothing these kinds have -- named by
-    # among the procedures, cost among the scripts -- so it is left out. The
-    # months go as one block: a month dropped from the middle would read as
-    # no gap at all.
+    keep = kept(heads, rows, len(months))
+    return "\n".join([
+        header(inv), needs_attention(items),
+        table(items_title(heads, keep), [heads[j] for j in keep],
+              [[r[j] for j in keep] for r in rows])])
+
+
+def kept(heads: list[str], rows: list[list], months: int) -> list[int]:
+    """The columns some row fills. A column no row fills measures nothing these
+    kinds have -- named by among the procedures, cost among the scripts -- so
+    it is left out. The months, from column 3, go as one block: a month
+    dropped from the middle would read as no gap at all."""
     filled = [any(dash(r[j]) != "-" for r in rows) for j in range(len(heads))]
-    span = range(3, 3 + len(months))
-    if any(filled[j] for j in span):
-        filled[3:3 + len(months)] = [True] * len(months)
-    keep = [j for j in range(len(heads)) if filled[j]]
+    if any(filled[3:3 + months]):
+        filled[3:3 + months] = [True] * months
+    return [j for j in range(len(heads)) if filled[j]]
+
+
+def items_title(heads: list[str], keep: list[int]) -> str:
+    """The table's title, with a note on the unit of each kept column that
+    needs one."""
     notes_on = [text for head, text in (
         ("runs", "runs per month"),
         ("$ total", f"$ at list prices read {PRICES_READ}"),
         ("growth", "growth in K tokens")) if heads.index(head) in keep]
-    title = "Items" + (
-        f" ({'; '.join(notes_on)})" if notes_on else "")
-    return "\n".join([
-        header(inv), needs_attention(items),
-        table(title, [heads[j] for j in keep],
-              [[r[j] for j in keep] for r in rows])])
+    return "Items" + (f" ({'; '.join(notes_on)})" if notes_on else "")
 
 
 # ---------------------------------------------------------------- self-test
@@ -1746,7 +1844,9 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
     write(home / "scripts/tool.py", '"""Tool."""\nx = 1\n')
     write(home / "CLAUDE.md", "# Global Preferences\n")
     write(home / "credo.md", "# Credo\n")
-    write(home / "x_guidelines.md", "# X rules\n")
+    # A guideline's bash block is an example of code, not a step: no probe.
+    write(home / "x_guidelines.md",
+          "# X rules\n```bash\ncat \"$file\" > /tmp/out\n```\n")
     write(home / "settings.json", "{}\n")
     write(project / ".claude/skills/alpha/SKILL.md",
           "---\ndescription: Alpha.\n---\nRun .claude/scripts/probe.sh,"
@@ -1906,8 +2006,8 @@ def transcript_fixture(root: Path) -> None:
                   model="claude-haiku-4-5-20251001")])
 
 
-def bash(uuid, ts, cwd, tid, command) -> dict:
-    call = {"type": "tool_use", "id": tid, "name": "Bash",
+def bash(uuid, ts, cwd, tid, command, tool="Bash") -> dict:
+    call = {"type": "tool_use", "id": tid, "name": tool,
             "input": {"command": command}}
     return {**assistant(uuid, uuid, ts, {}, None, [call]), "cwd": cwd}
 
@@ -1917,7 +2017,8 @@ def bash_fixture(root: Path, project: Path) -> None:
     assignments and launchers; a cat of the same file; a path inside a heredoc;
     a call copied into a second transcript; a run before the window; a script
     of the same name elsewhere; a self-test and a help request, which are not
-    uses; and a run from a subagent."""
+    uses; a command another tool runs, which is no Bash call; and a run from a
+    subagent."""
     run = (f"cd {project} && FOO=1 timeout 5 bash .claude/scripts/probe.sh"
            " --go | head; cat .claude/scripts/probe.sh")
     with open(root / "s2.jsonl", "a") as f:
@@ -1931,7 +2032,9 @@ def bash_fixture(root: Path, project: Path) -> None:
             bash("c5", "2026-05-14T00:00Z", "/", "x4",
                  "python3 /elsewhere/tool.py && echo x.sh"),
             bash("c6", "2026-05-15T00:00Z", str(project), "x6",
-                 ".claude/scripts/probe.sh --self-test; .claude/scripts/probe.sh -h")]:
+                 ".claude/scripts/probe.sh --self-test; .claude/scripts/probe.sh -h"),
+            bash("c7", "2026-05-16T00:00Z", str(project), "x7",
+                 ".claude/scripts/probe.sh", tool="Monitor")]:
             f.write(json.dumps(rec) + "\n")
     with open(root / "s1/subagents/agent-g1.jsonl", "a") as f:
         f.write(json.dumps(bash("g2", "2026-05-02T00:00Z", "/", "x5",
@@ -2049,6 +2152,7 @@ EXPECTED = {
     "named_by.cut": "named by 5: a, b, c +2 more",
     "months": ["2025-11", "2025-12", "2026-01", "2026-02"],
     "gated.probes": [],
+    "guide.probes": [],
     "emit.piped": 141,
     "alpha.scripts": [("probe.sh", True, False),
                       ("gated.sh", True, True),
@@ -2079,6 +2183,7 @@ EXPECTED = {
     "restate.cases": {k: v for k, (_, v) in RESTATE_CASES.items()},
     "beta.restates": [(15, "CLAUDE.md", 3, 1.0)],
     "attention.restates": ["beta"],
+    "restates.detail": ["1 restatement; /inventory beta lists them"],
     "restates.view": True,
     "candidates": 2,
     "scoped": 1,
@@ -2175,7 +2280,12 @@ def narrowed(inv: dict, kind: str) -> tuple:
 
 def observed(inv: dict) -> dict:
     by = {i["name"]: i for i in inv["items"]}
-    a, up = by["alpha"], by["alpha"]["upkeep"]
+    return {**self_test_census(inv), **self_test_usage(inv, by),
+            **self_test_items(inv, by), **self_test_text(inv, by)}
+
+
+def self_test_census(inv: dict) -> dict:
+    """What the census holds and the parser takes."""
     return {
         "census": sorted((i["kind"], i["scope"], i["name"])
                          for i in inv["items"]),
@@ -2188,10 +2298,31 @@ def observed(inv: dict) -> dict:
             if k in ("name", "scope", "kind")},
         "scope.alone": refused("--scope", "global"),
         "hint.gaps": hint_gaps(INVENTORY_SKILL),
+    }
+
+
+def self_test_usage(inv: dict, by: dict) -> dict:
+    """Names, runs and prices."""
+    a = by["alpha"]
+    return {
         "desc": {f"{i['scope']}:{i['name']}": i["description"]
                  for i in inv["items"]},
         "named_by": {i["name"]: i["named_by"] for i in inv["items"]
                      if i["kind"] == "script"},
+        **self_test_elsewhere(inv),
+        "alpha.usage": a["usage"],
+        "script.runs": {i["name"]: (i["usage"]["runs"], i["usage"]["sessions"],
+                                    i["usage"]["last_run"])
+                        for i in inv["items"] if i["kind"] == "script"},
+        "alpha.cost": {k: round(v, 7) if isinstance(v, float) else v
+                       for k, v in a["cost"].items()},
+        **self_test_prices(),
+    }
+
+
+def self_test_elsewhere(inv: dict) -> dict:
+    """The scripts run in other projects, and how the one-item report says so."""
+    return {
         "elsewhere": {i["name"]: (i["usage"]["elsewhere"],
                                   i["usage"]["elsewhere_in"])
                       for i in inv["items"]
@@ -2199,12 +2330,25 @@ def observed(inv: dict) -> dict:
         "elsewhere.line": next(
             usage_line(i["usage"]) for i in inv["items"]
             if i["name"] == "run_there.sh").split("last -", 1)[1],
-        "alpha.usage": a["usage"],
-        "script.runs": {i["name"]: (i["usage"]["runs"], i["usage"]["sessions"],
-                                    i["usage"]["last_run"])
-                        for i in inv["items"] if i["kind"] == "script"},
-        "alpha.cost": {k: round(v, 7) if isinstance(v, float) else v
-                       for k, v in a["cost"].items()},
+    }
+
+
+def self_test_placed(inv: dict) -> dict:
+    """The closes placed into each item, and their ids."""
+    return {
+        # A placement is asserted by the item it named, so a close that names a
+        # kind and no item must appear against nothing.
+        "placed": {i["name"]: [p["close"] for p in i["journal"]["placed"]]
+                   for i in inv["items"] if i["journal"]["placed"]},
+        "placed.ids": sum(1 for i in inv["items"]
+                          for p in i["journal"]["placed"] if p["id"]),
+    }
+
+
+def self_test_prices() -> dict:
+    """A message's dollars across cache splits, the long-prompt threshold and
+    the cases with no list price."""
+    return {
         "price.cases": [None if d is None else round(d, 9) for d in (
             dollars("claude-opus-5-5", {"cache_creation_input_tokens": 1,
                     "cache_creation": {"ephemeral_5m_input_tokens": 1}}),
@@ -2219,6 +2363,13 @@ def observed(inv: dict) -> dict:
                                         "inference_geo": "us"}),
             dollars("claude-opus-5-5", {"cache_creation_input_tokens": 1}),
             dollars("<synthetic>", {"input_tokens": 0}))],
+    }
+
+
+def self_test_items(inv: dict, by: dict) -> dict:
+    """Upkeep, the scripts an item names, and the journal."""
+    a, up = by["alpha"], by["alpha"]["upkeep"]
+    return {
         "alpha.upkeep": {k: up[k] for k in
                          ("tracked", "commits", "edits_90d",
                           "uncommitted")},
@@ -2230,6 +2381,14 @@ def observed(inv: dict) -> dict:
         "alpha.bundled": a["bundled"],
         "probe.bundled": (by["probe.sh"]["bundled"],
                           by["probe.sh"]["upkeep"]["commits"]),
+        **self_test_journal(inv, by),
+    }
+
+
+def self_test_journal(inv: dict, by: dict) -> dict:
+    """The notes and placements the journal holds for an item."""
+    a = by["alpha"]
+    return {
         # The id is minted per run, so the text is compared with it normalised
         # away and its presence asserted separately — otherwise a reader that
         # silently dropped the id would still pass.
@@ -2239,17 +2398,19 @@ def observed(inv: dict) -> dict:
                           "open": len(a["journal"]["open"])},
         "alpha.captured_ids": sum(1 for c in a["journal"]["captured"]
                                   if c["id"]),
-        # A placement is asserted by the item it named, so a close that names a
-        # kind and no item must appear against nothing.
-        "placed": {i["name"]: [p["close"] for p in i["journal"]["placed"]]
-                   for i in inv["items"] if i["journal"]["placed"]},
-        "placed.ids": sum(1 for i in inv["items"]
-                          for p in i["journal"]["placed"] if p["id"]),
+        **self_test_placed(inv),
         # The two no item answers to are counted, not lost, and survive --kind.
         "placements": inv["placements"],
         "placements.line": render(narrow(inv, "skill")).splitlines()[3],
         "beta.todos": len(by["beta"]["journal"]["open"]),
         "beta.usage": {k: by["beta"]["usage"][k] for k in ("runs", "last_run")},
+    }
+
+
+def self_test_text(inv: dict, by: dict) -> dict:
+    """Probes, restatements and the views."""
+    a = by["alpha"]
+    return {
         "probe.cases": {k: sorted(used_in(b) - set_in(b))
                         for k, (b, _) in PROBE_CASES.items()},
         "beta.probes": by["beta"]["probes"],
@@ -2270,6 +2431,7 @@ def observed(inv: dict) -> dict:
                   blurb("Log billable time to Jira for work that hasn't"
                         " been logged yet.")],
         "gated.probes": by["gated.sh"]["probes"],
+        "guide.probes": by["x_guidelines.md"]["probes"],
         "all.gone": refused("--all"),
         "named_by.cut": named_by(list("abcde")),
         "months": month_span("2025-11-30", "2026-02-01"),
@@ -2298,11 +2460,12 @@ def columns(inv: dict) -> dict:
 
 def attention_facts(inv: dict) -> dict:
     """Which items each kind of attention row names, and the census view."""
+    return {**self_test_attention(inv), **self_test_census_view(inv)}
+
+
+def self_test_attention(inv: dict) -> dict:
     rows = attention(inv["items"])
     names = lambda problem: sorted(r[1] for r in rows if r[0] == problem)
-    view = render(inv)
-    listed = {ln.split()[0] for ln in
-              view.split("\n== Items", 1)[-1].splitlines()[2:] if ln.strip()}
     return {
         "attention.untracked": names("untracked"),
         "attention.missing": [Path(r[2]).name for r in rows
@@ -2319,9 +2482,17 @@ def attention_facts(inv: dict) -> dict:
         "attention.notes": [r for r in rows if "note" in r[0]],
         # The one-item report lists the notes whose text names the item, and
         # only those: `not /alphabet` names neither alpha nor beta.
-        "notes.item": {name: [n["text"] for n in notes([i])]
-                       for name in ("alpha", "beta")
-                       for i in inv["items"] if i["name"] == name},
+    }
+
+
+def self_test_census_view(inv: dict) -> dict:
+    rows = attention(inv["items"])
+    view = render(inv)
+    listed = {ln.split()[0] for ln in
+              view.split("\n== Items", 1)[-1].splitlines()[2:] if ln.strip()}
+    return {
+        "restates.detail": [r[2] for r in rows if r[0] == "restates"],
+        **self_test_notes(inv),
         # The census is the attention rows and one table holding every kind
         # there is. No note is in it.
         # The JSON census holds the rows the text view's attention lists.
@@ -2330,6 +2501,15 @@ def attention_facts(inv: dict) -> dict:
                  sorted({i["kind"] for i in inv["items"] if i["name"] in listed})
                  == sorted({i["kind"] for i in inv["items"]}),
                  "== Notes" in view),
+    }
+
+
+def self_test_notes(inv: dict) -> dict:
+    """The notes the one-item report lists for alpha and beta."""
+    return {
+        "notes.item": {name: [n["text"] for n in notes([i])]
+                       for name in ("alpha", "beta")
+                       for i in inv["items"] if i["name"] == name},
     }
 
 

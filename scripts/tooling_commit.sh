@@ -120,7 +120,7 @@ all_known() {
 has_changes() {  # TOP REL…
   local top="$1"; shift
   [[ -n "$(git -C "$top" status --porcelain --untracked-files=all -- "$@")" ]] \
-    || die "nothing changed in the named paths"
+    || die "nothing changed in the named paths in $top"
 }
 
 # gated REL… — 0 unless every path is the session history.
@@ -366,8 +366,8 @@ e.txt"
   tap_is "paths in two repos are refused" "$(grep -c 'one call is one repo' <<<"$out")" "1"
 
   out=$(tc -m "chore: none" -- "$r/a.txt")
-  tap_is "an unchanged path is refused, not an empty commit" "$(grep -c 'nothing changed' <<<"$out")" \
-    "1"
+  tap_is "an unchanged path is refused, not an empty commit, naming the repo it checked" \
+    "$(grep -cF "nothing changed in the named paths in $r" <<<"$out")" "1"
 
   echo w > "$g/scripts/w.sh"
   out=$(cd "$r" && "$SELF" -m "chore: w" -- scripts/w.sh 2>&1)

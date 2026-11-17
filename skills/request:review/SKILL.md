@@ -6,7 +6,7 @@ argument-hint: "<TICKET-KEY>   (omit to use the ticket the session is working)"
 
 Ask for a review of every open PR on: $ARGUMENTS
 
-A ticket has one review thread in the channel `.claude/review_channel` names, recorded on the ticket itself. Every later message goes in that thread: a new PR, or a re-review once comments are addressed.
+Every message after the first goes in the ticket's one review thread: a new PR, or a re-review once comments are addressed. `review_request_state.py --help` states where that thread is and how it is found.
 
 ## 1. Read where the request stands
 

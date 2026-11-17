@@ -421,6 +421,11 @@ people.map((p, i) => <li key={i}>{p.name}</li>);
 
 The runner is whatever the repository's `npm test` script runs: `node --test` in the plain-JS projects, Jest or Vitest in the React apps. `coding_guidelines.md` → **Verification** sets the coverage bar, which is every line of every changed file. The configuration below is how each runner enforces it.
 
+### Coverage runs in its own script
+> *Source: [StrykerJS configuration](https://stryker-mutator.io/docs/stryker-js/configuration/)*
+
+`npm test` runs the tests and nothing else. `npm run coverage` runs them again with the coverage threshold. `change_gate.py` runs `npm test` inside StrykerJS's copy of the repository, whose code carries a branch for every mutant, and a test run never reaches most of them. A coverage threshold in `npm test` then fails Stryker's first, unmutated run, and the gate fails with no verdict on a single mutant. So the threshold flags below go only in the coverage script, and CI runs both scripts.
+
 ### Coverage counts the whole file, including files no test imports
 > *Source: [Node.js CLI](https://nodejs.org/api/cli.html), [Jest configuration](https://jestjs.io/docs/configuration#coveragethreshold-object), [Vitest coverage](https://vitest.dev/config/coverage)*
 
@@ -489,7 +494,7 @@ rules: { complexity: ["error", 10] }
 ### Every mutant on a changed line is killed
 > *Source: [StrykerJS configuration](https://stryker-mutator.io/docs/stryker-js/configuration/)*
 
-`change_gate.py` runs StrykerJS (`@stryker-mutator/core`) over the changed line ranges, testing with the command given as `--test 'js=<command>'`, which is the one CI runs, else the repository's `npm test`. A mutant that survives fails the gate. So does a mutant that no test covers. A repository with no `test` script cannot pass.
+`change_gate.py` runs StrykerJS (`@stryker-mutator/core`) over the changed line ranges, testing with the command given as `--test 'js=<command>'`, which is CI's test command without coverage, else the repository's `npm test` script when it has one. With neither, the gate fails and names the flag. A mutant that survives fails the gate. So does a mutant that no test covers.
 
 A mutant that no test can tell apart from the original is accepted only when its line carries the gate's marker, with the reason saying why:
 
@@ -527,7 +532,7 @@ An Effect whose only job is to copy one piece of state into another is a second 
 | **eslint-plugin-jsx-a11y** | Accessibility checks on JSX |
 | **Prettier** | Formatting, where the repository configures it |
 | **`tsc --noEmit`** | Type checking |
-| **node:test, Jest, Vitest** | Tests and coverage, as the repository's `npm test` runs them |
+| **node:test, Jest, Vitest** | Tests, as the repository's `npm test` runs them, and coverage, as its `npm run coverage` runs them |
 | **lizard, StrykerJS** | Complexity and mutation, run by `change_gate.py` |
 
 Take the lint, type-check and test commands from the repository's CI workflow, and run them as **Verification** says.

@@ -561,18 +561,27 @@ def covering_tests(db: Path, path: Path, relative: str) -> dict[int, list[str]]:
     """Per line, the pytest node ids whose run executed it, from a coverage file with test contexts.
     A line run only while the tests were collected, such as a decorator or a module constant, has
     an empty list: every test imported it, so every test can kill its mutant. A file is found by
-    its absolute path, or by its path in the repo when the coverage run kept relative_files."""
+    its absolute path, or by its path in the repo when the coverage run kept relative_files. A run
+    with --cov-branch records arcs in place of lines, and an arc's positive ends are the lines run."""
     from coverage.numbits import numbits_to_nums  # noqa: PLC0415 — only the Python runner needs coverage
-    out: dict[int, list[str]] = {}
-    query = (
+    lines = (
         "select c.context, lb.numbits from line_bits lb join file f on f.id = lb.file_id "
         "join context c on c.id = lb.context_id where f.path in (?, ?)"
     )
+    arcs = (
+        "select c.context, a.fromno, a.tono from arc a join file f on f.id = a.file_id "
+        "join context c on c.id = a.context_id where f.path in (?, ?)"
+    )
+    runs: set[tuple[str, int]] = set()
     with sqlite3.connect(db) as conn:
-        for context, bits in conn.execute(query, (str(path), relative)):
-            node = context.split("|")[0]
-            for n in numbits_to_nums(bits):
-                out.setdefault(n, []).extend([node] if node else [])
+        for context, bits in conn.execute(lines, (str(path), relative)):
+            runs.update((context, n) for n in numbits_to_nums(bits))
+        for context, *ends in conn.execute(arcs, (str(path), relative)):
+            runs.update((context, n) for n in ends if n > 0)  # mutation: equivalent — line 0 holds no code, so no mutant sits on it
+    out: dict[int, list[str]] = {}
+    for context, n in sorted(runs):
+        node = context.split("|")[0]
+        out.setdefault(n, []).extend([node] if node else [])
     return out
 
 
@@ -1304,6 +1313,14 @@ def self_test_reuse(t: Tap) -> None:
             status, out = self_test_run(repo, "--check", "mutation", "--test", "python=python3 -m pytest tests", "--coverage", str(db))
             t.check(status == 1 and "calc.py:4: return a > b  →  return a >= b" in out and "calc.py:8:" in out,
                     f"a coverage file with {name} paths is reused, and its untested lines still live", out)
+        strong = WEAK_TEST + "    assert not over(3, 3)\n\n\ndef test_unused():\n    assert unused(1) == 2\n"
+        self_test_files(repo, {"calc.py": CALC, "tests/test_calc.py": strong.replace("import over", "import over, unused")})
+        branch = Path(tmp) / "branch.coverage"
+        subprocess.run(["env", f"COVERAGE_FILE={branch}", "python3", "-m", "pytest", "-q", "-p", "no:cacheprovider", "tests",
+                        "--cov", "--cov-branch", "--cov-context=test", "--cov-report="], cwd=repo, capture_output=True, check=False)
+        status, out = self_test_run(repo, "--check", "mutation", "--test", "python=python3 -m pytest tests", "--coverage", str(branch))
+        t.check(status == 0 and "python: 3 mutants, 3 killed" in out,
+                "a reused --cov-branch coverage file, which records arcs, names the tests behind each line", out)
         self_test_files(repo, {"calc.py": CALC, "tests/test_calc.py": WEAK_TEST, "tests/test_broken.py": "def test_broken():\n    assert False\n"})
         status, out = self_test_run(repo, "--check", "mutation", "--test", "python=python3 -m pytest tests", "--coverage", str(db))
         t.check(status == 1 and "calc.py:4: return a > b  →  return a >= b" in out,

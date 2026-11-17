@@ -18,10 +18,12 @@
 #    "reviewers": [{"login", "state", "behind"}]}
 # "ready" is true when the PR is not a draft, is mergeable, and no check is
 # failing or pending. A check that was skipped or neutral counts as a pass.
-# "pushed" is the head commit's commit time. "reviewers" holds each person's
-# latest review, the PR author's own and a bot's (Greptile) left out; "behind"
-# is true when the head commit is newer than that review, so the reviewer has
-# not seen it. Reviews are read over GraphQL, the one API that marks a bot.
+# "pushed" is when the head commit reached GitHub: the earliest check suite on
+# it, which GitHub creates for each installed app on push, else its commit
+# time when no app ran. "reviewers" holds each person's latest review, the PR
+# author's own and a bot's (Greptile) left out; "behind" is true when that
+# review was made on another commit than the head, so the reviewer has not
+# seen it. Reviews are read over GraphQL, the one API that marks a bot.
 #
 # Exit 0: listed, possibly nothing. Exit 1: no key, or the project names no
 # .claude/github_orgs. Exit 2: a GitHub read failed, so the list is not whole.
@@ -48,25 +50,27 @@ SUMMARY='
   | .ready = ((.draft | not) and .mergeable == "MERGEABLE"
               and .checks.fail == 0 and .checks.pending == 0)'
 
-# Each reviewer but the author and bots, and whether the head commit postdates their review.
+# Each reviewer but the author and bots, and whether they reviewed another commit than the head.
 # shellcheck disable=SC2016
 REVIEWERS='
-  (.commits[-1].committedDate // null) as $pushed
+  (.commits[-1] // {}) as $c
+  | (([$c.checkSuites[]?] | min) // $c.committedDate // null) as $pushed
   | (.author.login // "") as $me
+  | .head as $head
   | {pushed: $pushed,
      reviewers: [.latestReviews[]? | select(.author.login != $me and .author.__typename != "Bot")
-                 | {login: .author.login, state,
-                    behind: ($pushed != null and $pushed > .submittedAt)}]}'
+                 | {login: .author.login, state, behind: (.commit.oid != $head)}]}'
 
 # The head commit, the author and each latest review, as REVIEWERS reads them.
 # shellcheck disable=SC2016
 REVIEWS_QUERY='query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) {
-  pullRequest(number: $n) { author { login }
-    commits(last: 1) { nodes { commit { committedDate } } }
-    latestReviews(first: 50) { nodes { author { __typename login } state submittedAt } } } } }'
+  pullRequest(number: $n) { author { login } headRefOid
+    commits(last: 1) { nodes { commit { committedDate checkSuites(first: 50) { nodes { createdAt } } } } }
+    latestReviews(first: 50) { nodes { author { __typename login } state commit { oid } } } } } }'
 # shellcheck disable=SC2016
 REVIEWS_SHAPE='.data.repository.pullRequest
-  | {author, commits: [.commits.nodes[].commit], latestReviews: .latestReviews.nodes}'
+  | {author, head: .headRefOid, latestReviews: .latestReviews.nodes,
+     commits: [.commits.nodes[].commit | {committedDate, checkSuites: [.checkSuites.nodes[].createdAt]}]}'
 
 # Whether a title or body names the key as a whole token.
 # shellcheck disable=SC2016
@@ -94,16 +98,20 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_is "no review decision reads as NONE" \
     "$(jq -r "$SUMMARY | .review" <<<'{"isDraft":false,"mergeable":"MERGEABLE"}')" NONE
   revs() { jq -c "$REVIEWERS" <<<"$1"; }
-  tap_is "a review older than the head commit is behind, a newer one is not, the author's and a bot's are left out" \
-    "$(revs '{"author":{"login":"me"},"commits":[{"committedDate":"2026-01-02T00:00:00Z"}],"latestReviews":[
-      {"author":{"login":"a"},"state":"CHANGES_REQUESTED","submittedAt":"2026-01-01T00:00:00Z"},
-      {"author":{"login":"b"},"state":"APPROVED","submittedAt":"2026-01-03T00:00:00Z"},
-      {"author":{"login":"me"},"state":"COMMENTED","submittedAt":"2026-01-01T00:00:00Z"},
-      {"author":{"login":"greptile-apps","__typename":"Bot"},"state":"COMMENTED","submittedAt":"2026-01-01T00:00:00Z"}]}')" \
-    '{"pushed":"2026-01-02T00:00:00Z","reviewers":[{"login":"a","state":"CHANGES_REQUESTED","behind":true},{"login":"b","state":"APPROVED","behind":false}]}'
-  tap_is "a PR with no reviews has no reviewers" \
-    "$(revs '{"author":{"login":"me"},"commits":[{"committedDate":"2026-01-02T00:00:00Z"}],"latestReviews":[]}')" \
-    '{"pushed":"2026-01-02T00:00:00Z","reviewers":[]}'
+  tap_is "a review of another commit is behind, one of the head is not, the author's and a bot's are left out" \
+    "$(revs '{"author":{"login":"me"},"head":"h2","commits":[{"committedDate":"2026-01-01T00:00:00Z","checkSuites":[]}],"latestReviews":[
+      {"author":{"login":"a"},"state":"CHANGES_REQUESTED","commit":{"oid":"h1"}},
+      {"author":{"login":"b"},"state":"APPROVED","commit":{"oid":"h2"}},
+      {"author":{"login":"me"},"state":"COMMENTED","commit":{"oid":"h1"}},
+      {"author":{"login":"greptile-apps","__typename":"Bot"},"state":"COMMENTED","commit":{"oid":"h1"}}]}')" \
+    '{"pushed":"2026-01-01T00:00:00Z","reviewers":[{"login":"a","state":"CHANGES_REQUESTED","behind":true},{"login":"b","state":"APPROVED","behind":false}]}'
+  tap_is "the push time is the earliest check suite, not the commit time" \
+    "$(revs '{"author":{"login":"me"},"head":"h","commits":[{"committedDate":"2026-01-01T00:00:00Z",
+      "checkSuites":["2026-01-05T00:00:09Z","2026-01-05T00:00:03Z"]}],"latestReviews":[]}')" \
+    '{"pushed":"2026-01-05T00:00:03Z","reviewers":[]}'
+  tap_is "a PR with no commit has no push time" \
+    "$(revs '{"author":{"login":"me"},"head":"h","commits":[],"latestReviews":[]}')" \
+    '{"pushed":null,"reviewers":[]}'
   names() { jq -r --arg k ABC-113 "$NAMES_KEY" <<<"$1"; }
   tap_is "a key in the title names the ticket" "$(names '{"title":"ABC-113: fix"}')" true
   tap_is "a key in the body names the ticket" "$(names '{"title":"fix","body":"Jira: ABC-113."}')" true
@@ -127,7 +135,7 @@ if [[ "$1 $2" == "search prs" ]]; then
 fi
 if [[ "$1 $2" == "api graphql" ]]; then
   [[ -n "$FAKE_FAIL_REVIEWS" ]] && exit 1
-  echo '{"author":{"login":"me"},"commits":[{"committedDate":"2026-01-02T00:00:00Z"}],"latestReviews":[]}'
+  echo '{"author":{"login":"me"},"head":"h","commits":[{"committedDate":"2026-01-02T00:00:00Z","checkSuites":[]}],"latestReviews":[]}'
   exit 0
 fi
 [[ "$3" == "$FAKE_FAIL_URL" ]] && exit 1

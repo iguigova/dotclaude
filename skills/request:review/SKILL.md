@@ -6,7 +6,7 @@ argument-hint: "<TICKET-KEY>   (omit to use the ticket the session is working)"
 
 Ask for a review of every open PR on: $ARGUMENTS
 
-A ticket has one review thread in the channel `.claude/review_channel` names. Every later message goes in that thread: a new PR, or a re-review once comments are addressed. The thread is found in Slack each run, never remembered, so it is the same thread from any session.
+A ticket has one review thread in the channel `.claude/review_channel` names, recorded on the ticket itself. Every later message goes in that thread: a new PR, or a re-review once comments are addressed.
 
 ## 1. Read where the request stands
 
@@ -20,11 +20,13 @@ A ticket has one review thread in the channel `.claude/review_channel` names. Ev
 - **`reply`**: a thread exists. Write a reply (§2) for the PRs in `new` and `rereview`.
 - **`none`**: nothing to ask for. Say why (every PR announced and nobody behind, approved, or waiting) and stop.
 
+Each permalink in `earlier` is a duplicate thread from before the ticket recorded one: name each and ask whether to delete it (`~/.claude/scripts/slack_post.py delete <channel> <ts>`).
+
 Each PR in `waiting` is named, with its `why`. Read a failing check's log before saying what failed. Ask whether to wait, fix it, or leave it out. Wait on a pending check with `gh pr checks <url> --watch` in the background; never poll it. A run that exits 2 read nothing whole: say which read failed and stop.
 
 ## 2. Write the message
 
-The `draft` skill's rules apply. Before a reply, read the thread with `~/.claude/scripts/slack_thread.py <thread.permalink> --out <dir>`. Its `People` block gives the tag of each person a reply may address.
+The `draft` skill's rules apply. Before a reply, read the thread with `~/.claude/scripts/slack_thread.py <thread.permalink> --out <dir>`, so the reply answers what was said there.
 
 A **new post**:
 
@@ -34,23 +36,20 @@ A **new post**:
 
 A **reply** in the thread:
 
-- For a re-review, tag each reviewer in `rereview` (their GitHub login matched to a name in `People`) and say that the changes from their reviews are pushed and each comment has a reply. Add one bullet per PR, saying what changed for whom, then close with `Could you take another look when you get a moment? Thank you`.
+- For a re-review, tag each reviewer in `rereview` by their `slack` tag (a null tag is asked of the user) and say that the changes from their reviews are pushed and each comment has a reply. Add one bullet per PR, saying what changed for whom, then close with `Could you take another look when you get a moment? Thank you`.
 - For a new PR, one bullet in the new-post shape under `One more for review:`.
 
 Then run the `voice` skill on the text, and rework it until the review returns NONE.
 
 ## 3. Post after approval
 
-Show the final text and ask in the question dialog whether to post it. Once it is approved, run step 1 again. A changed `next`, `new` or `rereview` voids the approval: show what changed.
+Show the final text and ask in the question dialog whether to post it. Once it is approved:
 
 ```bash
-S=<scratchpad>/review-state.json
-CH=$(jq -r .channel "$S")
-~/.claude/scripts/slack_post.py post "$CH" <file>                                      # next: post
-~/.claude/scripts/slack_post.py post "$CH" <file> --thread "$(jq -r .thread.ts "$S")"  # next: reply
+~/.claude/scripts/review_request_state.py send <KEY> <file> --expect <next from step 1>
 ```
 
-`slack_post.py` reads the message back and prints its permalink. Give the permalink to the user.
+It posts only while `next` is unchanged, in the thread for a reply, and records a new thread on the ticket. Exit 4 means the state moved: show what it printed and redraft. Give the user the permalink it prints.
 
 ## 4. Record it
 

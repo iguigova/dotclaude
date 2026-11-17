@@ -90,12 +90,14 @@ nl_roots() {
 # A single space is "computed, none": empty would re-run the find on every token.
 # Depth 4 reaches a clone one level below a grouping directory, such as
 # <project>/api/2.0/<repo>/.git; depth 3 stopped at <project>/api/<repo>.
+# Links are followed, so a gate's clone that links the project's api/ in
+# (tooling_commit.sh) finds the same repositories as the project.
 NL_NESTED=""
 nl_nested() {
   local r
   [[ -n "$NL_NESTED" ]] && { printf '%s' "$NL_NESTED"; return; }
   [[ -n "$NL_PROJECT" ]] || { NL_NESTED=" "; printf '%s' "$NL_NESTED"; return; }
-  NL_NESTED=$(find "$NL_PROJECT" -maxdepth 4 -name .git -not -path "$NL_PROJECT/.git" \
+  NL_NESTED=$(find -L "$NL_PROJECT" -maxdepth 4 -name .git -not -path "$NL_PROJECT/.git" \
                 -printf '%h\n' 2>/dev/null | sort | while read -r r; do
                 printf '%s %s\n' "$r" \
                   "$(git -C "$r" rev-parse --abbrev-ref origin/HEAD 2>/dev/null)"
@@ -125,20 +127,32 @@ nl_held() {
 # tree: a script named without its directory is the commonest way a doc cites
 # another repo.
 nl_elsewhere() {
-  local r ref n at
-  local -a hits=() paths=("$1")
+  local r ref at
+  local -a hits=() paths
   [[ "$1" == /* || "$1" == '~'/* ]] && return 1
-  [[ "$1" == */* ]] || for n in $NL_SUBDIRS; do paths+=("$n/$1"); done
+  mapfile -t paths < <(nl_candidates "$1")
   while read -r r ref; do
     [[ -n "$r" ]] || continue
     at=$(nl_held "$r" "$ref" "${paths[@]}") || continue
-    if [[ "$at" == tree ]]; then hits+=("${r##*/}"); else hits+=("${r##*/} ($at)"); fi
+    hits+=("${r##*/}$(nl_at "$at")")
   done <<<"$(nl_nested)"
   (( ${#hits[@]} )) || return 1
-  printf '%s' "${hits[0]}"
-  (( ${#hits[@]} > 1 )) && printf ', %s' "${hits[@]:1}"
-  return 0
+  nl_join "${hits[@]}"
 }
+
+# nl_candidates TOKEN — the token, and for a bare basename the same name under
+# each subdirectory a script or helper lives in.
+nl_candidates() {
+  local n
+  printf '%s\n' "$1"
+  [[ "$1" == */* ]] || for n in $NL_SUBDIRS; do printf '%s\n' "$n/$1"; done
+}
+
+# nl_at WHERE — nothing for a working-tree hit, " (<ref>)" for a branch-only one.
+nl_at() { [[ "$1" == tree ]] || printf ' (%s)' "$1"; }
+
+# nl_join ITEM… — the items joined by ", ".
+nl_join() { local out; out=$(printf '%s, ' "$@"); printf '%s' "${out%, }"; }
 
 # nl_resolve TOKEN FILE — 0 when the name exists somewhere it could.
 nl_resolve() {
@@ -149,30 +163,31 @@ nl_resolve() {
   local -a roots
   mapfile -t roots < <(nl_roots "$2")
   case "$t" in
-    /*)  [[ -e "$t" ]] && return 0 ;;
-    '~'/*) [[ -e "${t/#\~/$HOME}" ]] && return 0 ;;
+    /*|'~'/*) [[ -e "${t/#\~/$HOME}" ]] && return 0 ;;
   esac
-  # a slash command: a file in either tree, or a harness built-in
-  if [[ "$t" =~ ^/[a-z][a-z0-9:_-]*$ ]]; then
-    n="${t#/}"
-    [[ "$BUILTINS" == *" $n "* ]] && return 0
-    for r in "${roots[@]}"; do
-      [[ -f "$r/.claude/commands/$n.md" || -f "$r/.claude/skills/$n/SKILL.md" ]] && return 0
-      [[ -f "$r/commands/$n.md"         || -f "$r/skills/$n/SKILL.md"         ]] && return 0
-    done
-    return 1
-  fi
-  for r in "${roots[@]}"; do
-    [[ -e "$r/$t" ]] && return 0
+  if [[ "$t" =~ ^/[a-z][a-z0-9:_-]*$ ]]; then nl_command "${t#/}" "${roots[@]}"; return; fi
+  nl_in_roots "$t" "${roots[@]}"
+}
+
+# nl_command NAME ROOT… — 0 when /NAME is a harness built-in or a command or
+# skill file in either layout of any root.
+nl_command() {
+  local n="$1" r; shift
+  [[ "$BUILTINS" == *" $n "* ]] && return 0
+  for r in "$@"; do
+    [[ -f "$r/.claude/commands/$n.md" || -f "$r/.claude/skills/$n/SKILL.md" ]] && return 0
+    [[ -f "$r/commands/$n.md"         || -f "$r/skills/$n/SKILL.md"         ]] && return 0
   done
-  # a bare basename: the places a script or helper actually lives
-  if [[ "$t" != */* ]]; then
-    for r in "${roots[@]}"; do
-      for n in $NL_SUBDIRS; do
-        [[ -e "$r/$n/$t" ]] && return 0
-      done
-    done
-  fi
+  return 1
+}
+
+# nl_in_roots TOKEN ROOT… — 0 when any root holds the token, a bare basename
+# also where a script or helper lives.
+nl_in_roots() {
+  local t="$1" r p; shift
+  for r in "$@"; do
+    while IFS= read -r p; do [[ -e "$r/$p" ]] && return 0; done < <(nl_candidates "$t")
+  done
   return 1
 }
 
@@ -258,11 +273,12 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local d rc=0 out self
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-  d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
+  d=$(mktemp -d); trap 'rm -rf "$d" "$d.linked"' RETURN
   mkdir -p "$d/.claude/scripts" "$d/.claude/skills/probe" "$d/.claude/skills/probe:sub"
   : > "$d/.claude/scripts/real.sh"
   : > "$d/.claude/skills/probe/SKILL.md"
   : > "$d/.claude/skills/probe:sub/SKILL.md"
+  mkdir -p "$d/commands"; : > "$d/commands/flat.md"
   mkdir -p "$d/api/other-repo/.git" "$d/api/other-repo/scripts" "$d/api/other-repo/postman"
   : > "$d/api/other-repo/scripts/theirs.py"
   # A real clone checked out on a feature branch that lacks what its default holds.
@@ -288,6 +304,7 @@ Run /probe:sub with no backticks, and read git show origin/main:doc.md, which is
 A bare `theirs.py` names a script the nested repository keeps under scripts/.
 `postman/` is in one clone's tree and only on the other's default branch.
 DOC
+  printf 'A flat-layout `/flat`, and an absolute `%s/.claude/scripts/real.sh`.\n' "$d" >> "$d/doc.md"
   cat > "$d/other.md" <<'DOC'
 Only `scripts/theirs.py`, which another repo owns, and `.claude/scripts/real.sh`.
 DOC
@@ -298,6 +315,8 @@ DOC
   check "a path under the file's own project resolves" 'grep -q "ok         .claude/scripts/real.sh" <<<"$out"'
   check "a bare script basename resolves"              'grep -q "ok         real.sh" <<<"$out"'
   check "a project slash command resolves"             'grep -q "ok         /probe" <<<"$out"'
+  check "a command in the flat commands/ layout resolves" 'grep -q "ok         /flat$" <<<"$out"'
+  check "an absolute path that exists resolves"       'grep -q "ok         $d/.claude/scripts/real.sh" <<<"$out"'
   check "a harness built-in resolves"                  'grep -q "ok         /compact" <<<"$out"'
   check "a trailing slash is a directory name"         'grep -q "ok         .claude/scripts/" <<<"$out"'
   check "a URL ending in a slash is not a directory"  'grep -q "skipped    https://example.invalid/jobs/ .*a URL" <<<"$out"'
@@ -323,6 +342,11 @@ DOC
     'grep -q "elsewhere  postman/ .* in branchy (origin/main), other-repo$" <<<"$out"'
   check "a name one repo holds lists that repo alone" \
     'grep -q "elsewhere  scripts/theirs.py .* in other-repo$" <<<"$out"'
+  mkdir -p "$d.linked"; ln -s "$d/api" "$d.linked/api"
+  # shellcheck disable=SC2034
+  linked=$("$self" --project "$d.linked" "$d/other.md" 2>&1)
+  check "a nested repo reached through a linked directory is found" \
+    'grep -q "elsewhere  scripts/theirs.py .* in other-repo$" <<<"$linked"'
   check "an unbackticked namespaced command is a name, and resolves" \
     'grep -q "ok         /probe:sub" <<<"$out"'
   check "a git ref is not a namespaced command, so it is never read as one" \

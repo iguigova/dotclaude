@@ -133,10 +133,17 @@ gated() {
 }
 
 # gate_tree SCRATCH TOP REL… — clone TOP's HEAD into SCRATCH/tree and lay the
-# named paths over it as they are now, a deleted one deleted.
+# named paths over it as they are now, a deleted one deleted. Each top-level
+# entry TOP's .gitignore ignores (nested repos, venvs, secrets) is linked in:
+# it is the environment the tracked scripts run in, not anyone's work. An
+# untracked entry that is not ignored stays out, since it may be.
 gate_tree() {
-  local tree="$1/tree" top="$2" p; shift 2
+  local tree="$1/tree" top="$2" p e; shift 2
   git clone -q --shared "$top" "$tree" 2>/dev/null || die "could not clone $top to gate it"
+  while IFS= read -r e; do
+    e=${e%/}
+    [[ "$e" == */* || -e "$tree/$e" ]] || ln -s -- "$top/$e" "$tree/$e"
+  done < <(git -C "$top" ls-files --others --ignored --exclude-standard --directory)
   for p in "$@"; do
     rm -rf -- "${tree:?}/$p"
     [[ -e "$top/$p" || -L "$top/$p" ]] || continue
@@ -152,7 +159,8 @@ run_gates() {  # TOP REL…
   gate_tree "$scratch" "$@"
   for g in "${gates[@]}"; do
     g="$scratch/tree/${g#"$1"/}"
-    out=$(cd "$scratch/tree" && "$g" 2>&1) || { st=1; break; }
+    # MEM_PROJECT_ROOT (memory_lib.sh) is the repo, so a gate finds its memory store.
+    out=$(cd "$scratch/tree" && MEM_PROJECT_ROOT="$1" "$g" 2>&1) || { st=1; break; }
   done
   rm -rf "$scratch"
   [[ "$st" -eq 0 ]] || { printf '%s\n' "$out" | tail -20 >&2; die "gate ${g#"$scratch/tree/"} is red; nothing committed"; }
@@ -286,6 +294,18 @@ moved.txt"
   tap_is "a named deletion is gated deleted" "$(files_of_head "$r")" ".claude/scripts/RED
 e.txt"
   h=$(head_of "$r")
+
+  local v="$tmp/env"; mkrepo "$v" scripts/selftest.sh
+  # shellcheck disable=SC2016  # the gate's own text, expanded when it runs
+  printf '#!/usr/bin/env bash\nls -A "$(dirname "$0")/.." > "$GATE_LOG"; ls -A "$(dirname "$0")" > "$GATE_LOG.scripts"; echo "$MEM_PROJECT_ROOT" >> "$GATE_LOG"\n' \
+    > "$v/scripts/selftest.sh"
+  printf 'nested/\n.venv\nscripts/cache/\n' > "$v/.gitignore"; git -C "$v" add -A; git -C "$v" commit -qm gate
+  mkdir -p "$v/nested/inner" "$v/.venv" "$v/scripts/cache"; echo wip > "$v/wip.txt"; echo f > "$v/f.txt"
+  GATE_LOG="$tmp/gate.log" tc -m "chore: env" -- "$v/f.txt" >/dev/null
+  tap_is "the gate sees the repo's ignored entries and not its untracked work" \
+    "$(grep -vx "$v" "$tmp/gate.log" | grep -v '^\.git$' | LC_ALL=C sort | paste -sd' ')" ".gitignore .venv base.txt f.txt nested scripts"
+  tap_is "the gate's memory store is the repo's" "$(tail -1 "$tmp/gate.log")" "$v"
+  tap_is "an ignored entry below the top level is not linked" "$(paste -sd' ' "$tmp/gate.log.scripts")" "selftest.sh"
 
   mkdir -p "$r/.claude"; echo "## entry" > "$r/.claude/session_history.md"
   touch "$r/.claude/scripts/RED"

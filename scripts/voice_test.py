@@ -2,8 +2,6 @@
 """Does the voice review still catch what the user rejected, and pass what the user kept?
 
     voice_test.py                    # every case in skills/voice/cases.json
-    voice_test.py --changed PATH ... # what tooling_commit.sh runs; tests only when
-                                     # the credo, the voice skill or its cases changed
     voice_test.py --self-test
 
 The review is the voice skill's SKILL.md: a reviewer that did not write the text
@@ -20,7 +18,6 @@ import pathlib
 import re
 import subprocess
 import sys
-import tempfile
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 from tap import Tap  # noqa: E402
@@ -83,16 +80,9 @@ def run(cases: list, review: str, credo: str, asker=ask, runs: int = RUNS) -> in
     return 1 if False in held else NO_ANSWER if None in held else 0
 
 
-def touches(paths: list) -> bool:
-    watched = {CREDO.resolve(), REVIEW.resolve(), CASES.resolve()}
-    return any(pathlib.Path(p).resolve() in watched for p in paths)
-
-
 def main(argv: list) -> int:
     if argv[:1] == ["--self-test"]:
         return self_test()
-    if argv[:1] == ["--changed"] and not touches(argv[1:]):
-        return 0
     return run(json.loads(CASES.read_text()), REVIEW.read_text(), CREDO.read_text())
 
 
@@ -115,8 +105,6 @@ def self_test() -> int:
         right = run(cases, "R", credo, asker=lambda s: '"A" — r' if "Text to review:\nA" in s else "NONE", runs=1)
         wrong = run(cases, "R", credo, asker=lambda s: "NONE", runs=1)
     t.check((right, wrong) == (0, 1), "run exits 0 when every case holds and 1 when one fails")
-    with tempfile.TemporaryDirectory() as tmp:
-        t.check(not touches([f"{tmp}/x.md"]) and touches([str(CASES)]), "--changed tests only for the credo, review or cases")
     return t.end()
 
 

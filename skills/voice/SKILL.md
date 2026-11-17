@@ -1,6 +1,6 @@
 ---
 name: voice
-description: Check whether text sounds like the user — a letter, a post, a comment, a reply, an email, a page. Use when asked if something sounds like me, is in my voice or reads as human, and before showing any text written for people. Runs in a forked agent that did not write it; returns each failing sentence and the rule it breaks, or NONE. Triggered by `/voice` and the bare word "voice" used of writing.
+description: Check whether text sounds like the user — a letter, a post, a comment, a reply, an email, a page. Use when asked if something sounds like me, is in my voice or reads as human. Runs in a forked agent that did not write it; returns each failing sentence and the rule it breaks, or NONE. Triggered by `/voice` and the bare word "voice" used of writing.
 argument-hint: "<the text to check> [the other voice section to read, by path and heading]"
 context: fork
 agent: general-purpose

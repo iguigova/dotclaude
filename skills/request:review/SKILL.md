@@ -39,8 +39,6 @@ A **reply** in the thread:
 - For a re-review, tag each reviewer in `rereview` by their `slack` tag (a null tag is asked of the user) and say that the changes from their reviews are pushed and each comment has a reply. Add one bullet per PR, saying what changed for whom, then close with `Could you take another look when you get a moment? Thank you`.
 - For a new PR, one bullet in the new-post shape under `One more for review:`.
 
-Then run the `voice` skill on the text, and rework it until the review returns NONE.
-
 ## 3. Post after approval
 
 Show the final text and ask in the question dialog whether to post it. Once it is approved:

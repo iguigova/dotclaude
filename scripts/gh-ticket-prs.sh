@@ -14,9 +14,14 @@
 #
 # Output, one JSON object per line, oldest first:
 #   {"url", "repo", "number", "title", "draft", "review", "mergeable",
-#    "checks": {"pass", "fail", "pending"}, "ready"}
+#    "checks": {"pass", "fail", "pending"}, "ready", "pushed",
+#    "reviewers": [{"login", "state", "behind"}]}
 # "ready" is true when the PR is not a draft, is mergeable, and no check is
 # failing or pending. A check that was skipped or neutral counts as a pass.
+# "pushed" is the head commit's commit time. "reviewers" holds each person's
+# latest review, the PR author's own and a bot's (Greptile) left out; "behind"
+# is true when the head commit is newer than that review, so the reviewer has
+# not seen it. Reviews are read over GraphQL, the one API that marks a bot.
 #
 # Exit 0: listed, possibly nothing. Exit 1: no key, or the project names no
 # .claude/github_orgs. Exit 2: a GitHub read failed, so the list is not whole.
@@ -43,6 +48,26 @@ SUMMARY='
   | .ready = ((.draft | not) and .mergeable == "MERGEABLE"
               and .checks.fail == 0 and .checks.pending == 0)'
 
+# Each reviewer but the author and bots, and whether the head commit postdates their review.
+# shellcheck disable=SC2016
+REVIEWERS='
+  (.commits[-1].committedDate // null) as $pushed
+  | (.author.login // "") as $me
+  | {pushed: $pushed,
+     reviewers: [.latestReviews[]? | select(.author.login != $me and .author.__typename != "Bot")
+                 | {login: .author.login, state,
+                    behind: ($pushed != null and $pushed > .submittedAt)}]}'
+
+# The head commit, the author and each latest review, as REVIEWERS reads them.
+# shellcheck disable=SC2016
+REVIEWS_QUERY='query($o: String!, $r: String!, $n: Int!) { repository(owner: $o, name: $r) {
+  pullRequest(number: $n) { author { login }
+    commits(last: 1) { nodes { commit { committedDate } } }
+    latestReviews(first: 50) { nodes { author { __typename login } state submittedAt } } } } }'
+# shellcheck disable=SC2016
+REVIEWS_SHAPE='.data.repository.pullRequest
+  | {author, commits: [.commits.nodes[].commit], latestReviews: .latestReviews.nodes}'
+
 # Whether a title or body names the key as a whole token.
 # shellcheck disable=SC2016
 NAMES_KEY='(.title + "\n" + (.body // "")) | test("(^|[^A-Za-z0-9-])" + $k + "([^0-9]|$)")'
@@ -68,6 +93,17 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "$(sum '{"isDraft":false,"mergeable":"CONFLICTING","statusCheckRollup":[]}')" '[0,0,0,false]'
   tap_is "no review decision reads as NONE" \
     "$(jq -r "$SUMMARY | .review" <<<'{"isDraft":false,"mergeable":"MERGEABLE"}')" NONE
+  revs() { jq -c "$REVIEWERS" <<<"$1"; }
+  tap_is "a review older than the head commit is behind, a newer one is not, the author's and a bot's are left out" \
+    "$(revs '{"author":{"login":"me"},"commits":[{"committedDate":"2026-01-02T00:00:00Z"}],"latestReviews":[
+      {"author":{"login":"a"},"state":"CHANGES_REQUESTED","submittedAt":"2026-01-01T00:00:00Z"},
+      {"author":{"login":"b"},"state":"APPROVED","submittedAt":"2026-01-03T00:00:00Z"},
+      {"author":{"login":"me"},"state":"COMMENTED","submittedAt":"2026-01-01T00:00:00Z"},
+      {"author":{"login":"greptile-apps","__typename":"Bot"},"state":"COMMENTED","submittedAt":"2026-01-01T00:00:00Z"}]}')" \
+    '{"pushed":"2026-01-02T00:00:00Z","reviewers":[{"login":"a","state":"CHANGES_REQUESTED","behind":true},{"login":"b","state":"APPROVED","behind":false}]}'
+  tap_is "a PR with no reviews has no reviewers" \
+    "$(revs '{"author":{"login":"me"},"commits":[{"committedDate":"2026-01-02T00:00:00Z"}],"latestReviews":[]}')" \
+    '{"pushed":"2026-01-02T00:00:00Z","reviewers":[]}'
   names() { jq -r --arg k ABC-113 "$NAMES_KEY" <<<"$1"; }
   tap_is "a key in the title names the ticket" "$(names '{"title":"ABC-113: fix"}')" true
   tap_is "a key in the body names the ticket" "$(names '{"title":"fix","body":"Jira: ABC-113."}')" true
@@ -89,6 +125,11 @@ if [[ "$1 $2" == "search prs" ]]; then
                      || echo '[]'
   exit 0
 fi
+if [[ "$1 $2" == "api graphql" ]]; then
+  [[ -n "$FAKE_FAIL_REVIEWS" ]] && exit 1
+  echo '{"author":{"login":"me"},"commits":[{"committedDate":"2026-01-02T00:00:00Z"}],"latestReviews":[]}'
+  exit 0
+fi
 [[ "$3" == "$FAKE_FAIL_URL" ]] && exit 1
 echo '{"url":"'"$3"'","number":7,"title":"ABC-1: fix","isDraft":false,"reviewDecision":"APPROVED","mergeable":"MERGEABLE",
        "statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}'
@@ -98,12 +139,14 @@ FAKE
   ARGS=(ABC-1)
   : > "$T/log"; out=$(run env; echo "exit $?")
   tap_is "a ticket's open PR is listed with its state" "${out//$'\n'/ }" \
-    '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":0,"pending":0},"ready":true} exit 0'
+    '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":0,"pending":0},"ready":true,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
   tap_is "every owner is searched, and comments and blank lines are not" "$(paste -sd' ' "$T/log")" "acme beta"
   rc=0; run env FAKE_FAIL_ORG=beta >/dev/null || rc=$?
   tap_is "a failed search exits 2" "$rc" 2
   rc=0; run env FAKE_FAIL_URL=https://github.com/acme/api/pull/7 >/dev/null || rc=$?
   tap_is "a PR that cannot be read exits 2" "$rc" 2
+  rc=0; run env FAKE_FAIL_REVIEWS=1 >/dev/null || rc=$?
+  tap_is "a PR whose reviews cannot be read exits 2" "$rc" 2
   ARGS=(); rc=0; run env >/dev/null || rc=$?; tap_is "no key exits 1" "$rc" 1
   ARGS=(ABC-1 ABC-2); rc=0; run env >/dev/null || rc=$?; tap_is "two keys exit 1" "$rc" 1
   ARGS=(abc-1); rc=0; run env >/dev/null || rc=$?; tap_is "a lower-case key exits 1" "$rc" 1
@@ -135,6 +178,10 @@ done < "$ORGS_FILE"
 for url in "${urls[@]}"; do
   pr=$(gh pr view "$url" --json url,number,title,isDraft,reviewDecision,mergeable,statusCheckRollup) \
     || { echo "gh-ticket-prs: could not read $url" >&2; exit 2; }
-  jq -c "{url, number, title, repo: (.url | split(\"/\")[3:5] | join(\"/\"))} + ($SUMMARY)
-         | {url, repo, number, title, draft, review, mergeable, checks, ready}" <<<"$pr"
+  IFS=/ read -r _ _ _ owner repo _ number <<<"$url"
+  reviews=$(gh api graphql -f query="$REVIEWS_QUERY" -f o="$owner" -f r="$repo" -F n="$number" --jq "$REVIEWS_SHAPE") \
+    || { echo "gh-ticket-prs: could not read the reviews of $url" >&2; exit 2; }
+  pr=$(jq -c --argjson rv "$reviews" '. + $rv' <<<"$pr")
+  jq -c "{url, number, title, repo: (.url | split(\"/\")[3:5] | join(\"/\"))} + ($SUMMARY) + ($REVIEWERS)
+         | {url, repo, number, title, draft, review, mergeable, checks, ready, pushed, reviewers}" <<<"$pr"
 done

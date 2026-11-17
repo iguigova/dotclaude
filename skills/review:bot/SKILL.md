@@ -201,6 +201,8 @@ Stop looping after two rounds that fail to move the score, or when what remains 
 
 Show the line it prints.
 
+- When a colleague's review was among what this run answered, offer `/request:review <TICKET>`. Their review predates the push, so it lists them under `rereview`, and the request for another look goes as a reply in the ticket's review thread.
+
 ## Notes
 
 - Replies are **auto-posted** (the user's standing choice for this skill, for bot and human comments alike) to a public PR. Keep them professional and accurate: a wrong "Fixed" is worse than no reply.

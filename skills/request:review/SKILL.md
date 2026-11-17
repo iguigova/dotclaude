@@ -1,49 +1,60 @@
 ---
 name: request:review
-description: "Ask the team to review a ticket's open pull requests: list every open PR that names the ticket, check each is ready, write one Slack post linking them all, and post it to the project's review channel after the user approves the text. Use when the user asks to post, share or send a ticket's PRs for review, or to request a review in the team channel."
+description: "Ask the team to review a ticket's open pull requests, in one Slack thread per ticket: find the ticket's earlier review post in the project's review channel, list every open PR that names the ticket, and post a new request, or reply in that thread for a new PR or a re-review after changes, once the user approves the text. Use when the user asks to post, share or send a ticket's PRs for review, to request a review or a re-review in the team channel, or to tell the review thread that comments were addressed."
 argument-hint: "<TICKET-KEY>   (omit to use the ticket the session is working)"
 ---
 
 Ask for a review of every open PR on: $ARGUMENTS
 
-## 1. List the PRs
+A ticket has one review thread in the channel `.claude/review_channel` names. Every later message goes in that thread: a new PR, or a re-review once comments are addressed. The thread is found in Slack each run, never remembered, so it is the same thread from any session.
+
+## 1. Read where the request stands
 
 ```bash
-~/.claude/scripts/gh-ticket-prs.sh <KEY>
+~/.claude/scripts/review_request_state.py <KEY> > <scratchpad>/review-state.json
 ```
 
-`--help` states what it reads and prints. Show the PRs as a table: repo and number, title, review decision, checks.
+`--help` states what it reads and each field. Show the PRs as a table: repo and number, title, review decision, checks, announced. Then act on `next`:
 
-- **A PR that is not `ready`** is named, with why (draft, conflicting, a failing or a pending check). Read a failing check's log before saying what failed. Ask whether to wait, fix it or leave it out. A pending check is waited on with `gh pr checks <url> --watch` in the background, never polled.
-- **A PR already approved** stays out of the post unless the user wants it in.
-- **No open PR** ends the run: say so.
+- **`post`**: no thread yet. Write a new post (§2) for the PRs in `new`.
+- **`reply`**: a thread exists. Write a reply (§2) for the PRs in `new` and `rereview`.
+- **`none`**: nothing to ask for. Say why (every PR announced and nobody behind, approved, or waiting) and stop.
 
-## 2. Write the post
+Each PR in `waiting` is named, with its `why`. Read a failing check's log before saying what failed. Ask whether to wait, fix it, or leave it out. Wait on a pending check with `gh pr checks <url> --watch` in the background; never poll it. A run that exits 2 read nothing whole: say which read failed and stop.
 
-The `draft` skill's rules apply. Match the user's own earlier review requests in the channel: read the latest one with `~/.claude/scripts/slack_thread.py <permalink> --out <dir>` when the session history records one.
+## 2. Write the message
 
-The shape:
+The `draft` skill's rules apply. Before a reply, read the thread with `~/.claude/scripts/slack_thread.py <thread.permalink> --out <dir>`. Its `People` block gives the tag of each person a reply may address.
 
-- One opening line: `Team, <n> PRs ready for review for <KEY>, <what the ticket is about in a few words>:`
+A **new post**:
+
+- One opening line, two short sentences with verbs: `Team, I've got <n> PRs ready for review on <KEY>. They <what the ticket does, in a few words>:`. With one PR, `Team, I've got a PR ready for review on <KEY>. It …:`. A verbless headline (`a PR ready for review for <KEY>, …`) fails the voice review.
 - One bullet per PR: the bare link, then one sentence on what it changes, from its title and body, said for a reader who has not seen the ticket. Add a second sentence only for what people will notice once it deploys, such as everyone signing in again.
 - `Thank you` on the last line.
 
-Then run the `voice` skill on the text and rework it until the review returns NONE.
+A **reply** in the thread:
+
+- For a re-review, tag each reviewer in `rereview` (their GitHub login matched to a name in `People`) and say that the changes from their reviews are pushed and each comment has a reply. Add one bullet per PR, saying what changed for whom, then close with `Could you take another look when you get a moment? Thank you`.
+- For a new PR, one bullet in the new-post shape under `One more for review:`.
+
+Then run the `voice` skill on the text, and rework it until the review returns NONE.
 
 ## 3. Post after approval
 
-Show the final text and ask, in the question dialog, whether to post it. Once approved, read the PR list again with step 1's script; a PR that changed state since then voids the approval, so show what changed.
+Show the final text and ask in the question dialog whether to post it. Once it is approved, run step 1 again. A changed `next`, `new` or `rereview` voids the approval: show what changed.
 
 ```bash
-CH=$(grep -v '^#' "$(~/.claude/scripts/project_file.sh review_channel)")
-~/.claude/scripts/slack_post.py post "$CH" <file>
+S=<scratchpad>/review-state.json
+CH=$(jq -r .channel "$S")
+~/.claude/scripts/slack_post.py post "$CH" <file>                                      # next: post
+~/.claude/scripts/slack_post.py post "$CH" <file> --thread "$(jq -r .thread.ts "$S")"  # next: reply
 ```
 
-A project with no `.claude/review_channel` has no channel to post to: say so and stop. `slack_post.py` reads the message back and prints its permalink; give the permalink to the user.
+`slack_post.py` reads the message back and prints its permalink. Give the permalink to the user.
 
 ## 4. Record it
 
-Journal the post under the ticket, with its permalink and each PR's state at posting time:
+Journal the message under the ticket, with its permalink and each PR's state when it was posted:
 
 ```bash
 ~/.claude/scripts/journal.sh -t "<KEY> review request" \

@@ -53,8 +53,10 @@ ssn_self_test() {
   out=$(JOURNAL_HIST="$fx/open.md" ssn_report)
   tap_is "the count is every open note, not the listed ones" "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')" \
     'notes: 4 open'
-  tap_is "the oldest age is reported as whole days" "$(printf '%s\n' "$out" | head -1 | grep -Eq 'oldest [0-9]+d ' && echo true || echo false)" \
-    'true'
+  # The first line is matched with no pipe: under pipefail, with SIGPIPE ignored
+  # as the sweep runs a self-test, head closing early fails the whole pipeline.
+  tap_is "the oldest age is reported as whole days" \
+    "$([[ "${out%%$'\n'*}" =~ oldest\ [0-9]+d\  ]] && echo true || echo false)" 'true'
   # Line 1 is the count, lines 2 and 3 the table's header and rule, then a row a note.
   tap_is "three are listed by default" "$(printf '%s\n' "$out" | tail -n +4 | wc -l)" 3
   tap_is "the oldest is listed first" "$(printf '%s\n' "$out" | sed -n '4p' | awk -F' *[|] *' '{print $2}')" \

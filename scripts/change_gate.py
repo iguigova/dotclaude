@@ -23,6 +23,10 @@ Mutation runs per kind of file:
                       passes only by exiting 0 with a TAP plan and no failed
                       case. Its test code, a self_test function or an
                       `if … --self-test …; then` block, is not mutated.
+                      Mutants run one per core, each core on its own copy,
+                      once the unmutated self-test passes in every copy at
+                      once; one that fails beside a copy of itself, as a
+                      fixed path or port would, runs them one at a time.
   Python              this script's mutator. The --test python command, else
                       `<repo>/.venv/bin/python -m pytest`, else `python3 -m
                       pytest`, runs once with per-test coverage (it needs
@@ -77,6 +81,7 @@ Exit:
   2  usage error, or not a git repo
 """
 
+import concurrent.futures
 import contextlib
 import csv
 import dataclasses
@@ -470,6 +475,7 @@ TAP_PLAN = re.compile(r"^1\.\.\d+$", re.M)
 
 
 BASELINE_TAIL = 15
+JOBS = os.cpu_count() or 1
 
 
 def run_tests(command: list[str], cwd: Path, timeout: float | None, tap: bool) -> tuple[bool, str]:
@@ -549,8 +555,29 @@ def mutate_self_tested(repo: Path, change: Change, verdict: Verdict) -> None:
             return verdict.fail(f"{change.path}: its --self-test fails before any mutation", *tail)
         region = test_region((work / name).read_text().splitlines(), language)
         found = mutants_of(work, Change(name, change.lines), language, frozenset(region))
-        lived = survivors(work, found, lambda _m: (command, took * 3 + 10), tap=True)
+        lived = side_by_side(change.path, Path(tmp) / "w", work, found, (command, took * 3 + 10), verdict)
         return mutation_verdict(change.path, found, lived, verdict)
+
+
+def side_by_side(what: str, root: Path, work: Path, mutants: list[Mutant], test: tuple[list[str], float], verdict: Verdict) -> list[Mutant]:
+    """survivors for one TAP command, JOBS mutants at a time, each worker in its own copy of root. The
+    unmutated test first runs in every copy at once; when any copy fails, the mutants run one at a
+    time instead, since a test holding a fixed path or port collides with itself, and a collision
+    would read as a killed mutant."""
+    live = [m for m in mutants if not EQUIVALENT.search(m.before)]
+    jobs = min(JOBS, len(live))
+    if jobs < 2:
+        return survivors(work, live, lambda _m: test, tap=True)
+    rel = work.relative_to(root)
+    works = [work] + [Path(shutil.copytree(root, root.with_name(f"{root.name}.{i}"), symlinks=True)) / rel for i in range(1, jobs)]
+    with concurrent.futures.ThreadPoolExecutor(jobs) as pool:
+        if not all(pool.map(lambda w: passes(test[0], w, test[1], True), works)):
+            verdict.ok(f"{what}: mutants ran one at a time, since its self-test failed beside copies of itself")
+            return survivors(work, live, lambda _m: test, tap=True)
+        verdict.ok(f"{what}: mutants ran {jobs} at a time")
+        shares = pool.map(lambda i: survivors(works[i], live[i::jobs], lambda _m: test, tap=True), range(jobs))
+        lived = {id(m) for share in shares for m in share}
+    return [m for m in live if id(m) in lived]
 
 
 def mutate_with_command(repo: Path, files: list[Change], language: str, command: list[str], verdict: Verdict) -> None:
@@ -1265,6 +1292,68 @@ self_test() {
 """
 
 
+WEAK_SH = """#!/usr/bin/env bash
+big() { [ "$1" -gt 9 ]; }
+small() { [ "$1" -lt 3 ]; }
+self_test() {
+  big 10 && ! big 9 && echo 'ok 1 - big' || echo 'not ok 1 - big'
+  small 1 && echo 'ok 2 - small' || echo 'not ok 2 - small'
+  echo 1..2
+}
+[ "${1:-}" = --self-test ] && self_test
+"""
+
+
+COLLIDES_SH = """#!/usr/bin/env bash
+big() { [ "$1" -gt 9 ]; }
+self_test() {
+  local d="${TMPDIR:-/tmp}/change_gate_collides.$PPID"
+  mkdir "$d" 2>/dev/null || { echo 'not ok 1 - alone'; echo 1..1; return; }
+  sleep 0.2
+  big 10 && ! big 9 && echo 'ok 1 - big' || echo 'not ok 1 - big'
+  rmdir "$d"; echo 1..1
+}
+[ "${1:-}" = --self-test ] && self_test
+"""
+
+
+def self_test_side_by_side(t: Tap) -> None:
+    global JOBS
+    saved = JOBS
+    t.check(saved == (os.cpu_count() or 1), "mutants run one per core unless a test says otherwise", str(saved))
+    try:
+        with tempfile.TemporaryDirectory() as tmp:
+            repo = self_test_repo(Path(tmp))
+            self_test_parallel(t, repo)
+            self_test_collides(t, repo)
+    finally:
+        JOBS = saved
+
+
+def self_test_parallel(t: Tap, repo: Path) -> None:
+    global JOBS
+    self_test_files(repo, {"w.sh": WEAK_SH})
+    (repo / "gone").symlink_to(repo / "nowhere")
+    JOBS = 2
+    status, two = self_test_run(repo, "--check", "mutation")
+    JOBS = 1
+    _, one = self_test_run(repo, "--check", "mutation")
+    lived = [line for line in two.splitlines() if "w.sh:" in line and "→" in line]
+    t.check(status == 1 and "w.sh: mutants ran 2 at a time" in two and len(lived) == 1 and "-lt 3" in lived[0],
+            "mutants run side by side, a dangling link copied as a link, and the one the test misses lives", two)
+    t.check([x for x in two.splitlines() if "at a time" not in x] == one.splitlines() and "at a time" not in one,
+            "side by side and one at a time reach the same verdict", two, one)
+
+
+def self_test_collides(t: Tap, repo: Path) -> None:
+    global JOBS
+    self_test_files(repo, {"w.sh": COLLIDES_SH})
+    JOBS = 2
+    status, out = self_test_run(repo, "--check", "mutation")
+    t.check(status == 0 and "w.sh: mutants ran one at a time, since its self-test failed beside copies of itself" in out,
+            "a self-test that collides with a copy of itself runs its mutants one at a time, and passes", out)
+
+
 def self_test_scripts(t: Tap) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         repo = self_test_repo(Path(tmp))
@@ -1446,6 +1535,7 @@ def self_test() -> int:
     self_test_commands(t)
     self_test_reuse(t)
     self_test_scripts(t)
+    self_test_side_by_side(t)
     self_test_shell_ccn(t)
     return t.end()
 

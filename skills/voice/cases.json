@@ -8,5 +8,9 @@
   {"text": "He reviewed nearly as many PRs as he wrote, for engineers across every team, and my own work was better for it more than once.", "fails": false, "rule": "", "source": "2026-08-16, a recommendation the user kept"},
   {"text": "I haven't written Rust yet.", "fails": false, "rule": "", "source": "2026-11-14, a cover letter"},
   {"text": "The Amsterdam gate events work left us four new tickets, all in the backlog.", "fails": true, "rule": "Talk, don't write: \"the Amsterdam gate events work\" is a stack of nouns nobody says out loud, made to do what people did, open the tickets; say who opened them", "source": "2026-11-16, a Slack reply the user said to rephrase"},
-  {"text": "We opened four tickets while working on Amsterdam's gate events. They're all in the backlog.", "fails": false, "rule": "", "source": "2026-11-16, the rewrite of the case above"}
+  {"text": "We opened four tickets while working on Amsterdam's gate events. They're all in the backlog.", "fails": false, "rule": "", "source": "2026-11-16, the rewrite of the case above"},
+  {"text": "Your team needs someone who turns hard systems questions into experiments, measures what changed, and checks what AI tools hand back.", "fails": true, "rule": "Ask, never demand: telling the reader what they need", "source": "2026-11-17, a cover letter"},
+  {"text": "That's how I already work.", "fails": true, "rule": "Confident, never trying too hard: a verdict on oneself instead of the work", "source": "2026-11-17, a cover letter"},
+  {"text": "I work with Claude Code every day, and I don't take its word for anything.", "fails": true, "rule": "Facts, not a pitch: a slogan that labels the work the next sentence shows", "source": "2026-11-17, a cover letter"},
+  {"text": "I measure before I change anything, too.", "fails": true, "rule": "Confident, never trying too hard: a habit every experienced engineer has, announced as a virtue", "source": "2026-11-17, a cover letter"}
 ]

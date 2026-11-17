@@ -185,8 +185,12 @@ nl_command() {
 # also where a script or helper lives.
 nl_in_roots() {
   local t="$1" r p; shift
+  # Read whole, once, as nl_resolve reads its roots: returning on the first hit
+  # mid-read would close the pipe nl_candidates is writing to.
+  local -a cands
+  mapfile -t cands < <(nl_candidates "$t")
   for r in "$@"; do
-    while IFS= read -r p; do [[ -e "$r/$p" ]] && return 0; done < <(nl_candidates "$t")
+    for p in "${cands[@]}"; do [[ -e "$r/$p" ]] && return 0; done
   done
   return 1
 }
@@ -359,6 +363,10 @@ DOC
         == "name_lint: relative names resolve in '"$d"'/.claude '"$d"'" ]]'
   check "the report names the roots every verdict depends on" \
     'grep -q "^name_lint: relative names resolve in .*'"$d"'" <<<"$out"'
+  : > "$d/hit.sh"
+  tap_is "a hit on the first candidate breaks no pipe, with SIGPIPE ignored as the sweep runs it" \
+    "$( (trap '' PIPE; NL_SUBDIRS=$(seq -f 's%g' 20000 | paste -sd' ')
+         nl_in_roots hit.sh "$d" && echo found) 2>&1)" "found"
   tap_is "the same file and project lint the same from any cwd" \
     "$(cd / && "$self" --project "$d" "$d/doc.md" 2>&1)" "$out"
   check "the project is the linted file's, so no --project is needed from elsewhere" \

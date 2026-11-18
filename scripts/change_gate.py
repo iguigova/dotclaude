@@ -253,13 +253,13 @@ def shell_functions(lines: list[str]) -> list[tuple[str, int, int]]:
 
 def shell_code(text: str) -> list[str]:
     """Each line with its quoted text, heredoc bodies and comments blanked, a quote that spans lines
-    included, as an awk or jq program does. A heredoc's opening line stays code, and so does an
-    escaped character, so \\' opens no quote."""
+    included, as an awk or jq program does. A heredoc's opening line is read as any other line,
+    and an escaped character stays code, so \\' opens no quote."""
     def blank(m: re.Match) -> str:
         head = m["head"] or ""
         if m[0].startswith("\\"):
             return m[0]
-        return head + re.sub(r"[^\n]", " ", m[0][len(head):])
+        return SHELL_TEXT.sub(blank, head) + re.sub(r"[^\n]", " ", m[0][len(head):])
     return SHELL_TEXT.sub(blank, text).splitlines()
 
 
@@ -461,10 +461,20 @@ def test_region(lines: list[str], language: str) -> set[int]:
     return region
 
 
+def code_lines(text: str, language: str) -> list[str]:
+    """Each line of TEXT with its quoted text and comments blanked: Python and shell read whole, so a
+    string or a quoted program spanning lines is text throughout; the rest line by line."""
+    if language == "python":
+        return python_code(text)
+    if language == "shell":
+        return shell_code(text)
+    return [code_part(line, language) for line in text.splitlines(keepends=True)]
+
+
 def mutants_of(repo: Path, change: Change, language: str, skip: frozenset[int] = frozenset()) -> list[Mutant]:
     text = (repo / change.path).read_text()
     lines = text.splitlines(keepends=True)
-    code = python_code(text) if language == "python" else [code_part(line, language) for line in lines]
+    code = code_lines(text, language)
     return [
         m for n in sorted(change.lines - skip) if n <= len(lines)
         for m in line_mutants(change.path, n, lines[n - 1], language, code[n - 1])
@@ -1041,6 +1051,11 @@ def self_test_mutants(t: Tap) -> None:
     t.check(ranges(Change("a.js", frozenset({1, 2, 3, 7}))) == ["a.js:1-3", "a.js:7-7"],
             "consecutive changed lines become one Stryker range")
     t.check(code_part('x = "a == b"  # c < d', "python") == "x =         " + "  ", "quoted text and comments are not code")
+    awk = "awk '\n  a && b\n' f && g\n"
+    t.check([len(line_mutants("s", n, line, "shell", code)) for n, (line, code)
+             in enumerate(zip(awk.splitlines(keepends=True), code_lines(awk, "shell")), 1)] == [0, 0, 1],
+            "code inside a quote that spans lines is not mutated as shell; the code after it is")
+    t.check(code_lines("a == b\n", "go") == ["a == b\n"], "a language read line by line keeps its code")
     t.check(code_part('(if (< a b) "x" b) ; (> c d)', "clojure") == '(if (< a b)     b) ' and code_part("f x' y' == z -- c", "haskell")
             == "f x' y' == z ", "a Clojure ; and a Haskell -- open comments, and ' quotes nothing there")
     t.check(code_part('(( ${#a[@]} )) && x  # y', "shell") == "(( ${#a[@]} )) && x  ", "a shell hash inside a word is code")
@@ -1299,9 +1314,9 @@ def self_test_shell_ccn(t: Tap) -> None:
     spanning = "awk '\n    " + ten + "\n  ' f\n  echo \"\n    " + ten + "\n  \""
     t.check(over(SHELL_CCN.format(branches=spanning)) == [], "&& in a quote that spans lines, as an awk program, is not counted",
             *over(SHELL_CCN.format(branches=spanning)))
-    heredoc = "cat <<EOF && a\n  don't\nEOF\n  " + ten
+    heredoc = "cat <<EOF && a | jq '.a && .b'\n  don't\nEOF\n  " + ten
     t.check(over(SHELL_CCN.format(branches=heredoc)) == ["s.sh:2 busy (CCN 12)"],
-            "a heredoc's body is text, an apostrophe in it opens no quote, and its opening line is code",
+            "a heredoc's body is text, an apostrophe in it opens no quote, and its opening line is code but for its quotes",
             *over(SHELL_CCN.format(branches=heredoc)))
     apostrophes = "# don't\n  echo it\\'s\n  " + ten
     t.check(over(SHELL_CCN.format(branches=apostrophes)) == ["s.sh:2 busy (CCN 11)"],

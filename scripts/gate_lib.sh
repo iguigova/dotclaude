@@ -15,6 +15,8 @@
 #                                    the gate itself, is one of them except while
 #                                    GATE_SELF_TEST is set; with GATE_TAP_DIR set,
 #                                    each script's TAP is kept there as <name>.tap
+#   gate_tracked_self_tests <repo>   every script the repo tracks offers --self-test,
+#                                    and gate_self_tests over every folder holding one
 #   gate_run <command…>              a lint: shown, and a FAIL when it exits non-zero
 #   gate_names_changed <repo> [<pathspec>…]
 #                                    name_lint --gate over the prose changed since HEAD
@@ -166,6 +168,25 @@ gate_self_tests() {  # <dir…>
   for dir in "$@"; do sweep "$dir" || fail=1; done
 }
 
+# gate_tracked_self_tests — the sweep runs every folder holding a script the
+# repo tracks, so no script sits where it is never run; a tracked script that
+# offers no --self-test fails. Paths are relative to <repo>.
+gate_tracked_self_tests() {  # <repo>
+  local back=$PWD listed f
+  local -a files=() dirs=()
+  listed=$(git -C "$1" ls-files -- '*.sh' '*.py') \
+    || { echo "  FAIL git ls-files in $1, so no script was swept"; fail=1; return; }
+  [ -n "$listed" ] || { echo "  ok  no script tracked"; return; }
+  mapfile -t files <<<"$listed"
+  for f in "${files[@]}"; do
+    [ -e "$1/$f" ] || continue
+    grep -q -- '--self-test' "$1/$f" || { echo "  FAIL $f offers no --self-test"; fail=1; }
+  done
+  mapfile -t dirs < <(dirname -- "${files[@]}" | sort -u)
+  cd "$1" && gate_self_tests "${dirs[@]}"
+  cd "$back" || fail=1
+}
+
 # gate_run — a lint's output is captured and then shown: piping it into sed would
 # report sed's success as the gate's verdict.
 gate_run() {  # <command…>
@@ -281,6 +302,23 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
     "$(run gate_syntax ok.sh ok.py 'none/*.sh')" $'  ok  ok.sh\n  ok  ok.py\nfail=0'
   tap_like "a sweep's failure reaches the verdict" "$(run gate_self_tests s)" "*fail=1"
   tap_like "a clean sweep leaves the verdict alone" "$(run gate_self_tests green)" "*fail=0"
+  git init -q tracked; mkdir tracked/sub
+  cp s/good.sh tracked/; cp s/snake.sh tracked/sub/deep.sh; cp s/quiet.sh tracked/bare.py
+  git -C tracked add -A; rm tracked/bare.py
+  tap_is "a tracked script deleted from the tree is not read" \
+    "$(run gate_tracked_self_tests tracked)" $'  ok  ./good.sh (cases: 1)\n  ok  sub/deep.sh (cases: 1)\nfail=0'
+  tap_is "the folder it ran from is kept" "$(gate_tracked_self_tests tracked >/dev/null; pwd)" "$fx"
+  cp s/quiet.sh tracked/quiet.sh; git -C tracked add quiet.sh
+  tap_like "a tracked script with no --self-test fails, named" \
+    "$(run gate_tracked_self_tests tracked)" "  FAIL quiet.sh offers no --self-test*fail=1"
+  git -C tracked rm -q --cached quiet.sh; cp s/red.sh tracked/sub/
+  tap_like "a failing self-test outside the first folder fails" \
+    "$(run gate_tracked_self_tests tracked)" "*FAIL sub/red.sh --self-test*fail=1"
+  mkdir untracked
+  tap_is "a folder that is no repo fails, naming why" "$(run gate_tracked_self_tests untracked 2>/dev/null)" \
+    $'  FAIL git ls-files in untracked, so no script was swept\nfail=1'
+  git init -q empty
+  tap_is "a repo tracking no script passes" "$(run gate_tracked_self_tests empty)" $'  ok  no script tracked\nfail=0'
   tap_is "a lint that passes is shown" "$(run gate_run echo fine)" $'  fine\nfail=0'
   tap_is "a lint that fails is shown and named" "$(run gate_run sh -c 'echo no; exit 3')" \
     $'  no\n  FAIL sh exited 3\nfail=1'

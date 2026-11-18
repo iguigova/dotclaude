@@ -32,8 +32,11 @@ if [ "${1:-}" = --self-test ]; then
   tap_like "a syntax error fails the gate, naming the script" "$(gate)" "*FAIL bash -n: ./broken.sh*selftest: FAIL"
   rm "$fx/scripts/broken.sh"
   printf '#!/usr/bin/env bash\n# offers --self-test\nprintf "not ok 1 - x\\n1..1\\n"; exit 1\n' > "$fx/scripts/red.sh"
-  tap_like "a failing self-test fails the gate, naming the script" "$(gate)" "*FAIL ./red.sh --self-test*selftest: FAIL"
+  tap_like "a failing self-test fails the gate, naming the script" "$(gate)" "*FAIL scripts/red.sh --self-test*selftest: FAIL"
   rm "$fx/scripts/red.sh"
+  printf '#!/usr/bin/env bash\necho hi\n' > "$fx/hook.sh"; git -C "$fx" add hook.sh
+  tap_like "a tracked script outside scripts/ with no self-test fails the gate" "$(gate)" "*FAIL hook.sh offers no --self-test*selftest: FAIL"
+  git -C "$fx" rm -q --cached hook.sh; rm "$fx/hook.sh"
   mkdir -p "$fx/skills/x"; printf -- '---\nname: [\n---\nbody\n' > "$fx/skills/x/SKILL.md"
   tap_like "a malformed skill frontmatter fails the gate" "$(gate)" "*FAIL frontmatter_lint.py exited*selftest: FAIL"
   rm -r "$fx/skills"
@@ -63,8 +66,8 @@ gate_syntax ./*.sh ./*.py
 echo "== 2. shellcheck =="
 gate_shellcheck ./*.sh
 
-echo "== 3. every script that offers --self-test, and the TAP it prints =="
-gate_self_tests .
+echo "== 3. every script the tree tracks offers --self-test, and the TAP it prints =="
+gate_tracked_self_tests ..
 
 echo "== 4. skill and command frontmatter, and their allowed-tools =="
 # The census reads frontmatter leniently so it can describe a malformed file.

@@ -416,7 +416,7 @@ BashFAQ/062 notes that in Bash "you can simply use `trap cleanup EXIT`". A trap 
 
 > *Source: `~/.claude/scripts/tap.sh`, `~/.claude/scripts/gate_lib.sh` (`sweep`, `self_test_of`), `~/.claude/scripts/change_gate.py`*
 
-Every script offers `--self-test`, which runs its cases and prints TAP through `tap.sh`: `ok N - <name>` or `not ok N - <name>` per case, detail lines as `# …`, and the plan `1..N` last. The sweep in `selftest.sh` finds every script whose text contains `--self-test` and fails one whose stdout is anything but that format, whose exit disagrees with its cases, or that has no cases.
+Every script offers `--self-test`, which runs its cases and prints TAP through `tap.sh`: `ok N - <name>` or `not ok N - <name>` per case, detail lines as `# …`, and the plan `1..N` last. The sweep in `selftest.sh` runs every folder holding a script the tree tracks. It fails a tracked script whose text does not contain `--self-test`, and a self-test whose stdout is anything but that format, whose exit disagrees with its cases, or that has no cases.
 
 - **Where it lives.** In a `self_test() {` function, or in an `if [[ "${1:-}" == --self-test ]]; then … fi` block, before argument parsing. Mutation leaves exactly those two forms alone (see below), so test code goes nowhere else.
 - **A library guards its block** with `[[ "${BASH_SOURCE[0]}" == "$0" ]]`, so sourcing it never runs the tests.
@@ -494,7 +494,7 @@ fi
 |---|---|---|
 | `bash -n` | `gate_syntax` | the file parses |
 | `shellcheck -S warning` | `gate_shellcheck` | no finding at warning or error severity |
-| `--self-test` sweep | `gate_self_tests` | every self-test prints valid TAP and passes |
+| `--self-test` sweep | `gate_tracked_self_tests` | every tracked script has a self-test, and each prints valid TAP and passes |
 | `change_gate.py` | `gate_changed_code` | every mutant on a changed line killed |
 
 - **ShellCheck** is pinned at v0.10.0 and installed by `install_shellcheck.sh`. `-S` sets the minimum severity reported, from `error`, `warning`, `info`, `style`; the default is `style` (shellcheck(1)). The gate runs at `warning`, so info and style findings — SC2086 among them — are held in review.

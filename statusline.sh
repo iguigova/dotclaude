@@ -1,8 +1,60 @@
 #!/bin/bash
 # Claude Code Status Line — single line
 # Fields: context bar, directory, git branch, lines changed, cost, model, version, effort
+#
+# Usage:
+#   statusline.sh               # reads the status JSON Claude Code sends on stdin
+#   statusline.sh --self-test
+#
+# Its git and start-time caches live in TMPDIR, /tmp when unset.
 
 set -euo pipefail
+
+if [[ "${1:-}" == --self-test ]]; then
+  set +e
+  # shellcheck source=scripts/tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/scripts/tap.sh"
+  fx=$(mktemp -d) || exit 2; trap 'rm -rf "$fx"' EXIT
+  self=$(cd "$(dirname "$0")" && pwd)/${0##*/}
+  line() {  # <json> — the line it prints, colours stripped, in a sandbox HOME and TMPDIR
+    raw "$1" | sed 's/\x1b\[[0-9;]*m//g'
+  }
+  raw() { (cd "$fx" && printf '%s' "$1" | HOME="$fx" TMPDIR="$fx" bash "$self"); }  # <json>
+  git init -q -b feat "$fx/repo"
+  now=$(date +%s)
+  full='{"model":{"display_name":"Opus"},"version":"2.1","context_window":{"used_percentage":35},
+    "cost":{"total_cost_usd":0.12345,"total_lines_added":7,"total_lines_removed":3},"session_id":"s1",
+    "workspace":{"current_dir":"'"$fx"'/repo"},"effort_level":"high"}'
+  out=$(line "$full")
+  tap_like "every field is shown, in order" "$out" "████░░░░░░  35%  ~/repo  feat  +7/-3  \$0.1235  ⏱ *Opus v2.1 \[high\]"
+  tap_like "the git and start caches go to TMPDIR" "$(ls "$fx")" "*claude-statusline-git-s1*claude-statusline-start-s1*"
+  printf 'cached' > "$fx/claude-statusline-git-s1"
+  tap_like "a branch cached under 5s ago is reused" "$(line "$full")" "*  cached  *"
+  tap_like "a context under 60% is green" "$(raw "$full")" $'\033[32m████*'
+  tap_like "a context of 60% is yellow" "$(raw '{"context_window":{"used_percentage":60}}')" $'\033[33m██████░░░░*'
+  tap_like "a context of 80% is red" "$(raw '{"context_window":{"used_percentage":80}}')" $'\033[31m████████░░*'
+  echo $((now - 3700)) > "$fx/claude-statusline-start-s2"
+  tap_like "a session over an hour old shows hours and minutes" "$(line '{"session_id":"s2"}')" "*⏱ 1h01m *"
+  echo $((now - 75)) > "$fx/claude-statusline-start-s3"
+  tap_like "a session over a minute old shows minutes and seconds" "$(line '{"session_id":"s3"}')" "*⏱ 1m1?s *"
+  tap_like "missing fields fall back, and effort to – with no settings" "$(line '{}')" "░░░░░░░░░░   0%  .  –  +0/-0  \$0.0000  ⏱ *s    unknown v? \[–\]"
+  mkdir -p "$fx/.claude"; printf '{"effortLevel":"low"}' > "$fx/.claude/settings.json"
+  tap_like "with no effort in the input, settings.json's is shown" "$(line '{}')" "* \[low\]"
+  tap_like "the 5-hour window shows what is left and when it resets" \
+    "$(line '{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":'$((now + 7290))'}}}')" "*  5h:70%/2h01m  *"
+  tap_like "a 5-hour window with no reset time shows what is left" \
+    "$(line '{"rate_limits":{"five_hour":{"used_percentage":30}}}')" "*  5h:70%  *"
+  git init -q -b main "$fx/new"
+  tap_like "a repo with no commit yet shows its branch on the one line" \
+    "$(line '{"workspace":{"current_dir":"'"$fx"'/new"}}')" "*  ~/new  main  +0/-0 *"
+  git -C "$fx/repo" -c user.email=t@t -c user.name=t commit -q --allow-empty -m x
+  git -C "$fx/repo" checkout -q --detach
+  tap_like "a detached HEAD shows no branch" \
+    "$(line '{"session_id":"s4","workspace":{"current_dir":"'"$fx"'/repo"}}')" "*  ~/repo  –  +0/-0 *"
+  tap_like "a long directory keeps its last two parts" \
+    "$(line '{"workspace":{"current_dir":"/aaaaaaaaaa/bbbbbbbbbb/cccccccccc/dddd"}}')" "*  …/cccccccccc/dddd  *"
+  tap_end
+fi
 
 # Read JSON from stdin
 input=$(cat)
@@ -46,7 +98,7 @@ else
 fi
 
 # --- Git branch (cached 5s) ---
-cache_file="/tmp/claude-statusline-git-${session_id}"
+cache_file="${TMPDIR:-/tmp}/claude-statusline-git-${session_id}"
 branch="–"
 now=$(date +%s)
 
@@ -58,12 +110,13 @@ if [[ -f "$cache_file" ]]; then
 fi
 
 if [[ "$branch" == "–" ]]; then
-  branch=$(cd "$work_dir" && git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "–")
+  branch=$(git -C "$work_dir" branch --show-current 2>/dev/null) || branch=""
+  [[ -n "$branch" ]] || branch="–"
   echo -n "$branch" > "$cache_file" 2>/dev/null || true
 fi
 
 # --- Session duration (stamp start on first render) ---
-start_file="/tmp/claude-statusline-start-${session_id}"
+start_file="${TMPDIR:-/tmp}/claude-statusline-start-${session_id}"
 if [[ -n "$session_id" && ! -f "$start_file" ]]; then
   date +%s > "$start_file" 2>/dev/null || true
 fi
@@ -111,7 +164,7 @@ if [[ -n "$five_h_pct" ]]; then
 fi
 
 # --- Shorten directory ---
-short_dir="${work_dir/#$HOME/~}"
+short_dir="${work_dir/#"$HOME"/\~}"
 if ((${#short_dir} > 30)); then
   short_dir="…/$(echo "$short_dir" | rev | cut -d'/' -f1-2 | rev)"
 fi

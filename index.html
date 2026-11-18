@@ -132,8 +132,8 @@
       <p class="eyebrow" id="c-from">What went wrong, and what stops it now</p>
       <ul>
         <li><span class="miss">✗ It remembered a login flow that was never true</span><span class="rule">→ ✓ every fact carries its own check</span></li>
-        <li><span class="miss">✗ A helper agent undid my edits</span><span class="rule">→ ✓ helpers never edit my tree</span></li>
-        <li><span class="miss">✗ Its own scripts had no tests</span><span class="rule">→ ✓ every script tests itself</span></li>
+        <li><span class="miss">✗ A second agent it started undid my edits</span><span class="rule">→ ✓ <span class="claim" data-check="CLAUDE.md" data-says="Parallel helpers are read-only">helpers are told to only read</span></span></li>
+        <li><span class="miss">✗ Its own scripts had no tests</span><span class="rule">→ ✓ <span class="claim" data-check="scripts/gate_lib.sh" data-says="every script the repo tracks offers --self-test">every script tests itself</span></span></li>
       </ul>
     </div>
   </div>

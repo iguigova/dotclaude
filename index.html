@@ -35,13 +35,14 @@
     .flow > li + li::before { content: "↓"; padding-left: 14px; }
   }
 
-  /* Plain against mine, one lane each. */
-  .lanes { display: grid; gap: 14px; margin: 22px 0 0; }
-  .lane { display: grid; grid-template-columns: 4.5em minmax(0, 1fr); gap: 8px 14px; align-items: center; }
-  .lane > span { font: 12px var(--mono); text-transform: uppercase; letter-spacing: .06em; }
-  .lane.plain > span { color: var(--muted); }
-  .lane.mine > span { color: var(--link); }
-  @media (max-width: 640px) { .lane { grid-template-columns: 1fr; } }
+  /* A real refusal, as the terminal shows it. */
+  .term { margin: 22px 0 0; padding: 14px 16px; border-radius: 8px; background: var(--panel);
+    border: 1px solid var(--hair); font: 13px/1.6 var(--mono); max-width: 68ch; overflow-wrap: anywhere; }
+  .term p { margin: 0; max-width: none; }
+  .term .me { color: var(--ink); }
+  .term .no { color: var(--link); padding-left: 2ch; }
+  .term .why { color: var(--muted); padding-left: 4ch; }
+  .term .ok { color: var(--good); }
 
   /* The loop. */
   .loop { width: 100%; max-width: 660px; height: auto; display: block; }
@@ -86,10 +87,30 @@
   .out.wait { border-top-color: var(--muted); border-top-style: dashed; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; padding: 0; list-style: none; }
   .chips li { margin: 0; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--good); color: var(--good); }
-  .case { display: block; margin: 6px 0; padding: 4px 8px; border-radius: 4px; background: var(--panel); font-size: 13px; }
-  .case em { font: 12px var(--mono); font-style: normal; white-space: nowrap; }
-  .case .ok { color: var(--good); }
-  .case .quiet { color: var(--muted); }
+
+  /* The census: a few real rows. */
+  .census { width: 100%; border-collapse: collapse; font: 13px var(--mono); margin: 10px 0 0; }
+  .census th, .census td { text-align: right; padding: 5px 10px; border-bottom: 1px solid var(--hair); white-space: nowrap; }
+  .census th:first-child, .census td:first-child { text-align: left; }
+  .census th { color: var(--muted); font-weight: 400; font-size: 12px; }
+  .census tr.cut td { color: var(--link); }
+  .census tr.cut td:first-child::after { content: "  ← nothing runs it, nothing names it"; color: var(--muted); }
+  .scroll { overflow-x: auto; }
+  @media (max-width: 640px) {
+    .census .wide { display: none; }
+    .census { font-size: 12px; }
+    .census th, .census td { padding: 5px 6px; }
+    .census tr.cut td:first-child::after { display: block; content: "nothing runs it, nothing names it"; font-size: 12px; white-space: normal; }
+  }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+  /* The audit: the credo at the centre. */
+  .credo { margin: 0; padding: 14px 16px; border: 2px solid var(--link); border-radius: 8px; max-width: none; }
+  .credo a { font: 15px var(--mono); }
+  .credo q { display: block; font-size: 20px; color: var(--ink); margin: 4px 0 0; quotes: "“" "”"; }
+  .box.credo-box { border: 2px solid var(--link); }
+  .pick { font: 13px var(--mono); margin: 0; padding: 0; list-style: none; }
+  .pick li { margin: 0; }
 
   /* What's in the repo: live counts, and one bar split by who it is for. */
   .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
@@ -118,22 +139,15 @@
   <div>
     <p class="eyebrow">My Claude Code setup</p>
     <h1>Instructions get forgotten.<br><span class="hot">Code doesn't.</span></h1>
-    <p class="lead">Claude Code is an AI that writes code from a terminal. On a long task it loses hold of the rules I gave it.
-      So small programs keep the rules for it, and they can say no.</p>
-    <div class="lanes" role="group" aria-label="A rule in a plain setup and in mine">
-      <div class="lane plain"><span>Plain</span>
-        <ol class="flow">
-          <li><span class="box">A rule<small>text it reads</small></span></li>
-          <li><span class="box">The assistant</span></li>
-          <li><span class="box end">Followed<small>unless it forgot</small></span></li>
-        </ol></div>
-      <div class="lane mine"><span>Mine</span>
-        <ol class="flow">
-          <li><span class="box">A rule<small>text it reads</small></span></li>
-          <li><span class="box code"><b>A program</b><small>checks every step</small></span></li>
-          <li><span class="box">The assistant</span></li>
-          <li><span class="box end">Followed<small>or the step is refused</small></span></li>
-        </ol></div>
+    <p class="lead">Claude Code is an AI that writes code from my terminal. It's capable, and it forgets:
+      deep into a task, the rules I gave it at the start are just more text in a long conversation.
+      So the rules that matter most are also small programs. They watch every step, make no AI call, and can say no.</p>
+    <div class="term" role="group" aria-label="The assistant tries to edit a script before reading my shell guide, and the edit is refused">
+      <p class="me">● Edit scripts/deploy.sh</p>
+      <p class="no">✗ refused by guideline_gate.py</p>
+      <p class="why">Read shell_coding_guidelines.md before editing deploy.sh. Then make this edit again.</p>
+      <p class="me">● Read shell_coding_guidelines.md</p>
+      <p class="me">● Edit scripts/deploy.sh <span class="ok">✓</span></p>
     </div>
   </div>
 </header>
@@ -180,7 +194,6 @@
       <li><span class="box code"><b>04:30 check</b><small>rechecks every fact</small></span></li>
       <li><span class="box end">↻ the next session reads it all</span></li>
     </ol>
-    <p class="caption">The green boxes are gates: plain programs that can say no. They make no AI call, so a refusal costs nothing.</p>
   </div>
 </section>
 
@@ -193,9 +206,6 @@
       <li><h3>"Done. Shall I commit?"</h3>
         <div class="vs"><p class="plain">I skim, type "sure", and something I never read is committed.</p>
           <p class="ours">A question in prose is sent back. It asks again in a dialog, and waits.</p></div></li>
-      <li><h3>It's about to edit code</h3>
-        <div class="vs"><p class="plain">Did it read my coding guide today? Nobody checks.</p>
-          <p class="ours">The edit is refused until it has read the guides, whole.</p></div></li>
       <li><h3>A command is blocked</h3>
         <div class="vs"><p class="plain">It finds another way around.</p>
           <p class="ours">Every other step is refused until I answer.</p></div></li>
@@ -252,23 +262,36 @@
 </section>
 
 <section aria-labelledby="h-tested">
-  <h2 id="h-tested">Even the instructions have tests</h2>
+  <h2 id="h-tested">It checks itself</h2>
   <div>
-    <p>A skill is a page of instructions the assistant picks up when a request fits. Instructions are code too, so they get tests.
-      Each case runs in a fresh session, a few times, and the majority decides.</p>
-    <div class="fork">
-      <div class="out yes"><b>Skills fire when they should</b>
-        <span class="case">“log my time” <em class="ok">✓ fires</em></span>
-        <span class="case">“add a timing log line to the deploy script” <em class="quiet">stays quiet</em></span>
-        Change a skill's description, and its cases run before the commit.</div>
-      <div class="out yes"><b>It still sounds like me</b>
-        <span class="case">Texts I liked, and texts I didn't, like “I've built pieces other developers stand on.” <em class="quiet">✗ not me</em></span>
-        A fresh reviewer has to judge every one the way I did.</div>
+    <p>Even the instructions have tests. Change what a skill says it's for, and fresh sessions check it still fires when it should and stays quiet when it shouldn't, before the commit.</p>
+
+    <h3>/inventory: what's earning its keep</h3>
+    <p>One table of everything I wrote for it: how often each piece runs, what a run costs, when it last changed, and what names it.</p>
+    <div class="scroll">
+      <table class="census">
+        <caption class="sr-only">A few rows from the census on 18 November 2026</caption>
+        <thead><tr><th scope="col">name</th><th scope="col">runs</th><th scope="col" class="wide">$ / run</th><th scope="col" class="wide">last edit</th><th scope="col">named by</th></tr></thead>
+        <tbody>
+          <tr><td>change_gate.py</td><td>100</td><td class="wide">–</td><td class="wide">2026-11-18</td><td>25</td></tr>
+          <tr><td>audit</td><td>24</td><td class="wide">2.13</td><td class="wide">2026-11-18</td><td>–</td></tr>
+          <tr class="cut"><td>confluence-children.sh</td><td>0</td><td class="wide">–</td><td class="wide">2026-11-03</td><td>0</td></tr>
+        </tbody>
+      </table>
     </div>
-    <div class="cards">
-      <div class="out wait"><b>/inventory</b>One table of every skill, script and rule: how often it runs, what a run costs, when it last changed, and what names it.
-        Something nothing runs and nothing names is a candidate to delete.</div>
-      <div class="out wait"><b>/audit</b>The one check that isn't code, on purpose. When I ask, a fresh read judges a file, a change or an answer against my credo, and I pick which findings to fix.</div>
+    <p class="caption">Three real rows from the census of 18 November 2026. Scripts cost nothing to run, so only skills show a price.</p>
+
+    <h3>/audit: judged against the credo</h3>
+    <p>The one check that isn't code, on purpose. Everything here comes from one page, my credo. When I ask, a fresh read holds a file, a change or an answer up against it.</p>
+    <p class="credo"><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a>
+      <q>Build simple systems people can trust.</q></p>
+    <div class="more">
+      <ol class="flow" aria-label="How an audit runs">
+        <li><span class="box">A file, a change<small>or an answer</small></span></li>
+        <li><span class="box credo-box"><b>A fresh read</b><small>against every line of the credo</small></span></li>
+        <li><span class="box">Findings<small>numbered, worst first</small></span></li>
+        <li><span class="box end"><ul class="pick"><li>☑ 1</li><li>☐ 2</li><li>☑ 3</li></ul><small>I pick which to fix</small></span></li>
+      </ol>
     </div>
   </div>
 </section>
@@ -287,7 +310,7 @@
     <p class="split-key"><span><b data-count="travels">–</b> travel to any setup: gates, memory, self-checks</span>
       <span><b data-count="mine">–</b> are plumbing for my job: GitHub reviews, Jira, Confluence, Slack</span></p>
     <ul class="take">
-      <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Where it all comes from. Its mission is one line: “Build simple systems people can trust.” Write your own.</li>
+      <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Where it all comes from. Write your own.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py">ask_gate.py</a><br>If you've ever said "sure" to a question you didn't read.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/git_fact.sh">git_fact.sh</a><br>A fact is only worth keeping with a command that can prove it wrong.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/skill_trigger_test.py">skill_trigger_test.py</a><br>If you've ever edited a skill and it quietly stopped firing.</li>

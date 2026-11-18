@@ -8,13 +8,20 @@
 # one owner per line. The key must stand alone, so ABC-113 never matches
 # ABC-1130.
 #
+# A check that gates a later step than review, such as a label QA adds once
+# it has tested the PR, cannot pass before the review is asked for. The
+# project names such checks in .claude/later_checks, one check name or status
+# context per line; the file is optional. They are left out of "checks" and
+# "ready", and reported in "later" instead.
+#
 # Usage:
 #   gh-ticket-prs.sh <KEY>
 #   gh-ticket-prs.sh --self-test
 #
 # Output, one JSON object per line, oldest first:
 #   {"url", "repo", "number", "title", "draft", "review", "mergeable",
-#    "checks": {"pass", "fail", "pending"}, "ready", "pushed",
+#    "checks": {"pass", "fail", "pending"}, "later": {<name>: <verdict>},
+#    "ready", "pushed",
 #    "reviewers": [{"login", "state", "behind"}]}
 # "ready" is true when the PR is not a draft, is mergeable, and no check is
 # failing or pending. A check that was skipped or neutral counts as a pass.
@@ -33,8 +40,9 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# One statusCheckRollup entry is a check run (status, conclusion) or a commit
-# status (state). Each counts as exactly one of pass, fail or pending.
+# One statusCheckRollup entry is a check run (name, status, conclusion) or a
+# commit status (context, state). Each counts as exactly one of pass, fail or
+# pending, or, when $later names it, goes to "later" with that verdict.
 # shellcheck disable=SC2016  # jq program, not shell
 SUMMARY='
   def verdict:
@@ -43,10 +51,12 @@ SUMMARY='
     elif .status != "COMPLETED" then "pending"
     else ({"SUCCESS": "pass", "SKIPPED": "pass", "NEUTRAL": "pass"}[.conclusion] // "fail")
     end;
-  ([.statusCheckRollup[]? | verdict]) as $v
+  def later: (.name // .context) | IN($later[]);
+  ([.statusCheckRollup[]? | select(later | not) | verdict]) as $v
   | {pass: 0, fail: 0, pending: 0} as $zero
   | {draft: .isDraft, review: (.reviewDecision // "NONE"), mergeable,
-     checks: (reduce $v[] as $x ($zero; .[$x] += 1))}
+     checks: (reduce $v[] as $x ($zero; .[$x] += 1)),
+     later: ([.statusCheckRollup[]? | select(later) | {key: (.name // .context), value: verdict}] | from_entries)}
   | .ready = ((.draft | not) and .mergeable == "MERGEABLE"
               and .checks.fail == 0 and .checks.pending == 0)'
 
@@ -79,7 +89,7 @@ NAMES_KEY='(.title + "\n" + (.body // "")) | test("(^|[^A-Za-z0-9-])" + $k + "([
 if [[ "${1:-}" == "--self-test" ]]; then
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
-  sum() { jq -c "$SUMMARY | [.checks.pass, .checks.fail, .checks.pending, .ready]" <<<"$1"; }
+  sum() { jq -c --argjson later "${2:-[]}" "$SUMMARY | [.checks.pass, .checks.fail, .checks.pending, .ready]" <<<"$1"; }
   tap_is "passing, skipped and neutral checks count as passes" \
     "$(sum '{"isDraft":false,"reviewDecision":"REVIEW_REQUIRED","mergeable":"MERGEABLE","statusCheckRollup":[
       {"status":"COMPLETED","conclusion":"SUCCESS"},{"status":"COMPLETED","conclusion":"SKIPPED"},
@@ -96,7 +106,15 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_is "a conflicting PR is never ready" \
     "$(sum '{"isDraft":false,"mergeable":"CONFLICTING","statusCheckRollup":[]}')" '[0,0,0,false]'
   tap_is "no review decision reads as NONE" \
-    "$(jq -r "$SUMMARY | .review" <<<'{"isDraft":false,"mergeable":"MERGEABLE"}')" NONE
+    "$(jq -r --argjson later '[]' "$SUMMARY | .review" <<<'{"isDraft":false,"mergeable":"MERGEABLE"}')" NONE
+  tap_is "a failing later check is left out of the counts and ready" \
+    "$(sum '{"isDraft":false,"mergeable":"MERGEABLE","statusCheckRollup":[
+      {"name":"lint","status":"COMPLETED","conclusion":"SUCCESS"},
+      {"name":"UAT Passed","status":"COMPLETED","conclusion":"FAILURE"}]}' '["UAT Passed"]')" '[1,0,0,true]'
+  tap_is "a later check or status is reported by name with its verdict" \
+    "$(jq -c --argjson later '["UAT Passed","qa/sign-off"]' "$SUMMARY | .later" <<<'{"statusCheckRollup":[
+      {"name":"UAT Passed","status":"COMPLETED","conclusion":"FAILURE"},{"context":"qa/sign-off","state":"PENDING"},
+      {"name":"lint","status":"COMPLETED","conclusion":"FAILURE"}]}')" '{"UAT Passed":"fail","qa/sign-off":"pending"}'
   revs() { jq -c "$REVIEWERS" <<<"$1"; }
   tap_is "a review of another commit is behind, one of the head is not, the author's and a bot's are left out" \
     "$(revs '{"author":{"login":"me"},"head":"h2","commits":[{"committedDate":"2026-01-01T00:00:00Z","checkSuites":[]}],"latestReviews":[
@@ -140,15 +158,19 @@ if [[ "$1 $2" == "api graphql" ]]; then
 fi
 [[ "$3" == "$FAKE_FAIL_URL" ]] && exit 1
 echo '{"url":"'"$3"'","number":7,"title":"ABC-1: fix","isDraft":false,"reviewDecision":"APPROVED","mergeable":"MERGEABLE",
-       "statusCheckRollup":[{"status":"COMPLETED","conclusion":"SUCCESS"}]}'
+       "statusCheckRollup":[{"name":"lint","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"UAT Passed","status":"COMPLETED","conclusion":"FAILURE"}]}'
 FAKE
   chmod +x "$T/bin/gh"
   run() { (cd "$T/p" && PATH="$T/bin:$PATH" FAKE_LOG="$T/log" "$@" bash "$HERE/$(basename "${BASH_SOURCE[0]}")" "${ARGS[@]}" 2>/dev/null); }
   ARGS=(ABC-1)
   : > "$T/log"; out=$(run env; echo "exit $?")
-  tap_is "a ticket's open PR is listed with its state" "${out//$'\n'/ }" \
-    '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":0,"pending":0},"ready":true,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
+  tap_is "with no later_checks every check counts toward ready" "${out//$'\n'/ }" \
+    '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":1,"pending":0},"later":{},"ready":false,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
   tap_is "every owner is searched, and comments and blank lines are not" "$(paste -sd' ' "$T/log")" "acme beta"
+  printf '# gates QA\n\nUAT Passed\n' > "$T/p/.claude/later_checks"
+  out=$(run env; echo "exit $?")
+  tap_is "a check later_checks names is reported apart, and the PR is ready" "${out//$'\n'/ }" \
+    '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":0,"pending":0},"later":{"UAT Passed":"fail"},"ready":true,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
   rc=0; run env FAKE_FAIL_ORG=beta >/dev/null || rc=$?
   tap_is "a failed search exits 2" "$rc" 2
   rc=0; run env FAKE_FAIL_URL=https://github.com/acme/api/pull/7 >/dev/null || rc=$?
@@ -174,6 +196,12 @@ if ! ORGS_FILE=$("$HERE/project_file.sh" github_orgs 2>/dev/null); then
   exit 1
 fi
 
+# The project's later checks as a JSON array; comments and blank lines are not names.
+later='[]'
+if LATER_FILE=$("$HERE/project_file.sh" later_checks 2>/dev/null); then
+  later=$(jq -Rnc '[inputs | select(length > 0 and (startswith("#") | not))]' "$LATER_FILE")
+fi
+
 urls=()
 while read -r org; do
   [[ -z "$org" || "$org" == \#* ]] && continue
@@ -190,6 +218,6 @@ for url in "${urls[@]}"; do
   reviews=$(gh api graphql -f query="$REVIEWS_QUERY" -f o="$owner" -f r="$repo" -F n="$number" --jq "$REVIEWS_SHAPE") \
     || { echo "gh-ticket-prs: could not read the reviews of $url" >&2; exit 2; }
   pr=$(jq -c --argjson rv "$reviews" '. + $rv' <<<"$pr")
-  jq -c "{url, number, title, repo: (.url | split(\"/\")[3:5] | join(\"/\"))} + ($SUMMARY) + ($REVIEWERS)
-         | {url, repo, number, title, draft, review, mergeable, checks, ready, pushed, reviewers}" <<<"$pr"
+  jq -c --argjson later "$later" "{url, number, title, repo: (.url | split(\"/\")[3:5] | join(\"/\"))} + ($SUMMARY) + ($REVIEWERS)
+         | {url, repo, number, title, draft, review, mergeable, checks, later, ready, pushed, reviewers}" <<<"$pr"
 done

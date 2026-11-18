@@ -89,6 +89,11 @@
   .out.no b { color: var(--link); }
   .out.wait { border-top-color: var(--muted); border-top-style: dashed; }
   .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
+  .more { margin: 12px 0 4px; }
+  .case { display: block; margin: 6px 0; padding: 4px 8px; border-radius: 4px; background: var(--panel); font-size: 13px; }
+  .case em { font: 12px var(--mono); font-style: normal; white-space: nowrap; }
+  .case .ok { color: var(--good); }
+  .case .quiet { color: var(--muted); }
   .chips li { margin: 0; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--good); color: var(--good); }
 
   /* Four principles, four tiles. */
@@ -98,7 +103,7 @@
   .tile b { display: block; color: var(--ink); margin-bottom: 4px; }
   .tile span { color: var(--muted); font-size: 14px; }
 
-  .take { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px;
+  .take { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;
     list-style: none; padding: 0; max-width: none; }
   .take li { margin: 0; border: 1px solid var(--hair); border-top: 3px solid var(--link); padding: 10px 14px; font-size: 14px; }
   .take a { display: inline-block; font: 15px var(--mono); margin-bottom: 4px; min-height: 24px; }
@@ -198,68 +203,69 @@
       <li><h3><time>13:30</time>It's about to edit code</h3>
         <div class="vs"><p class="plain">Did it read my coding guide today? Nobody checks.</p>
           <p class="ours">The edit is refused until it has read the guides, whole.</p></div></li>
-      <li><h3><time>14:00</time>It changes code</h3>
+      <li><h3><time>14:00</time>It commits a change</h3>
         <div class="vs"><p class="plain">The tests pass, so it's done.</p>
-          <p class="ours">Bugs are planted on every changed line. Each one must fail a test.</p></div></li>
+          <p class="ours">The tests have to catch bugs planted in the change.</p></div>
+        <div class="more">
+          <ol class="flow" aria-label="What a change passes before it is committed">
+            <li><span class="box">A change</span></li>
+            <li><span class="box code"><b>Every script's own tests</b><small>each script tests itself</small></span></li>
+            <li><span class="box code"><b>Bugs planted</b><small>on each changed line, like <code>&lt;</code> into <code>&lt;=</code></small></span></li>
+          </ol>
+          <div class="fork">
+            <div class="out yes"><b>✓ Every bug caught</b>Committed.</div>
+            <div class="out no"><b>✗ One survives</b>Nothing is committed. Back to the tests.</div>
+          </div>
+        </div></li>
       <li><h3><time>17:00</time>It spots something off-task</h3>
         <div class="vs"><p class="plain">Mentions it once. Then it's gone.</p>
-          <p class="ours">Writes a note that waits for me.</p></div></li>
+          <p class="ours">Writes a note that waits for me. I really like this one.</p></div>
+        <div class="more">
+          <ol class="flow" aria-label="The life of a note">
+            <li><span class="box code"><b>A note</b><small>one command</small></span></li>
+            <li><span class="box">Next session<small>shows the oldest open</small></span></li>
+          </ol>
+          <div class="fork">
+            <div class="out yes"><b>✓ Do</b>It becomes something that lasts:
+              <ul class="chips"><li>checked fact</li><li>rule</li><li>script</li><li>setting</li><li>ticket</li></ul></div>
+            <div class="out wait"><b>↻ Keep open</b>It waits, on purpose.</div>
+            <div class="out no"><b>✗ Drop</b>Only I can drop one.</div>
+          </div>
+        </div></li>
       <li><h3><time>18:30</time>I close the session</h3>
         <div class="vs"><p class="plain">That's it.</p>
           <p class="ours">The notes it can place are placed, merged branches deleted, this page published again.</p></div></li>
       <li><h3><time>04:30</time>Nobody's here</h3>
         <div class="vs"><p class="plain">A fact it learned went stale. Tomorrow it repeats it, with confidence.</p>
-          <p class="ours">Every remembered fact is checked again. A wrong one is deleted.</p></div></li>
+          <p class="ours">Every remembered fact runs its own check again.</p></div>
+        <div class="more">
+          <ol class="flow" aria-label="How a remembered fact is kept">
+            <li><span class="box">A fact<small>"releases ship from <code>release</code>"</small></span></li>
+            <li><span class="box code"><b>Its check</b><small>a command that can prove it wrong</small></span></li>
+          </ol>
+          <div class="fork">
+            <div class="out yes"><b>✓ Holds</b>Kept.</div>
+            <div class="out no"><b>✗ Contradicted</b>Deleted by morning.</div>
+            <div class="out wait"><b>? No answer</b>Kept, and reported.</div>
+          </div>
+        </div></li>
     </ol>
   </div>
 </section>
 
-<section aria-labelledby="h-gate">
-  <h2 id="h-gate">The commit gate</h2>
+<section aria-labelledby="h-tested">
+  <h2 id="h-tested">Even the instructions have tests</h2>
   <div>
-    <ol class="flow" aria-label="What a change passes before it is committed">
-      <li><span class="box">A change</span></li>
-      <li><span class="box code"><b>Every script's own tests</b><small>each script tests itself</small></span></li>
-      <li><span class="box code"><b>Bugs planted</b><small>on each changed line, like <code>&lt;</code> into <code>&lt;=</code></small></span></li>
-    </ol>
+    <p>A skill is a page of instructions the assistant picks up when a request fits. Instructions are code too, so they get tests.
+      Each case runs in a fresh session, a few times, and the majority decides.</p>
     <div class="fork">
-      <div class="out yes"><b>✓ Every bug caught</b>The change is committed.</div>
-      <div class="out no"><b>✗ One bug survives</b>Nothing is committed. Back to the tests.</div>
-    </div>
-    <p class="caption">Passing tests aren't enough. They have to notice when the code is wrong. And no function may grow too tangled to follow.</p>
-  </div>
-</section>
-
-<section aria-labelledby="h-notes">
-  <h2 id="h-notes">Notes</h2>
-  <div>
-    <ol class="flow" aria-label="The life of a note">
-      <li><span class="box">Something off-task<small>noticed mid-work</small></span></li>
-      <li><span class="box code"><b>A note</b><small>one command</small></span></li>
-      <li><span class="box">Next session<small>shows the oldest open</small></span></li>
-    </ol>
-    <div class="fork">
-      <div class="out yes"><b>✓ Do</b>It becomes something that lasts:
-        <ul class="chips"><li>checked fact</li><li>rule</li><li>script</li><li>setting</li><li>ticket</li></ul></div>
-      <div class="out wait"><b>↻ Keep open</b>It waits, on purpose.</div>
-      <div class="out no"><b>✗ Drop</b>Only I can drop one.</div>
-    </div>
-    <p class="caption">Something I noticed on Tuesday is still there on Friday, until I decide what it is. I really like this one.</p>
-  </div>
-</section>
-
-<section aria-labelledby="h-memory">
-  <h2 id="h-memory">Memory</h2>
-  <div>
-    <ol class="flow" aria-label="How a remembered fact is kept">
-      <li><span class="box">A fact<small>"releases ship from <code>release</code>"</small></span></li>
-      <li><span class="box">Its check<small>a command that can prove it wrong</small></span></li>
-      <li><span class="box code"><b>04:30, every night</b><small>every check runs again</small></span></li>
-    </ol>
-    <div class="fork">
-      <div class="out yes"><b>✓ Holds</b>Kept.</div>
-      <div class="out no"><b>✗ Contradicted</b>Deleted by morning.</div>
-      <div class="out wait"><b>? No answer</b>Kept, and reported. A check that can't reach its answer deletes nothing.</div>
+      <div class="out yes"><b>Skills fire when they should</b>
+        <span class="case">“log my time” <em class="ok">✓ fires</em></span>
+        <span class="case">“add a timing log line to the deploy script” <em class="quiet">stays quiet</em></span>
+        Change a skill's description, and its cases run before the commit.</div>
+      <div class="out yes"><b>It still sounds like me</b>
+        <span class="case">Texts I liked, and texts I didn't, like “I've built pieces other developers stand on.” <em class="quiet">✗ not me</em></span>
+        A fresh reviewer has to judge every one the way I did.</div>
     </div>
   </div>
 </section>
@@ -286,6 +292,7 @@
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Write your own. One line in your <code>CLAUDE.md</code> loads it everywhere.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py">ask_gate.py</a><br>If you've ever said "sure" to a question you didn't read.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/git_fact.sh">git_fact.sh</a><br>A fact is only worth keeping with a command that can prove it wrong.</li>
+      <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/skill_trigger_test.py">skill_trigger_test.py</a><br>If you've ever edited a skill and it quietly stopped firing.</li>
     </ul>
   </div>
 </section>

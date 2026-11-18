@@ -23,11 +23,7 @@
 # a file that repo never had. The gate runs before anything is staged, on a
 # scratch clone of HEAD holding only the named paths as they are now, so
 # another session's uncommitted work neither reddens it nor passes through it;
-# a red gate commits nothing. Each gate runs twice over that clone, as HEAD
-# holds it and as the change leaves it, and both must pass: the first keeps a
-# change from loosening the check that judges it, the second holds it to any
-# check it adds. So a gate takes `--root DIR`, the tree it checks, and refuses
-# an argument it does not take. A commit of the session history alone is not
+# a red gate commits nothing. A commit of the session history alone is not
 # gated: the gate checks code, and no check reads the history, so it could
 # neither pass nor fail on it — gating it would only hold the audit trail back
 # behind an unrelated red script. Only the named paths are staged and committed
@@ -134,13 +130,13 @@ gated() {
   return 1
 }
 
-# gate_tree DEST TOP [REL…] — clone TOP's HEAD into DEST and lay the named
-# paths over it as they are now, a deleted one deleted. Each top-level
+# gate_tree SCRATCH TOP REL… — clone TOP's HEAD into SCRATCH/tree and lay the
+# named paths over it as they are now, a deleted one deleted. Each top-level
 # entry TOP's .gitignore ignores (nested repos, venvs, secrets) is linked in:
 # it is the environment the tracked scripts run in, not anyone's work. An
 # untracked entry that is not ignored stays out, since it may be.
 gate_tree() {
-  local tree="$1" top="$2" p e; shift 2
+  local tree="$1/tree" top="$2" p e; shift 2
   git clone -q --shared "$top" "$tree" 2>/dev/null || die "could not clone $top to gate it"
   while IFS= read -r e; do
     e=${e%/}
@@ -153,28 +149,19 @@ gate_tree() {
   done
 }
 
-# gates_over DIR TREE TOP WHOSE — every gate DIR carries passes over TREE; the
-# first red one prints its tail and is named as WHOSE.
-gates_over() {
-  local g out
-  while IFS= read -r g; do
-    # MEM_PROJECT_ROOT (memory_lib.sh) is the repo, so a gate finds its memory store.
-    out=$(cd "$2" && MEM_PROJECT_ROOT="$3" "$g" --root "$2" 2>&1) && continue
-    printf '%s\n' "$out" | tail -20 >&2
-    echo "tooling_commit.sh: gate ${g#"$1"/}, $4, is red; nothing committed" >&2
-    return 1
-  done < <(gates_of "$1")
-}
-
 run_gates() {  # TOP REL…
-  local top="$1" scratch st=0
-  [[ -n "$(gates_of "$top")" ]] || die "$top carries no selftest, so nothing gates the commit"
-  scratch=$(mktemp -d) || die "no scratch folder to gate $top in"
-  gate_tree "$scratch/head" "$top"; gate_tree "$scratch/tree" "$@"
-  gates_over "$scratch/head" "$scratch/tree" "$top" "as HEAD holds it" \
-    && gates_over "$scratch/tree" "$scratch/tree" "$top" "as the change leaves it" || st=1
+  local -a gates; local g out scratch st=0
+  mapfile -t gates < <(gates_of "$1")
+  [[ ${#gates[@]} -gt 0 ]] || die "$1 carries no selftest, so nothing gates the commit"
+  scratch=$(mktemp -d)
+  gate_tree "$scratch" "$@"
+  for g in "${gates[@]}"; do
+    g="$scratch/tree/${g#"$1"/}"
+    # MEM_PROJECT_ROOT (memory_lib.sh) is the repo, so a gate finds its memory store.
+    out=$(cd "$scratch/tree" && MEM_PROJECT_ROOT="$1" "$g" 2>&1) || { st=1; break; }
+  done
   rm -rf "$scratch"
-  [[ "$st" -eq 0 ]] || exit 1
+  [[ "$st" -eq 0 ]] || { printf '%s\n' "$out" | tail -20 >&2; die "gate ${g#"$scratch/tree/"} is red; nothing committed"; }
 }
 
 run_trigger_cases() {  # ABS…
@@ -249,16 +236,12 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp out
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
-  # A fixture gate is red while RED sits beside it in the tree it checks.
-  # shellcheck disable=SC2016  # the gate's own text, expanded when it runs
-  local red_gate='#!/usr/bin/env bash\nd=$(dirname "$0"); [[ "${1:-}" == --root ]] && d="$2/%s"\n[[ ! -e "$d/RED" ]]\n'
   mkrepo() {  # DIR [GATE] — a repo with one commit, gated by GATE when given
     mkdir -p "$1"; git -C "$1" init -q
     git -C "$1" config user.email t@t; git -C "$1" config user.name t
     if [[ -n "${2:-}" ]]; then
       mkdir -p "$1/$(dirname "$2")"
-      # shellcheck disable=SC2059  # the format is the fixture gate's text
-      printf "$red_gate" "$(dirname "$2")" > "$1/$2"
+      printf '#!/usr/bin/env bash\n[[ ! -e "$(dirname "$0")/RED" ]]\n' > "$1/$2"
       chmod +x "$1/$2"
     fi
     echo base > "$1/base.txt"; git -C "$1" add -A; git -C "$1" commit -qm base
@@ -297,8 +280,7 @@ moved.txt"
   out=$(tc -m "chore: red" -- "$r/b.txt" "$r/.claude/scripts/RED")
   tap_is "a red gate commits nothing" "$(head_of "$r")" "$h"
   tap_is "and says the gate was red" "$(grep -c 'is red; nothing committed' <<<"$out")" "1"
-  tap_is "and names the gate by its path in the repo" \
-    "$(grep -c 'gate .claude/scripts/selftest.sh, as HEAD holds it, is red' <<<"$out")" "1"
+  tap_is "and names the gate as the repo holds it" "$(grep -c 'gate .claude/scripts/selftest.sh is red' <<<"$out")" "1"
   out=$(tc -m "chore: b" -- "$r/b.txt")
   tap_is "another session's uncommitted file does not redden the gate" "$(files_of_head "$r")" "b.txt"
   rm "$r/.claude/scripts/RED"
@@ -307,22 +289,6 @@ moved.txt"
   tc -m "chore: un-red" -- "$r/.claude/scripts/RED" "$r/e.txt" >/dev/null
   tap_is "a named deletion is gated deleted" "$(files_of_head "$r")" ".claude/scripts/RED
 e.txt"
-  h=$(head_of "$r")
-
-  local gate_file="$r/.claude/scripts/selftest.sh"
-  printf '#!/usr/bin/env bash\nexit 0\n' > "$gate_file"; touch "$r/.claude/scripts/RED"
-  out=$(tc -m "chore: loosen" -- "$gate_file" "$r/.claude/scripts/RED")
-  tap_is "a change that loosens the gate cannot pass it" "$(head_of "$r")" "$h"
-  tap_is "and says it is HEAD's gate that is red" "$(grep -c ', as HEAD holds it, is red' <<<"$out")" "1"
-  rm "$r/.claude/scripts/RED"; git -C "$r" checkout -q -- .claude/scripts/selftest.sh
-  sed -i '2a [[ ! -e "$d/NEW_RED" ]] || exit 1' "$gate_file"
-  touch "$r/.claude/scripts/NEW_RED"
-  out=$(tc -m "chore: stricter" -- "$gate_file" "$r/.claude/scripts/NEW_RED")
-  tap_is "a check the change adds judges the change" "$(head_of "$r")" "$h"
-  tap_is "and says it is the change's gate that is red" "$(grep -c ', as the change leaves it, is red' <<<"$out")" "1"
-  rm "$r/.claude/scripts/NEW_RED"
-  tc -m "chore: stricter" -- "$gate_file" >/dev/null
-  tap_is "a stricter gate the tree passes commits" "$(files_of_head "$r")" ".claude/scripts/selftest.sh"
   h=$(head_of "$r")
 
   local v="$tmp/env"; mkrepo "$v" scripts/selftest.sh

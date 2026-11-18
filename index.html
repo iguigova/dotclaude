@@ -145,14 +145,14 @@
   <div>
     <p>Here's one ordinary day, twice. "Plain" is a setup where the rules are just text the assistant reads.
       "Mine" is this one.
-      Most of what mine does is hooks. A <em>hook</em> is a small program Claude Code runs before or after the assistant's steps, and it can refuse a step.</p>
+      Most of what mine does is code: hooks, a gate before each commit, and a nightly check. A <em>hook</em> is a small program Claude Code runs before or after the assistant's steps, and it can refuse a step.</p>
     <ol class="day">
       <li><time>09:00</time><div>
         <h3>A session starts</h3>
         <div class="vs">
           <p class="plain"><span class="label">Plain</span>It starts fresh. Whatever happened overnight, it doesn't know.</p>
-          <p class="ours"><span class="label">Mine</span><span class="claim" data-check="CLAUDE.md" data-says="Read what ran while nobody was here.">It starts by reading what ran while nobody was here,</span>
-            and tells me: which remembered facts were deleted, which notes were placed, which branches were cleaned up.</p>
+          <p class="ours"><span class="label">Mine</span><span class="claim" data-check="CLAUDE.md" data-says="Read what ran while nobody was here.">It's told to start by reading what ran while nobody was here,</span>
+            and to tell me: which remembered facts were deleted, which notes were placed, which branches were cleaned up.</p>
         </div></div></li>
       <li><time>10:30</time><div>
         <h3>It finishes a fix, and asks a question on the way out</h3>
@@ -188,7 +188,7 @@
             <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">Every mutant has to make a test fail,</span>
             <span class="claim" data-check="coding_guidelines.md" data-says="No function above cyclomatic complexity 10">and no function can grow too tangled to follow.</span>
             <span class="claim" data-check="coding_guidelines.md" data-says="Never loosen a check to pass it">Loosening a check to get past it isn't allowed.</span>
-            <span class="claim" data-check="scripts/change_gate.py" data-says="Mutants run --jobs at a time, one per core unless">The mutants run side by side, one per core, so a big change no longer waits on them one at a time.</span></p>
+            <span class="claim" data-check="scripts/change_gate.py" data-says="Mutants run --jobs at a time, one per core unless">The mutants run side by side, one per core, so a big change doesn't wait on them one at a time.</span></p>
         </div>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/change_gate.py" data-says="a self-test that misses the boundary lets a mutant live">“a self-test that misses the boundary lets a mutant live”</span>, and <span class="claim proof" data-check="scripts/tooling_commit.sh" data-says="a red gate commits nothing">“a red gate commits nothing”</span>.</p></div></li>
       <li><time>15:00</time><div>
@@ -212,7 +212,7 @@
         <div class="vs">
           <p class="plain"><span class="label">Plain</span>That's it.</p>
           <p class="ours"><span class="label">Mine</span>Work carries on without me.
-            <span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">Each note becomes a rule, a script, a fact or a ticket, or stays open.</span>
+            <span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">Each note it can place becomes a rule, a script or a checked fact.</span> Tickets, and anything only I can judge, wait for me.
             <span class="claim" data-check="scripts/git_sweep.sh" data-says="remove the git state that is proven finished">Branches whose work has merged are deleted.</span>
             <span class="claim" data-check="scripts/session_end_export.sh" data-says="publish ~/.claude's public part whenever it has moved">And this page is published again from my setup,</span>
             <span class="claim" data-check="scripts/dotclaude_export.sh" data-says="a token shape">but not if anything in it looks like a key, a token or a real email.</span></p>
@@ -245,7 +245,7 @@
       <span class="claim" data-check="scripts/session_start_notes.sh" data-says="prints a count and the three oldest notes">The next session opens by showing me how many are open, and the three oldest.</span>
       <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open for each of the oldest four">Then I go through them: do it, drop it, or keep it open.</span>
       <span class="claim" data-check="skills/notes/SKILL.md" data-says="places each one marked Do as a memory fact, skill, command, script, rule, setting or ticket">A note I mark "do" turns into something that lasts: a checked fact, a rule, a script, a setting or a ticket.</span>
-      <span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">If I close a session with notes still open, it places them on its own.</span></p>
+      <span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">If I close a session with notes still open, it places the ones it can on its own.</span> Filing a ticket, or dropping a note, waits for me.</p>
     <p>So something I noticed on Tuesday is still there on Friday, until I decide what it is. I really like this one.</p>
     <p class="proven">Tested by <span class="claim proof" data-check="scripts/journal.sh" data-says="each note is its own line, carrying a minted id">“each note is its own line, carrying a minted id”</span>, and <span class="claim proof" data-check="scripts/journal.sh" data-says="a note placed as a memory fact records which fact">“a note placed as a memory fact records which fact”</span>.</p>
 
@@ -260,7 +260,7 @@
       It's also the weak spot. It's an instruction, not a hook, so sometimes it's skipped.</p>
 
     <h3 id="h-scripts">The scripts</h3>
-    <p><span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">Anything done twice becomes a script.</span>
+    <p><span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">Its rule is that anything done twice becomes a script.</span>
       A script does the same thing every time, which an instruction doesn't.
       <span class="claim" data-check="CLAUDE.md" data-says="lists the scripts whose name or header already covers it">Before writing a new one, it looks for one that already does the job.</span></p>
     <p><span class="claim" data-check="CLAUDE.md" data-says="A script's `--self-test` prints TAP">Each script carries its own tests, one line per case, named for what holds.</span>
@@ -275,7 +275,7 @@
   <div>
     <p>All of this grows from one short file, <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">my credo</a>:
       who I am and how I work.
-      <span class="claim" data-check="CLAUDE.md" data-says="@~/.claude/credo.md">It loads into every session before anything else.</span>
+      <span class="claim" data-check="CLAUDE.md" data-says="@~/.claude/credo.md">It loads into every session.</span>
       Its mission is one line,
       <span class="claim" data-check="credo.md" data-says="Build simple systems people can trust.">“Build simple systems people can trust.”</span></p>
     <p>It tells the assistant how to work:
@@ -289,7 +289,7 @@
       <dt><span class="claim" data-check="credo.md" data-says="Removing is generous, not violent.">Removing is generous, not violent.</span></dt>
       <dd>So a fact that fails its check is deleted, not flagged. A claim on this page that fails is struck out in front of you.</dd>
       <dt><span class="claim" data-check="credo.md" data-says="Point, don't copy.">Point, don't copy.</span></dt>
-      <dd>So this page copies nothing. It reads the files it talks about, while you watch.</dd>
+      <dd>So this page doesn't ask you to trust what it says. It reads the files it talks about, while you watch.</dd>
       <dt><span class="claim" data-check="credo.md" data-says="Never get ahead of the evidence.">Never get ahead of the evidence.</span></dt>
       <dd>So every check has three answers: holds, doesn't hold, and couldn't tell. "Couldn't tell" never deletes anything.</dd>
     </dl>
@@ -300,7 +300,7 @@
 <section aria-labelledby="h-check">
   <h2 id="h-check">Don't take my word for it</h2>
   <div>
-    <p>Every claim on this page names a file and the exact words that file should hold. Your browser fetched those files when the page loaded, and marks each claim with what it found
+    <p>Every claim with a mark after it names a file and the exact words that file should hold. Your browser fetched those files when the page loaded, and marks each claim with what it found
       <span class="mark">✓ holds</span>. Press a mark to see the line.
       A <span class="mark">✓ tested</span> mark also means GitHub's last run printed "ok" for that very test case.</p>
     <p class="tally" id="tally" aria-live="polite">Checking…</p>
@@ -327,7 +327,7 @@
   <div>
     <p>This setup fits one person: me. My rules, my repos, my habits.
       It says no in exactly the places I tend to slip, and that's why it works for me.</p>
-    <p>You won't want all of it. But the patterns travel, it's all MIT-licensed, and none of it needs the rest. Good places to start:</p>
+    <p>You won't want all of it. But the patterns travel, it's all MIT-licensed, and each piece needs little of the rest. The two scripts below need only <code>tap.py</code> or <code>tap.sh</code> beside them. Good places to start:</p>
     <ul class="take">
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md"><code>credo.md</code></a>. You could write your own. One line in your <code>CLAUDE.md</code>, <code>@~/.claude/credo.md</code>, loads it into every session.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py"><code>ask_gate.py</code></a>. If you've ever answered "sure" to a question you didn't read, this is the one. It's a Stop hook; <a href="https://github.com/iguigova/dotclaude/blob/main/settings.json"><code>settings.json</code></a> shows how it's wired.</li>
@@ -345,7 +345,7 @@
       <li>Two sessions working in the same folder can trip over each other. Each one commits only the files it changed, but one can still find the other's half-finished edit in its way.</li>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The 04:30 check only runs while I'm logged in. A missed night runs at my next login.</span></li>
       <li>A ✓ holds mark means the file has the words the claim quotes. That's all it means. A ✓ tested mark means GitHub ran that exact test, and it passed. That's why each step of the day names its test, where it has one.</li>
-      <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell is counted here, since lizard reads none">The complexity limit now covers shell scripts too.</span> Both checks look only at the lines a change touches. Older code gets checked the next time someone edits it, and some older shell functions are still above the limit.</li>
+      <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell is counted here, since lizard reads none">The complexity limit covers shell scripts too.</span> <span class="claim" data-check="scripts/change_gate.py" data-says="no function in a changed file has a cyclomatic complexity above">It checks every function in a file a change touches,</span> so an older function still above the limit has to be split before its file can be edited. Planted bugs go only on the lines a change touches, so older lines get them the next time someone edits them.</li>
     </ul>
   </div>
 </section>

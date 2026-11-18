@@ -6,10 +6,8 @@
 # --copy runs it on an exported copy (dotclaude_export.sh): checks 6 and 7 are
 # skipped, because the copy's prose and code were gated by them at the source on
 # every commit, and a copy's own HEAD is the previous export, not a baseline.
-# --root DIR gates the tree at DIR rather than the one holding this file, with
-# this gate's own checks, so a caller can judge a changed tree with the gate as
-# it stood before the change; --self-test uses it to show the gate fails a
-# broken tree.
+# --root DIR gates the scripts in DIR, a tree's scripts folder, with this
+# gate's own checks; --self-test uses it to show the gate fails a broken tree.
 #
 # Usage:
 #   selftest.sh [--copy] [--root DIR]
@@ -27,7 +25,7 @@ if [ "${1:-}" = --self-test ]; then
   printf '#!/usr/bin/env bash\n# offers --self-test\nprintf "ok 1 - x\\n1..1\\n"\n' > "$fx/scripts/clean.sh"
   git -C "$fx" init -q
   git -C "$fx" add -A && git -C "$fx" -c user.email=t@t -c user.name=t commit -qm base
-  gate() { GATE_SELF_TEST=1 "$here/selftest.sh" --root "$fx" 2>&1; }
+  gate() { GATE_SELF_TEST=1 "$here/selftest.sh" --root "$fx/scripts" 2>&1; }
   out=$(gate); st=$?
   tap_is "a clean tree passes" "$st $(tail -1 <<<"$out")" "0 selftest: PASS"
   printf 'if\n' > "$fx/scripts/broken.sh"
@@ -52,7 +50,7 @@ if [ "${1:-}" = --self-test ]; then
   tap_end
 fi
 
-copy=0 root=$here/..
+copy=0 root=$here
 while [ $# -gt 0 ]; do
   case "$1" in
     --copy) copy=1; shift ;;
@@ -60,7 +58,7 @@ while [ $# -gt 0 ]; do
     *) echo "selftest.sh: unknown argument: $1 (takes --copy, --root DIR, --self-test)" >&2; exit 2 ;;
   esac
 done
-cd "$root/scripts" || exit 2
+cd "$root" || exit 2
 
 echo "== 1. syntax =="
 gate_syntax ./*.sh ./*.py

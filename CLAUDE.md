@@ -39,7 +39,7 @@ After each turn that changed state — code/doc/config edits, commits, ticket/wi
 
 `-n` opens a note, `--placed` closes it and `-c` carries the commit message; `--help` states all three. Two rules it does not state: report a note as `journal_queue.sh --show` prints it, its id **and** its whole text, since a bare id is nothing the user can weigh, correct or close and a paraphrase is a claim nobody wrote; and keep one queue, not one per flavour of note, since every note has the same lifecycle and only the placement differs. `/notes` does the placing; `journal_queue.sh` reads the queue under it.
 
-The showcase page, `~/.claude/index.html`, served at https://iguigova.github.io/dotclaude/, shows this system to a visitor. `session_end_export.sh` publishes it to the clone `~/src/oceanhue/dotclaude`, which is never edited by hand; fix every export hit `tooling_commit.sh` prints before the session ends. Each claim on the page names a file and the words that file holds, and the reader's browser checks them. So a turn that makes a claim false — a hook, script, skill or rule the page names, or the note lifecycle — fixes the page in the same turn, by making the claim true again or deleting it. Its numbers are counted by the reader's browser from the published files and run, so the page carries no number written by hand.
+The showcase page, `~/.claude/index.html`, served at https://iguigova.github.io/dotclaude/, shows this system to a visitor in diagrams. `session_end_export.sh` publishes it to the clone `~/src/oceanhue/dotclaude`, which is never edited by hand; fix every export hit `tooling_commit.sh` prints before the session ends.
 
 # Coding Guidelines
 

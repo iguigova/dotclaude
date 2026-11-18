@@ -4,7 +4,7 @@ My Claude Code setup: the rules it works by, the skills it runs,
 and the tested scripts behind them. It mirrors `~/.claude`.
 
 [iguigova.github.io/dotclaude](https://iguigova.github.io/dotclaude/) walks
-through a day with it next to a plain setup, and checks every claim it makes against the files here while you read it.
+through the loop and a day with it next to a plain setup, in pictures.
 
 | Path | What it holds |
 |---|---|
@@ -14,7 +14,7 @@ through a day with it next to a plain setup, and checks every claim it makes aga
 | `skills/` | What a session can be asked to do, such as `/audit` or `/journal`. |
 | `scripts/` | The scripts the rules and skills call. Each offers `--self-test`. |
 | `settings.json`, `statusline.sh` | Hooks, permissions and the status line. |
-| `index.html` | The page above. Each claim names a file here and the words it holds. |
+| `index.html` | The page above. |
 
 The look of my pages and documents is one file, the way the credo is:
 [`brand.css`](https://github.com/iguigova/iguigova.github.io/blob/main/brand.css),
@@ -72,9 +72,7 @@ export's scan on the new HEAD first and prints any hit to the session that
 committed it, so a refusal is seen before the session ends.
 
 Every push then runs the selftest on GitHub, in `.github/workflows/selftest.yml`,
-and a push to `main` publishes the page from that commit, with what the
-selftest printed beside it. So the page reads its claims, its counts and the
-run's verdict from one commit, and asks no API.
+and a push to `main` publishes the page from that commit.
 
 ## License
 

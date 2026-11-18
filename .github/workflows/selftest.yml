@@ -1,11 +1,6 @@
 # Every push runs the self-tests on a clean machine, where this checkout is
 # ~/.claude, the tree the scripts were written for. A push to main then
-# publishes the site: this commit's files, and in run/ what the run printed,
-# so the page reads its claims, its counts and the run's verdict from one commit.
-#   run/selftest.txt  what selftest.sh printed; its last line is the verdict
-#   run/run.json      the commit, the run's page and when it ran
-#   run/files.txt     every file in the commit
-#   run/tap/<s>.tap   the TAP script <s>'s own self-test printed, case by case
+# publishes the site: this commit's files.
 name: selftest
 on:
   push:
@@ -35,25 +30,17 @@ jobs:
       - name: Run every self-test
         id: tests
         run: |
-          mkdir -p "$RUNNER_TEMP/run"
           set +e
-          GATE_TAP_DIR="$RUNNER_TEMP/run/tap" ~/.claude/scripts/selftest.sh --copy | tee "$RUNNER_TEMP/run/selftest.txt"
-          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
-      # The site is built whatever the tests said, so a failure is published
-      # too; a run whose tests never ran publishes no selftest.txt verdict.
+          ~/.claude/scripts/selftest.sh --copy
+          echo "status=$?" >> "$GITHUB_OUTPUT"
+      # The site is built whatever the tests said, so the page never waits on
+      # a red run; the job still fails on it below.
       - name: Build the site
         if: always()
         run: |
           site="$RUNNER_TEMP/site"
           mkdir -p "$site"
           git archive HEAD | tar -x -C "$site"
-          mkdir -p "$RUNNER_TEMP/run"
-          cp -r "$RUNNER_TEMP/run" "$site/run"
-          git ls-files > "$site/run/files.txt"
-          jq -n --arg commit "$GITHUB_SHA" \
-            --arg url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID" \
-            --arg time "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-            '{commit: $commit, url: $url, time: $time}' > "$site/run/run.json"
       - id: site
         uses: actions/upload-pages-artifact@v5
         if: always()

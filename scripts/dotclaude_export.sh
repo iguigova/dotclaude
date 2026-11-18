@@ -32,7 +32,7 @@
 #   - a binary file, which the checks above read as text and cannot see into.
 # A hit is reported as path:line and its reason, never the line, since the hit
 # may be the secret itself. The copy's own `scripts/selftest.sh --copy` must
-# then pass on it. The page's claims are judged by the reader's browser alone.
+# then pass on it.
 #
 # --scan runs the same scan on the allowlist as committed at the source's
 # HEAD, with no target, and exits 1 on any hit. tooling_commit.sh runs it

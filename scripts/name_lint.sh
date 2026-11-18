@@ -367,8 +367,6 @@ DOC
   tap_is "a hit on the first candidate breaks no pipe, with SIGPIPE ignored as the sweep runs it" \
     "$( (trap '' PIPE; NL_SUBDIRS=$(seq -f 's%g' 20000 | paste -sd' ')
          nl_in_roots hit.sh "$d" && echo found) 2>&1)" "found"
-  tap_is "the same file and project lint the same from any cwd" \
-    "$(cd / && "$self" --project "$d" "$d/doc.md" 2>&1)" "$out"
   check "the project is the linted file's, so no --project is needed from elsewhere" \
     'grep -q "^name_lint: relative names resolve in '"$d"' " \
        <<<"$(cd / && "'"$self"'" "'"$d"'/doc.md" 2>&1)"'

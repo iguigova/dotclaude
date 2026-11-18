@@ -13,8 +13,7 @@
 #   gate_self_tests <dir…>           every script there offering --self-test, its
 #                                    stdout held to tap.sh's format; selftest.sh,
 #                                    the gate itself, is one of them except while
-#                                    GATE_SELF_TEST is set; with GATE_TAP_DIR set,
-#                                    each script's TAP is kept there as <name>.tap
+#                                    GATE_SELF_TEST is set
 #   gate_tracked_self_tests <repo>   every script the repo tracks offers --self-test,
 #                                    and gate_self_tests over every folder holding one
 #   gate_run <command…>              a lint: shown, and a FAIL when it exits non-zero
@@ -124,11 +123,6 @@ sweep() {  # <dir>
   for f in "${tests[@]}"; do
     verdict_of "$f" "$work" || rc=1
   done
-  # The TAP each script printed, kept when asked, so a reader can see one case
-  # ran and passed rather than only its script's count.
-  if [ -n "${GATE_TAP_DIR:-}" ]; then
-    mkdir -p "$GATE_TAP_DIR" && cp "$work"/*.tap "$GATE_TAP_DIR"/ || rc=1
-  fi
   rm -rf "$work"
   return "$rc"
 }
@@ -279,11 +273,6 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a sweep with any failure fails" "$st" 1
   cp s/good.sh s/snake.sh green/
   sweep green >/dev/null; tap_is "a sweep of passing self-tests passes" "$?" 0
-  GATE_TAP_DIR=taps sweep green >/dev/null
-  tap_is "keeping the TAP leaves a passing sweep passing" "$?" 0
-  tap_is "with GATE_TAP_DIR set, each script's TAP is kept under its name" \
-    "$(cat taps/good.sh.tap taps/snake.sh.tap)" $'ok 1 - here\n1..1\nok 1 - snake\n1..1'
-  tap_is "without GATE_TAP_DIR, no TAP is kept" "$(sweep green >/dev/null; ls -d taps/* | wc -l)" 2
   mkdir slow
   for i in 1 2 3 4; do
     printf '#!/usr/bin/env bash\n# --self-test\nsleep 2; printf "ok 1 - n\\n1..1\\n"\n' > "slow/n$i.sh"

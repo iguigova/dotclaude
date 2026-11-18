@@ -29,6 +29,9 @@ Checks, each printing `ok` or `FAIL <what>`:
             hub's file
   live      the site serves origin/main's brand.css (skipped by --offline)
 
+A file git ignores, such as a project's scratch, is never published, and no
+check reads it.
+
 --diff REV also renders every consumer page as committed (the hub at REV,
 every other repo at its HEAD) and as it is in the working trees, in light and
 dark, and prints the differing pixels of each, so an uncommitted change to
@@ -72,6 +75,7 @@ RENDERS = 3
 THEME_FLAGS = {"light": [], "dark": ["--force-dark-mode"]}
 PAGES = re.compile(rb"Pages:\s+(\d+)")
 SKIP_DIRS = {"node_modules", "dist", ".git", "test", "coverage"}
+NO_REPO = "not a git repository"
 REF = re.compile(
     r"""(?:url\(\s*["']?|href=["'])([^"')]*brand\.css)""")
 LINK = re.compile(r"""href=["']([^"']+\.css)["']""")
@@ -147,11 +151,30 @@ def check_contrast(css, rep):
 
 
 def walk(repo):
+    """Every CSS and HTML file of REPO the site can serve: none git
+    ignores, such as a project's scratch, which is never published."""
+    found = list(styles_under(repo))
+    skip = ignored(repo, found)
+    return [f for f in found if f not in skip]
+
+
+def styles_under(repo):
     for dirpath, dirs, files in os.walk(repo):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for f in files:
             if f.endswith((".css", ".html")) and f != "brand.css":
                 yield pathlib.Path(dirpath, f)
+
+
+def ignored(repo, files):
+    """The FILES git ignores in REPO, none in a folder that is no repo."""
+    run = subprocess.run(
+        ["git", "-C", str(repo), "check-ignore", "-z", "--stdin"],
+        input="\0".join(map(str, files)), capture_output=True, text=True)
+    if run.returncode > 1 and NO_REPO not in run.stderr:
+        raise subprocess.CalledProcessError(run.returncode, run.args,
+                                            run.stdout, run.stderr)
+    return {pathlib.Path(p) for p in run.stdout.split("\0") if p}
 
 
 def styling(f):
@@ -602,6 +625,40 @@ def self_test_links(t, root, good):
     rep = Report(quiet=True)
     check_themes(root, consumers(root), rep)
     expect(rep.failed, "a consumer with prefers-color-scheme fails")
+    (proj / "b.css").unlink()
+    self_test_ignored(t, root, proj)
+
+
+def self_test_ignored(t, root, proj):
+    """A page git ignores is scratch the site never serves, so no check
+    reads it; in a folder that is no repo, nothing is ignored."""
+    expect = self_test_expecter(t)
+    repo = proj.parent
+    scratch = proj / "out" / "r.html"
+    scratch.parent.mkdir()
+    scratch.write_text("<style>@media (prefers-color-scheme: dark)"
+                       " { body { color: #fff } }</style>")
+    rep = Report(quiet=True)
+    check_themes(root, consumers(root), rep)
+    expect(rep.failed, "in a folder that is no repo, every page is read")
+    subprocess.run(["git", "init", "--quiet", str(repo)], check=True)
+    rep = Report(quiet=True)
+    check_themes(root, consumers(root), rep)
+    expect(rep.failed, "in a repo, a page git does not ignore is read")
+    (repo / ".gitignore").write_text("out/\n")
+    rep = Report(quiet=True)
+    check_themes(root, consumers(root), rep)
+    expect(not rep.failed and scratch not in walk(repo)
+           and proj / "p.html" in walk(repo),
+           "a page git ignores is skipped, and the rest still read")
+    try:
+        ignored(repo, [root / "elsewhere.html"])
+        expect(False, "a path git refuses raises")
+    except subprocess.CalledProcessError:
+        expect(True, "a path git refuses raises")
+    shutil.rmtree(repo / ".git")
+    (repo / ".gitignore").unlink()
+    shutil.rmtree(scratch.parent)
 
 
 def self_test_build(t, root, good):

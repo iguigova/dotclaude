@@ -139,9 +139,9 @@
   <div>
     <p class="eyebrow">My Claude Code setup</p>
     <h1>Instructions get forgotten.<br><span class="hot">Code doesn't.</span></h1>
-    <p class="lead">Claude Code is an AI that writes code from my terminal. It's capable, and it forgets:
-      deep into a task, the rules I gave it at the start are just more text in a long conversation.
-      So the rules that matter most are also small programs. They watch every step, make no AI call, and can say no.</p>
+    <p class="lead">I write code with Claude Code, an AI that works in my terminal. It's good, but it forgets.
+      An hour into a task, the rules I gave it at the start are buried in the conversation.
+      So I turned the rules that matter most into small programs. A program doesn't forget, and it can stop a step before it happens.</p>
     <div class="term" role="group" aria-label="The assistant tries to edit a script before reading my shell guide, and the edit is refused">
       <p class="me">● Edit scripts/deploy.sh</p>
       <p class="no">✗ refused by guideline_gate.py</p>
@@ -264,7 +264,7 @@
 <section aria-labelledby="h-tested">
   <h2 id="h-tested">It checks itself</h2>
   <div>
-    <p>Even the instructions have tests. Change what a skill says it's for, and fresh sessions check it still fires when it should and stays quiet when it shouldn't, before the commit.</p>
+    <p>Even the instructions have tests. When I change what a skill is for, new sessions try it out before I can commit. They check it starts when it's needed and stays out of the way when it isn't.</p>
 
     <h3>/inventory: what's earning its keep</h3>
     <p>One table of everything I wrote for it: how often each piece runs, what a run costs, when it last changed, and what names it.</p>
@@ -282,13 +282,13 @@
     <p class="caption">Three real rows from the census of 18 November 2026. Scripts cost nothing to run, so only skills show a price.</p>
 
     <h3>/audit: judged against the credo</h3>
-    <p>The one check that isn't code, on purpose. Everything here comes from one page, my credo. When I ask, a fresh read holds a file, a change or an answer up against it.</p>
+    <p>This check isn't code, and that's on purpose. Everything here comes from one page, my credo. When I ask, a new session reads my work against it, line by line.</p>
     <p class="credo"><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a>
       <q>Build simple systems people can trust.</q></p>
     <div class="more">
       <ol class="flow" aria-label="How an audit runs">
         <li><span class="box">A file, a change<small>or an answer</small></span></li>
-        <li><span class="box credo-box"><b>A fresh read</b><small>against every line of the credo</small></span></li>
+        <li><span class="box credo-box"><b>A new session</b><small>against every line of the credo</small></span></li>
         <li><span class="box">Findings<small>numbered, worst first</small></span></li>
         <li><span class="box end"><ul class="pick"><li>☑ 1</li><li>☐ 2</li><li>☑ 3</li></ul><small>I pick which to fix</small></span></li>
       </ol>
@@ -310,7 +310,7 @@
     <p class="split-key"><span><b data-count="travels">–</b> travel to any setup: gates, memory, self-checks</span>
       <span><b data-count="mine">–</b> are plumbing for my job: GitHub reviews, Jira, Confluence, Slack</span></p>
     <ul class="take">
-      <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Where it all comes from. Write your own.</li>
+      <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Where it all comes from. Yours would say something else.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py">ask_gate.py</a><br>If you've ever said "sure" to a question you didn't read.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/git_fact.sh">git_fact.sh</a><br>A fact is only worth keeping with a command that can prove it wrong.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/skill_trigger_test.py">skill_trigger_test.py</a><br>If you've ever edited a skill and it quietly stopped firing.</li>

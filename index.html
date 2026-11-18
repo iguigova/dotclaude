@@ -108,6 +108,20 @@
   .take li { margin: 0; border: 1px solid var(--hair); border-top: 3px solid var(--link); padding: 10px 14px; font-size: 14px; }
   .take a { display: inline-block; font: 15px var(--mono); margin-bottom: 4px; min-height: 24px; }
   .gaps li { margin: 0 0 6px; }
+
+  /* What's inside: live counts, and the scripts by job. */
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 18px; }
+  @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  .stat { border: 1px solid var(--hair); border-radius: 8px; padding: 10px 14px; }
+  .stat b { display: block; font: 700 32px/1.1 var(--mono); color: var(--ink); }
+  .stat span { color: var(--muted); font-size: 13px; }
+  .bars { list-style: none; padding: 0; margin: 0; max-width: none; display: grid; gap: 6px; }
+  .bars li { margin: 0; display: grid; grid-template-columns: 11em minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px; }
+  .bars .track { display: flex; align-items: center; gap: 8px; }
+  .bars .bar { height: 14px; border-radius: 0 4px 4px 0; background: var(--good); min-width: 2px; }
+  .bars .n { font: 13px var(--mono); color: var(--muted); }
+  @media (max-width: 640px) { .bars li { grid-template-columns: 1fr; gap: 2px; } }
+  .stats-off .stats, .stats-off .bars { display: none; }
   a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 </style>
 </head>
@@ -187,6 +201,22 @@
   </div>
 </section>
 
+<section aria-labelledby="h-inside" id="inside">
+  <h2 id="h-inside">What's inside</h2>
+  <div>
+    <div class="stats">
+      <div class="stat"><b data-count="scripts">–</b><span>scripts, each with its own tests</span></div>
+      <div class="stat"><b data-count="hooks">–</b><span>hooks around the assistant's steps</span></div>
+      <div class="stat"><b data-count="skills">–</b><span>skills it picks up when a request fits</span></div>
+      <div class="stat"><b data-count="guides">–</b><span>guides it reads before it edits code</span></div>
+    </div>
+    <ul class="bars" aria-label="The scripts, by job"></ul>
+    <p class="caption">The scripts do the work. The rules mostly name the script that enforces them.
+      The gates and the 04:30 check are plain programs that make no AI call, so a refused step costs nothing.
+      <span class="stats-note">Counted live from <a href="https://github.com/iguigova/dotclaude">the repo</a>.</span></p>
+  </div>
+</section>
+
 <section aria-labelledby="h-day">
   <h2 id="h-day">A day with it</h2>
   <div>
@@ -217,6 +247,9 @@
             <div class="out no"><b>✗ One survives</b>Nothing is committed. Back to the tests.</div>
           </div>
         </div></li>
+      <li><h3><time>15:00</time>A piece of work is done</h3>
+        <div class="vs"><p class="plain">What did we do on Tuesday? Scroll back, if that session's still around.</p>
+          <p class="ours">One journal line per change, committed. When I ask, the lines become my Jira time log.</p></div></li>
       <li><h3><time>17:00</time>It spots something off-task</h3>
         <div class="vs"><p class="plain">Mentions it once. Then it's gone.</p>
           <p class="ours">Writes a note that waits for me. I really like this one.</p></div>
@@ -234,7 +267,7 @@
         </div></li>
       <li><h3><time>18:30</time>I close the session</h3>
         <div class="vs"><p class="plain">That's it.</p>
-          <p class="ours">The notes it can place are placed, merged branches deleted, this page published again.</p></div></li>
+          <p class="ours">The notes it can place are placed, and this page is published again. Once a day, branches proven merged are deleted, and anything else left over becomes a note.</p></div></li>
       <li><h3><time>04:30</time>Nobody's here</h3>
         <div class="vs"><p class="plain">A fact it learned went stale. Tomorrow it repeats it, with confidence.</p>
           <p class="ours">Every remembered fact runs its own check again.</p></div>
@@ -266,6 +299,18 @@
       <div class="out yes"><b>It still sounds like me</b>
         <span class="case">Texts I liked, and texts I didn't, like “I've built pieces other developers stand on.” <em class="quiet">✗ not me</em></span>
         A fresh reviewer has to judge every one the way I did.</div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-health">
+  <h2 id="h-health">Keeping it healthy</h2>
+  <div>
+    <div class="fork">
+      <div class="out yes"><b>/inventory</b>One table of every skill, script and rule: how often it runs, what a run costs, when it last changed, and what names it.
+        <ul class="chips"><li>runs per month</li><li>$ per run</li><li>last edit</li><li>named by</li></ul>
+        It lists what needs attention first. Something nothing runs and nothing names is a candidate to delete.</div>
+      <div class="out wait"><b>/audit</b>The one check that isn't code, on purpose. When I ask, a fresh read judges a file, a change or an answer against my credo, and I pick which findings to fix.</div>
     </div>
   </div>
 </section>
@@ -314,5 +359,53 @@
   <div class="band" aria-hidden="true"></div>
 </footer>
 </div>
+<script>
+// The counts on this page are read from the repo when the page opens, so they never go stale.
+(function () {
+  const REPO = 'iguigova/dotclaude';
+  const JOBS = [
+    ['Gates', /_gate|^tooling_commit|^gate_lib/],
+    ['Session start and end', /^session_/],
+    ['Memory and journal', /^memory_|^journal|^git_fact/],
+    ['Self-checks', /lint|test|^tap\.|_check|shellcheck|^skill_inventory|^script_find/],
+    ['GitHub', /^gh[-_]|^git_/],
+    ['Jira, Confluence, Slack', /^jira|^confluence|^atlassian|^slack|^storage|^review_request/],
+  ];
+  const section = document.getElementById('inside');
+  const fail = () => section.classList.add('stats-off');
+  const json = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
+  Promise.all([
+    json(`https://api.github.com/repos/${REPO}/git/trees/main?recursive=1`),
+    json(`https://raw.githubusercontent.com/${REPO}/main/settings.json`),
+  ]).then(([tree, settings]) => {
+    const paths = tree.tree.map((t) => t.path);
+    const scripts = paths.filter((p) => /^scripts\/[^/]+\.(sh|py)$/.test(p)).map((p) => p.slice(8));
+    const counts = {
+      scripts: scripts.length,
+      hooks: Object.values(settings.hooks || {}).flat().reduce((n, m) => n + (m.hooks || []).length, 0),
+      skills: paths.filter((p) => /^skills\/[^/]+\/SKILL\.md$/.test(p)).length,
+      guides: paths.filter((p) => /^[^/]+_guidelines\.md$/.test(p)).length,
+    };
+    section.querySelectorAll('[data-count]').forEach((el) => { el.textContent = counts[el.dataset.count]; });
+    const groups = JOBS.map(([name]) => ({ name, files: [] }));
+    const other = { name: 'Everything else', files: [] };
+    scripts.forEach((f) => {
+      const i = JOBS.findIndex(([, re]) => re.test(f));
+      (i < 0 ? other : groups[i]).files.push(f);
+    });
+    const rows = groups.concat(other).filter((g) => g.files.length);
+    const most = Math.max(...rows.map((g) => g.files.length));
+    section.querySelector('.bars').replaceChildren(...rows.map((g) => {
+      const li = document.createElement('li');
+      li.title = g.files.join(', ');
+      li.innerHTML = '<span></span><span class="track"><span class="bar"></span><span class="n"></span></span>';
+      li.children[0].textContent = g.name;
+      li.querySelector('.bar').style.width = `${(g.files.length / most) * 85}%`;
+      li.querySelector('.n').textContent = g.files.length;
+      return li;
+    }));
+  }).catch(fail);
+})();
+</script>
 </body>
 </html>

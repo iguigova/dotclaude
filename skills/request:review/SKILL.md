@@ -30,7 +30,7 @@ The `draft` skill's rules apply. Before a reply, read the thread with `~/.claude
 
 A **new post**:
 
-- One opening line, two short sentences with verbs: `Team, I've got <n> PRs ready for review on <KEY>. They <what the ticket does, in a few words>:`. With one PR, `Team, I've got a PR ready for review on <KEY>. It …:`. A verbless headline (`a PR ready for review for <KEY>, …`) fails the voice review.
+- One opening line, two short sentences with verbs: `Team, I've got <n> PRs ready for review on [<KEY>](<ticket_url>). They <what the ticket does, in a few words>:`. With one PR, `Team, I've got a PR ready for review on [<KEY>](<ticket_url>). It …:`. The key is always that Markdown link to the ticket, never bare text. A verbless headline (`a PR ready for review for <KEY>, …`) fails the voice review.
 - One bullet per PR: the bare link, then one sentence on what it changes, from its title and body, said for a reader who has not seen the ticket. Add a second sentence only for what people will notice once it deploys, such as everyone signing in again.
 - `Thank you` on the last line.
 

@@ -9,15 +9,16 @@ A ticket has one review thread, in the channel ``.claude/review_channel``
 names (project_file.sh). The ticket records it: a web link on the Jira issue
 with the global id ``slack-review-thread`` (jira-remote-link.sh). A ticket
 with no such link is searched for in Slack: your messages in the channel that
-name KEY, each counted as its thread. The newest of those threads is used,
-and ``recorded`` is false until ``send`` records it.
+name KEY and start their thread. A reply naming KEY inside another thread,
+such as a standup, is not one. The newest of those threads is used, and
+``recorded`` is false until ``send`` records it.
 
 The open PRs come from ``gh-ticket-prs.sh KEY``. A PR is ``announced`` once
 any message in the thread links it.
 
 KEY prints one JSON object:
 
-  {"key", "channel",
+  {"key", "ticket_url", "channel",
    "thread": null | {"ts", "permalink", "recorded", "last_mine": ts | null,
                      "replies": [{"ts", "utc", "user", "name", "text"}]},
    "earlier": [permalink, …],
@@ -27,6 +28,8 @@ KEY prints one JSON object:
    "waiting": [{"url", "why"}, …],
    "next": "post" | "reply" | "none"}
 
+- ``ticket_url``: the ticket's page on the site ``.claude/atlassian_site``
+  names, for the message to link the key to.
 - ``earlier``: other threads of yours in the channel that name KEY, the
   duplicates a ticket had before it recorded its thread.
 - ``new``: ready, not approved, and not yet linked in the thread.
@@ -82,10 +85,15 @@ def linked_prs(texts):
 
 
 def threads_of(matches, channel, parse_link):
-    """Thread parent ts of each search match in the channel, newest first."""
-    seen = {parse_link(m['permalink'])[1] for m in matches
-            if m.get('channel', {}).get('id') == channel}
-    return sorted(seen, key=float, reverse=True)
+    """Ts of each search match in the channel that starts its thread, newest first.
+
+    A reply naming the key sits in a thread about something else, such as a
+    standup; only a message whose permalink's parent is itself starts one.
+    """
+    roots = {m['ts'] for m in matches
+             if m.get('channel', {}).get('id') == channel
+             and parse_link(m['permalink'])[1] == m['ts']}
+    return sorted(roots, key=float, reverse=True)
 
 
 def iso_ts(iso):
@@ -169,13 +177,20 @@ class World:
     def run(self, *cmd):
         return subprocess.run([str(c) for c in cmd], capture_output=True, text=True)
 
-    def channel(self):
-        found = self.run(self.here / 'project_file.sh', 'review_channel')
+    def project_line(self, name):
+        """The first line of the project's .claude/<name> that is not blank or a comment."""
+        found = self.run(self.here / 'project_file.sh', name)
         if found.returncode:
-            sys.exit('review_request_state: the project names no .claude/review_channel')
+            sys.exit(f'review_request_state: the project names no .claude/{name}')
         lines = [l.strip() for l in Path(found.stdout.strip()).read_text().splitlines()
                  if l.strip() and not l.startswith('#')]
         return lines[0]
+
+    def channel(self):
+        return self.project_line('review_channel')
+
+    def ticket_url(self, key):
+        return f"{self.project_line('atlassian_site').rstrip('/')}/browse/{key}"
 
     def open_prs(self, key):
         out = self.run(self.here / 'gh-ticket-prs.sh', key)
@@ -290,8 +305,8 @@ def state(key, world=None):
     steps['rereview'] = tag_reviewers(world, steps['rereview'])
     if thread:
         thread = {k: v for k, v in thread.items() if k != 'parent'}
-    return dict({'key': key, 'channel': ch, 'thread': thread, 'earlier': earlier,
-                 'prs': prs}, **steps)
+    return dict({'key': key, 'ticket_url': world.ticket_url(key), 'channel': ch,
+                 'thread': thread, 'earlier': earlier, 'prs': prs}, **steps)
 
 
 def send(key, path, expect, world=None):
@@ -331,7 +346,8 @@ class FakeSlack:
             return {'user_id': 'UME'}
         if method == 'search.messages':
             self.queries.append(params['query'])
-            return {'messages': {'matches': [{'channel': {'id': 'C1'}, 'permalink': p}
+            return {'messages': {'matches': [{'channel': {'id': 'C1'}, 'permalink': p,
+                                              'ts': self.parse_link(p)[1]}
                                              for p in self.permalinks]}}
         if method == 'users.list':
             page = int(params.get('cursor', 0))
@@ -361,10 +377,11 @@ def fake_dir(prs_out='', prs_rc=0, recorded=None, link_rc=None, post_rc=0, set_r
     import tempfile
     d = Path(tempfile.mkdtemp())
     (d / 'review_channel').write_text('# the channel\n\nC1\n')
+    (d / 'atlassian_site').write_text('https://jira.invalid/\n')
     (d / 'prs.out').write_text(prs_out)
     get_rc = link_rc if link_rc is not None else (0 if recorded else 3)
     scripts = {
-        'project_file.sh': f'echo {d}/review_channel',
+        'project_file.sh': f'echo {d}/$1',
         'gh-ticket-prs.sh': f'[ "$1" = A-1 ] || exit 9\ncat {d}/prs.out\n'
                             f'[ {prs_rc} = 0 ] || {{ echo boom >&2; exit {prs_rc}; }}',
         'jira-remote-link.sh': f'echo "$@" >> {d}/jira.log\n'
@@ -396,11 +413,20 @@ def pure_tests(t):
     def parse(link):
         m = re.search(r'p(\d+)(?:\?thread_ts=([\d.]+))?$', link)
         return 'C1', m.group(2) or f'{m.group(1)[:-6]}.{m.group(1)[-6:]}'
-    matches = [{'channel': {'id': 'C1'}, 'permalink': 'x/p1000000000000001'},
-               {'channel': {'id': 'C1'}, 'permalink': 'x/p3000000000000003?thread_ts=2000000000.000002'},
-               {'channel': {'id': 'C9'}, 'permalink': 'x/p4000000000000004'}]
+    matches = [{'channel': {'id': 'C1'}, 'ts': '1000000000.000001',
+                'permalink': 'x/p1000000000000001'},
+               {'channel': {'id': 'C1'}, 'ts': '2000000000.000002',
+                'permalink': 'x/p2000000000000002?thread_ts=2000000000.000002'},
+               {'channel': {'id': 'C1'}, 'ts': '3000000000.000003',
+                'permalink': 'x/p3000000000000003?thread_ts=2500000000.000025'},
+               {'channel': {'id': 'C9'}, 'ts': '4000000000.000004',
+                'permalink': 'x/p4000000000000004'}]
     t.check(threads_of(matches, 'C1', parse) == ['2000000000.000002', '1000000000.000001'],
-            "a reply counts as its parent's thread, another channel's match is left out, newest first")
+            "a message starting its thread counts, with or without replies, newest first")
+    t.check('2500000000.000025' not in threads_of(matches, 'C1', parse),
+            "a reply naming the key leaves the thread it sits in out")
+    t.check('4000000000.000004' not in threads_of(matches, 'C1', parse),
+            "another channel's match is left out")
 
     s = plan([pr(1)], None)
     t.check((s['next'], s['new']) == ('post', ['https://github.com/o/r/pull/1']),
@@ -519,6 +545,9 @@ def state_tests(t):
         json.dumps(out['rereview']))
     out = state('A-1', World(FakeSlack([], []), fake_dir(json.dumps(pr(1)) + '\n'), gh=d / 'gh'))
     t.check((out['thread'], out['next']) == (None, 'post'), 'with no thread the state says post')
+    t.check(out['ticket_url'] == 'https://jira.invalid/browse/A-1',
+            "the ticket's link is the project's Atlassian site's browse page for the key",
+            out['ticket_url'])
 
     d = fake_dir(json.dumps(pr(1)) + '\n')
     sent = send('A-1', 'f.md', 'post', World(FakeSlack([], []), d))

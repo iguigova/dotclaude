@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dotclaude: rules that are code</title>
-<meta name="description" content="My Claude Code setup: small programs that hold an AI assistant to its rules, and can say no. The loop, a day next to a plain setup, and the parts worth taking.">
+<meta name="description" content="My Claude Code setup: small programs that hold an AI assistant to its rules, and can say no. The loop, its three gates, and the parts worth taking.">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23137333'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../brand.css">
 <script src="../brand.js"></script>
@@ -15,6 +15,8 @@
   header h1 .hot { color: var(--link); }
   .lead { font-size: 17px; max-width: 60ch; }
   .caption { color: var(--muted); font-size: 14px; margin: 10px 0 0; max-width: 64ch; }
+  .gate-no { font: 12px var(--mono); color: var(--good); letter-spacing: .06em; text-transform: uppercase; margin: 0 0 4px; }
+  blockquote { margin: 14px 0 0; padding: 2px 0 2px 14px; border-left: 4px solid var(--rule); color: var(--muted); font-style: italic; }
 
   /* Boxes joined by arrows, wrapping on a wide screen, stacked on a phone. */
   .flow { list-style: none; padding: 0; margin: 0; max-width: none;
@@ -53,22 +55,14 @@
   .loop .s { font-size: 13px; fill: var(--muted); }
   .loop .c { font-size: 34px; fill: var(--link); }
   .loop .cs { font-size: 15px; fill: var(--muted); }
+  .loop a:focus-visible rect { stroke: var(--link); stroke-width: 3; }
   .loop-list { display: none; }
   @media (max-width: 640px) { .loop { display: none; } .loop-list { display: flex; } }
-  .key { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 13px; color: var(--muted);
-    margin: 8px 0 0; padding: 0; list-style: none; max-width: none; }
-  .key li { margin: 0; display: flex; align-items: center; gap: 6px; }
-  .swatch { width: 22px; height: 14px; border-radius: 4px; border: 1px solid var(--hair); }
-  .swatch.gate { border: 2px solid var(--good); background: var(--panel); }
 
-  /* A day, as a timeline. */
-  .day { list-style: none; padding: 0 0 0 18px; margin: 0; max-width: none;
-    border-left: 2px solid var(--hair); }
-  .day > li { position: relative; margin: 0 0 18px; }
-  .day > li::before { content: ""; position: absolute; left: -25px; top: 5px; width: 12px; height: 12px;
-    border-radius: 50%; background: var(--bg); border: 2px solid var(--link); }
-  .day h3 { margin: 0 0 6px; font-size: 16px; }
-  .day time { font: 14px var(--mono); color: var(--link); margin-right: 8px; }
+  /* Plain against mine, one situation per row. */
+  .rows { list-style: none; padding: 0; margin: 0; max-width: none; display: grid; gap: 14px; }
+  .rows > li { margin: 0; }
+  .rows h3 { margin: 0 0 6px; font-size: 16px; }
   .vs { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px; }
   .vs p { margin: 0; padding: 8px 10px; border-radius: 6px; font-size: 14px; max-width: none; }
   .vs .plain { background: var(--panel); color: var(--muted); }
@@ -78,8 +72,10 @@
   @media (max-width: 640px) { .vs { grid-template-columns: 1fr; } }
 
   /* A fork: one step, then the outcomes side by side. */
+  .more { margin: 16px 0 0; }
   .fork { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 10px;
     margin: 10px 0 0; padding: 14px 0 0; border-top: 2px solid var(--hair); }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin: 16px 0 0; }
   .out { border: 1px solid var(--hair); border-top-width: 4px; border-radius: 6px; padding: 10px 12px;
     font-size: 14px; }
   .out b { display: block; font-size: 15px; margin-bottom: 2px; }
@@ -88,55 +84,31 @@
   .out.no { border-top-color: var(--link); }
   .out.no b { color: var(--link); }
   .out.wait { border-top-color: var(--muted); border-top-style: dashed; }
-  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0 0; padding: 0; list-style: none; }
-  .more { margin: 12px 0 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 4px; margin: 6px 0; padding: 0; list-style: none; }
+  .chips li { margin: 0; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--good); color: var(--good); }
   .case { display: block; margin: 6px 0; padding: 4px 8px; border-radius: 4px; background: var(--panel); font-size: 13px; }
   .case em { font: 12px var(--mono); font-style: normal; white-space: nowrap; }
   .case .ok { color: var(--good); }
   .case .quiet { color: var(--muted); }
-  .chips li { margin: 0; font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--good); color: var(--good); }
 
-  /* Four principles, four tiles. */
-  .tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-  @media (max-width: 640px) { .tiles { grid-template-columns: 1fr; } }
-  .tile { border: 1px solid var(--hair); border-left: 4px solid var(--rule); padding: 10px 14px; }
-  .tile b { display: block; color: var(--ink); margin-bottom: 4px; }
-  .tile span { color: var(--muted); font-size: 14px; }
-
-  .take { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;
-    list-style: none; padding: 0; max-width: none; }
-  .take li { margin: 0; border: 1px solid var(--hair); border-top: 3px solid var(--link); padding: 10px 14px; font-size: 14px; }
-  .take a { display: inline-block; font: 15px var(--mono); margin-bottom: 4px; min-height: 24px; }
-  .gaps li { margin: 0 0 6px; }
-
-  /* What's inside: live counts, and the scripts by job. */
-  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 0 0 18px; }
+  /* What's in the repo: live counts, and one bar split by who it is for. */
+  .stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
   @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
   .stat { border: 1px solid var(--hair); border-radius: 8px; padding: 10px 14px; }
   .stat b { display: block; font: 700 32px/1.1 var(--mono); color: var(--ink); }
   .stat span { color: var(--muted); font-size: 13px; }
-  .glance { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 26px 0 0;
-    list-style: none; padding: 0; max-width: none; }
-  @media (max-width: 860px) { .glance { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-  @media (max-width: 480px) { .glance { grid-template-columns: 1fr; } }
-  .glance li { margin: 0; }
-  .glance a { display: block; height: 100%; box-sizing: border-box; padding: 12px 14px; border: 1px solid var(--hair);
-    border-top: 4px solid var(--good); border-radius: 8px; color: var(--ink); text-decoration: none; }
-  .glance a:hover { background: var(--panel); }
-  .glance i { display: block; font: 700 26px/1 var(--mono); font-style: normal; color: var(--good); margin-bottom: 8px; }
-  .glance b { display: block; font-size: 16px; margin-bottom: 4px; }
-  .glance span { color: var(--muted); font-size: 13px; }
-  .bars-h { font-size: 13px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em;
-    color: var(--good); margin: 4px 0 8px; }
-  .bars-h.work { color: var(--muted); margin-top: 18px; }
-  .bars.work .bar { background: var(--muted); }
-  .bars { list-style: none; padding: 0; margin: 0; max-width: none; display: grid; gap: 6px; }
-  .bars li { margin: 0; display: grid; grid-template-columns: 11em minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px; }
-  .bars .track { display: flex; align-items: center; gap: 8px; }
-  .bars .bar { height: 14px; border-radius: 0 4px 4px 0; background: var(--good); min-width: 2px; }
-  .bars .n { font: 13px var(--mono); color: var(--muted); }
-  @media (max-width: 640px) { .bars li { grid-template-columns: 1fr; gap: 2px; } }
-  .stats-off .stats, .stats-off .bars, .stats-off .bars-h { display: none; }
+  .split { display: flex; gap: 2px; height: 14px; margin: 18px 0 6px; }
+  .split span { border-radius: 4px; background: var(--good); }
+  .split span + span { background: var(--muted); }
+  .split-key { display: flex; justify-content: space-between; gap: 12px; font-size: 14px; margin: 0; max-width: none; }
+  .split-key span:last-child { color: var(--muted); text-align: right; }
+  .stats-off .stats, .stats-off .split, .stats-off .split-key { display: none; }
+
+  .take { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 12px;
+    list-style: none; padding: 0; margin: 18px 0 0; max-width: none; }
+  .take li { margin: 0; border: 1px solid var(--hair); border-top: 3px solid var(--link); padding: 10px 14px; font-size: 14px; }
+  .take a { display: inline-block; font: 15px var(--mono); margin-bottom: 4px; min-height: 24px; }
+  .gaps li { margin: 0 0 6px; }
   a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 </style>
 </head>
@@ -163,12 +135,6 @@
           <li><span class="box end">Followed<small>or the step is refused</small></span></li>
         </ol></div>
     </div>
-    <ul class="glance" aria-label="What sets it apart">
-      <li><a href="#h-tested"><i>01</i><b>The instructions have tests</b><span>A skill must fire on the right prompts. The voice check must agree with me.</span></a></li>
-      <li><a href="#t-0430"><i>02</i><b>Memory forgets on evidence</b><span>Every fact carries the command that can prove it wrong.</span></a></li>
-      <li><a href="#h-day"><i>03</i><b>Gates refuse, not remind</b><span>No edit before the guides are read. No question asked in prose.</span></a></li>
-      <li><a href="#t-1400"><i>04</i><b>Tests must catch planted bugs</b><span>On every changed line, even in shell scripts.</span></a></li>
-    </ul>
   </div>
 </header>
 <main>
@@ -188,18 +154,18 @@
       <path class="arrow" d="M-7,-6 L5,0 L-7,6 Z" transform="translate(225.9 69.9) rotate(-16.8)"/>
       <g class="node"><rect x="262.0" y="36.0" width="136" height="38" rx="19"/>
       <text x="330.0" y="60.0" class="l">Session starts</text></g>
-      <g class="node gate"><rect x="439.6" y="84.5" width="156" height="54" rx="12"/>
-      <text x="517.6" y="107.5" class="l">Hooks</text><text x="517.6" y="126.5" class="s">can refuse a step</text></g>
+      <a href="#h-hooks"><g class="node gate"><rect x="439.6" y="84.5" width="156" height="54" rx="12"/>
+      <text x="517.6" y="107.5" class="l">Hooks</text><text x="517.6" y="126.5" class="s">can refuse a step</text></g></a>
       <g class="node"><rect x="496.0" y="219.4" width="136" height="38" rx="19"/>
       <text x="564.0" y="243.4" class="l">Work</text></g>
-      <g class="node gate"><rect x="356.1" y="313.1" width="156" height="54" rx="12"/>
-      <text x="434.1" y="336.1" class="l">Commit gate</text><text x="434.1" y="355.1" class="s">tests must catch bugs</text></g>
+      <a href="#h-commit"><g class="node gate"><rect x="356.1" y="313.1" width="156" height="54" rx="12"/>
+      <text x="434.1" y="336.1" class="l">Commit gate</text><text x="434.1" y="355.1" class="s">tests must catch bugs</text></g></a>
       <g class="node"><rect x="157.9" y="321.1" width="136" height="38" rx="19"/>
       <text x="225.9" y="345.1" class="l">Commit</text></g>
       <g class="node"><rect x="28.0" y="219.4" width="136" height="38" rx="19"/>
       <text x="96.0" y="243.4" class="l">Session ends</text></g>
-      <g class="node gate"><rect x="64.4" y="84.5" width="156" height="54" rx="12"/>
-      <text x="142.4" y="107.5" class="l">04:30 check</text><text x="142.4" y="126.5" class="s">rechecks every fact</text></g>
+      <a href="#h-memory"><g class="node gate"><rect x="64.4" y="84.5" width="156" height="54" rx="12"/>
+      <text x="142.4" y="107.5" class="l">04:30 check</text><text x="142.4" y="126.5" class="s">rechecks every fact</text></g></a>
       <text x="330" y="197" class="c">↻</text>
       <text x="330" y="225" class="cs">each night feeds</text>
       <text x="330" y="245" class="cs">the next morning</text>
@@ -214,100 +180,74 @@
       <li><span class="box code"><b>04:30 check</b><small>rechecks every fact</small></span></li>
       <li><span class="box end">↻ the next session reads it all</span></li>
     </ol>
-    <ul class="key" aria-hidden="true">
-      <li><span class="swatch gate"></span>a gate: code that can say no</li>
-      <li><span class="swatch"></span>a step</li>
-    </ul>
-    <p class="caption">A <em>hook</em> is a small program Claude Code runs around each of the assistant's steps. It can refuse the step.</p>
+    <p class="caption">The green boxes are gates: plain programs that can say no. They make no AI call, so a refusal costs nothing.</p>
   </div>
 </section>
 
-<section aria-labelledby="h-inside" id="inside">
-  <h2 id="h-inside">What's inside</h2>
+<section aria-labelledby="h-hooks">
+  <h2 id="h-hooks">Gates refuse. They don't remind.</h2>
   <div>
-    <div class="stats">
-      <div class="stat"><b data-count="scripts">–</b><span>scripts, each with its own tests</span></div>
-      <div class="stat"><b data-count="hooks">–</b><span>hooks around the assistant's steps</span></div>
-      <div class="stat"><b data-count="skills">–</b><span>skills it picks up when a request fits</span></div>
-      <div class="stat"><b data-count="guides">–</b><span>guides it reads before it edits code</span></div>
-    </div>
-    <h3 class="bars-h">Travels to any setup</h3>
-    <ul class="bars" data-travels="1" aria-label="Scripts that travel, by job"></ul>
-    <h3 class="bars-h work">Plumbing for my job</h3>
-    <ul class="bars work" data-travels="0" aria-label="Scripts for my job, by service"></ul>
-    <p class="caption">The scripts do the work. The rules mostly name the script that enforces them.
-      The top half is the part worth taking. The bottom half is just how my job runs.
-      The gates and the 04:30 check are plain programs that make no AI call, so a refused step costs nothing.
-      <span class="stats-note">Counted live from <a href="https://github.com/iguigova/dotclaude">the repo</a>.</span></p>
-  </div>
-</section>
-
-<section aria-labelledby="h-day">
-  <h2 id="h-day">A day with it</h2>
-  <div>
-    <ol class="day">
-      <li><h3><time>09:00</time>A session starts</h3>
-        <div class="vs"><p class="plain">Starts blank. Overnight never happened.</p>
-          <p class="ours">Reads what ran overnight, and tells me.</p></div></li>
-      <li><h3><time>10:30</time>"Done. Shall I commit?"</h3>
+    <p class="gate-no">Gate 1 · hooks</p>
+    <p>A hook is a small program that runs around each of the assistant's steps. A reminder can be ignored. A refused step can't.</p>
+    <ul class="rows">
+      <li><h3>"Done. Shall I commit?"</h3>
         <div class="vs"><p class="plain">I skim, type "sure", and something I never read is committed.</p>
           <p class="ours">A question in prose is sent back. It asks again in a dialog, and waits.</p></div></li>
-      <li><h3><time>11:15</time>A command is blocked</h3>
-        <div class="vs"><p class="plain">It finds another way around.</p>
-          <p class="ours">Every other step is refused until I answer.</p></div></li>
-      <li><h3><time>13:30</time>It's about to edit code</h3>
+      <li><h3>It's about to edit code</h3>
         <div class="vs"><p class="plain">Did it read my coding guide today? Nobody checks.</p>
           <p class="ours">The edit is refused until it has read the guides, whole.</p></div></li>
-      <li id="t-1400"><h3><time>14:00</time>It commits a change</h3>
-        <div class="vs"><p class="plain">The tests pass, so it's done.</p>
-          <p class="ours">The tests have to catch bugs planted in the change.</p></div>
-        <div class="more">
-          <ol class="flow" aria-label="What a change passes before it is committed">
-            <li><span class="box">A change</span></li>
-            <li><span class="box code"><b>Every script's own tests</b><small>each script tests itself</small></span></li>
-            <li><span class="box code"><b>Bugs planted</b><small>on each changed line, like <code>&lt;</code> into <code>&lt;=</code></small></span></li>
-          </ol>
-          <div class="fork">
-            <div class="out yes"><b>✓ Every bug caught</b>Committed.</div>
-            <div class="out no"><b>✗ One survives</b>Nothing is committed. Back to the tests.</div>
-          </div>
-        </div></li>
-      <li><h3><time>15:00</time>A piece of work is done</h3>
-        <div class="vs"><p class="plain">What did we do on Tuesday? Scroll back, if that session's still around.</p>
-          <p class="ours">One journal line per change, committed. When I ask, the lines become my Jira time log.</p></div></li>
-      <li><h3><time>17:00</time>It spots something off-task</h3>
-        <div class="vs"><p class="plain">Mentions it once. Then it's gone.</p>
-          <p class="ours">Writes a note that waits for me. I really like this one.</p></div>
-        <div class="more">
-          <ol class="flow" aria-label="The life of a note">
-            <li><span class="box code"><b>A note</b><small>one command</small></span></li>
-            <li><span class="box">Next session<small>shows the oldest open</small></span></li>
-          </ol>
-          <div class="fork">
-            <div class="out yes"><b>✓ Do</b>It becomes something that lasts:
-              <ul class="chips"><li>checked fact</li><li>rule</li><li>script</li><li>setting</li><li>ticket</li></ul></div>
-            <div class="out wait"><b>↻ Keep open</b>It waits, on purpose.</div>
-            <div class="out no"><b>✗ Drop</b>Only I can drop one.</div>
-          </div>
-        </div></li>
-      <li><h3><time>18:30</time>I close the session</h3>
-        <div class="vs"><p class="plain">That's it.</p>
-          <p class="ours">The notes it can place are placed, and this page is published again. Once a day, branches proven merged are deleted, and anything else left over becomes a note.</p></div></li>
-      <li id="t-0430"><h3><time>04:30</time>Nobody's here</h3>
-        <div class="vs"><p class="plain">A fact it learned went stale. Tomorrow it repeats it, with confidence.</p>
-          <p class="ours">Every remembered fact runs its own check again.</p></div>
-        <div class="more">
-          <ol class="flow" aria-label="How a remembered fact is kept">
-            <li><span class="box">A fact<small>"releases ship from <code>release</code>"</small></span></li>
-            <li><span class="box code"><b>Its check</b><small>a command that can prove it wrong</small></span></li>
-          </ol>
-          <div class="fork">
-            <div class="out yes"><b>✓ Holds</b>Kept.</div>
-            <div class="out no"><b>✗ Contradicted</b>Deleted by morning.</div>
-            <div class="out wait"><b>? No answer</b>Kept, and reported.</div>
-          </div>
-        </div></li>
-    </ol>
+      <li><h3>A command is blocked</h3>
+        <div class="vs"><p class="plain">It finds another way around.</p>
+          <p class="ours">Every other step is refused until I answer.</p></div></li>
+    </ul>
+  </div>
+</section>
+
+<section aria-labelledby="h-commit">
+  <h2 id="h-commit">Tests have to catch planted bugs</h2>
+  <div>
+    <p class="gate-no">Gate 2 · the commit</p>
+    <p>Passing tests prove little if they'd pass anyway. So before a commit, the gate breaks the change on purpose and the tests have to notice. Python and shell alike.</p>
+    <div class="more">
+      <ol class="flow" aria-label="What a change passes before it is committed">
+        <li><span class="box">A change</span></li>
+        <li><span class="box code"><b>Every script's own tests</b><small>each script tests itself</small></span></li>
+        <li><span class="box code"><b>Bugs planted</b><small>on each changed line, like <code>&lt;</code> into <code>&lt;=</code></small></span></li>
+      </ol>
+      <div class="fork">
+        <div class="out yes"><b>✓ Every bug caught</b>Committed.</div>
+        <div class="out no"><b>✗ One survives</b>Nothing is committed. Back to the tests.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="h-memory">
+  <h2 id="h-memory">Memory that forgets on evidence</h2>
+  <div>
+    <p class="gate-no">Gate 3 · 04:30, while nobody's here</p>
+    <p>A remembered fact goes stale, and tomorrow the assistant repeats it with confidence.
+      So every fact carries a command that can prove it wrong, and every night it runs.</p>
+    <div class="more">
+      <ol class="flow" aria-label="How a remembered fact is kept">
+        <li><span class="box">A fact<small>"releases ship from <code>release</code>"</small></span></li>
+        <li><span class="box code"><b>Its check</b><small>a command that can prove it wrong</small></span></li>
+      </ol>
+      <div class="fork">
+        <div class="out yes"><b>✓ Holds</b>Kept.</div>
+        <div class="out no"><b>✗ Contradicted</b>Deleted by morning.</div>
+        <div class="out wait"><b>? No answer</b>Kept, and reported.</div>
+      </div>
+    </div>
+    <blockquote>“Removing is generous, not violent. Deleting a wrong fact makes the rest believable.” — my credo</blockquote>
+    <div class="cards">
+      <div class="out yes"><b>Notes wait for me</b>When it spots something off-task, it writes a note instead of mentioning it once.
+        Next session I say Do, Keep open or Drop. Do turns it into something that lasts:
+        <ul class="chips"><li>checked fact</li><li>rule</li><li>script</li><li>setting</li><li>ticket</li></ul></div>
+      <div class="out yes"><b>A journal line per change</b>Committed as it goes, so "what did we do on Tuesday?" has an answer.
+        When I ask, the lines become my Jira time log.</div>
+    </div>
+    <p class="caption">In the morning, the new session reads what ran overnight and tells me: which facts were deleted, which notes were placed, and which merged branches the daily sweep cleaned up.</p>
   </div>
 </section>
 
@@ -325,41 +265,29 @@
         <span class="case">Texts I liked, and texts I didn't, like “I've built pieces other developers stand on.” <em class="quiet">✗ not me</em></span>
         A fresh reviewer has to judge every one the way I did.</div>
     </div>
-  </div>
-</section>
-
-<section aria-labelledby="h-health">
-  <h2 id="h-health">Keeping it healthy</h2>
-  <div>
-    <div class="fork">
-      <div class="out yes"><b>/inventory</b>One table of every skill, script and rule: how often it runs, what a run costs, when it last changed, and what names it.
-        <ul class="chips"><li>runs per month</li><li>$ per run</li><li>last edit</li><li>named by</li></ul>
-        It lists what needs attention first. Something nothing runs and nothing names is a candidate to delete.</div>
+    <div class="cards">
+      <div class="out wait"><b>/inventory</b>One table of every skill, script and rule: how often it runs, what a run costs, when it last changed, and what names it.
+        Something nothing runs and nothing names is a candidate to delete.</div>
       <div class="out wait"><b>/audit</b>The one check that isn't code, on purpose. When I ask, a fresh read judges a file, a change or an answer against my credo, and I pick which findings to fix.</div>
     </div>
   </div>
 </section>
 
-<section aria-labelledby="h-credo">
-  <h2 id="h-credo">Where it comes from</h2>
-  <div>
-    <p>All of it grows from one short file, <a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">my credo</a>. It loads into every session.
-      Its mission is one line: “Build simple systems people can trust.”</p>
-    <div class="tiles">
-      <div class="tile"><b>Checking matters more than storing.</b><span>So every fact carries its check, and every script its tests.</span></div>
-      <div class="tile"><b>Removing is generous, not violent.</b><span>So a fact that fails its check is deleted, not flagged.</span></div>
-      <div class="tile"><b>Point, don't copy.</b><span>So a rule names the script that enforces it.</span></div>
-      <div class="tile"><b>Never get ahead of the evidence.</b><span>So a check has three answers, and "no answer" deletes nothing.</span></div>
-    </div>
-  </div>
-</section>
-
-<section aria-labelledby="h-take">
+<section aria-labelledby="h-take" id="inside">
   <h2 id="h-take">Take what fits</h2>
   <div>
     <p>It fits one person: me. It says no exactly where I tend to slip. But the patterns travel, it's MIT-licensed, and each piece needs little of the rest.</p>
+    <div class="stats">
+      <div class="stat"><b data-count="scripts">–</b><span>scripts, each with its own tests</span></div>
+      <div class="stat"><b data-count="hooks">–</b><span>hooks around the assistant's steps</span></div>
+      <div class="stat"><b data-count="skills">–</b><span>skills it picks up when a request fits</span></div>
+      <div class="stat"><b data-count="guides">–</b><span>guides it reads before it edits code</span></div>
+    </div>
+    <div class="split" role="img" aria-label="The scripts, split by whether they travel"><span data-part="travels"></span><span data-part="mine"></span></div>
+    <p class="split-key"><span><b data-count="travels">–</b> travel to any setup: gates, memory, self-checks</span>
+      <span><b data-count="mine">–</b> are plumbing for my job: GitHub reviews, Jira, Confluence, Slack</span></p>
     <ul class="take">
-      <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Write your own. One line in your <code>CLAUDE.md</code> loads it everywhere.</li>
+      <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md">credo.md</a><br>Where it all comes from. Its mission is one line: “Build simple systems people can trust.” Write your own.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py">ask_gate.py</a><br>If you've ever said "sure" to a question you didn't read.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/git_fact.sh">git_fact.sh</a><br>A fact is only worth keeping with a command that can prove it wrong.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/skill_trigger_test.py">skill_trigger_test.py</a><br>If you've ever edited a skill and it quietly stopped firing.</li>
@@ -388,14 +316,8 @@
 // The counts on this page are read from the repo when the page opens, so they never go stale.
 (function () {
   const REPO = 'iguigova/dotclaude';
-  const JOBS = [
-    ['Gates', /_gate|^tooling_commit|^gate_lib/, true],
-    ['Session start and end', /^session_/, true],
-    ['Memory and journal', /^memory_|^journal|^git_fact/, true],
-    ['Self-checks', /lint|test|^tap\.|_check|shellcheck|^skill_inventory|^script_find/, true],
-    ['GitHub reviews', /^gh[-_]|^git_/, false],
-    ['Jira, Confluence, Slack', /^jira|^confluence|^atlassian|^slack|^storage|^review_request/, false],
-  ];
+  // A script is plumbing for my job when it drives one of my job's services; every other script travels.
+  const MINE = /^(gh[-_]|jira|confluence|atlassian|slack|storage|review_request)/;
   const section = document.getElementById('inside');
   const fail = () => section.classList.add('stats-off');
   const json = (url) => fetch(url).then((r) => (r.ok ? r.json() : Promise.reject(r.status)));
@@ -405,34 +327,17 @@
   ]).then(([tree, settings]) => {
     const paths = tree.tree.map((t) => t.path);
     const scripts = paths.filter((p) => /^scripts\/[^/]+\.(sh|py)$/.test(p)).map((p) => p.slice(8));
+    const travels = scripts.filter((f) => !MINE.test(f));
     const counts = {
       scripts: scripts.length,
       hooks: Object.values(settings.hooks || {}).flat().reduce((n, m) => n + (m.hooks || []).length, 0),
       skills: paths.filter((p) => /^skills\/[^/]+\/SKILL\.md$/.test(p)).length,
       guides: paths.filter((p) => /^[^/]+_guidelines\.md$/.test(p)).length,
+      travels: travels.length,
+      mine: scripts.length - travels.length,
     };
     section.querySelectorAll('[data-count]').forEach((el) => { el.textContent = counts[el.dataset.count]; });
-    const groups = JOBS.map(([name, , travels]) => ({ name, travels, files: [] }));
-    const other = { name: 'Other helpers', travels: false, files: [] };
-    scripts.forEach((f) => {
-      const i = JOBS.findIndex(([, re]) => re.test(f));
-      (i < 0 ? other : groups[i]).files.push(f);
-    });
-    const rows = groups.concat(other).filter((g) => g.files.length);
-    const most = Math.max(...rows.map((g) => g.files.length));
-    const bar = (g) => {
-      const li = document.createElement('li');
-      li.title = g.files.join(', ');
-      li.innerHTML = '<span></span><span class="track"><span class="bar"></span><span class="n"></span></span>';
-      li.children[0].textContent = g.name;
-      li.querySelector('.bar').style.width = `${(g.files.length / most) * 85}%`;
-      li.querySelector('.n').textContent = g.files.length;
-      return li;
-    };
-    section.querySelectorAll('.bars').forEach((ul) => {
-      const travels = ul.dataset.travels === '1';
-      ul.replaceChildren(...rows.filter((g) => g.travels === travels).map(bar));
-    });
+    section.querySelectorAll('[data-part]').forEach((el) => { el.style.flexGrow = counts[el.dataset.part]; });
   }).catch(fail);
 })();
 </script>

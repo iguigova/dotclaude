@@ -216,9 +216,20 @@ two; each language's guide names the tool it calls there.
   return the same value, is accepted only by a comment on its line,
   `mutation: equivalent — <reason>`, whose reason says why. A mutant a
   test could kill gets that test, never the comment.
+- **Test a property wherever the code has one.** A law — decode undoes
+  encode, an invariant no input breaks, a second run changes nothing, a
+  fast path agrees with the plain one — is tested over generated inputs
+  with a property-based tool (Hypothesis, fast-check, proptest), beside
+  the example tests. The writer of the code picks the examples, so the
+  examples share the writer's blind spots; generated inputs do not.
 - **Never loosen a check to pass it.** No skipped step, suppressed rule,
   deselected failing test, excluded line or lowered threshold: fix the
   cause. A tool that is not installed is a failure, never a pass.
+- **A flaky test is a defect.** Find why it fails only some of the time
+  and fix that; never rerun it until it passes, add a sleep, or retry it
+  in a loop. A test that fails at random checks nothing, so one whose
+  cause cannot be found is deleted, its commit message saying why. That
+  is the one exception to never loosening a check.
 - **Format, then verify.** Formatters write files and verifiers read
   them, so formatters run first and one at a time. The verifiers are
   independent and can run together.

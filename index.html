@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dotclaude: an assistant that shows its work</title>
-<meta name="description" content="My Claude Code setup: small programs that hold an AI assistant to its rules, and can say no. A day with it, next to a plain setup, and the numbers from real use.">
+<meta name="description" content="My Claude Code setup: small programs that hold an AI assistant to its rules, and can say no. A day with it next to a plain setup, the three parts I'd show a friend, and what it can't do yet.">
 <link rel="stylesheet" href="../brand.css">
 <script src="../brand.js"></script>
 <style>
@@ -113,8 +113,8 @@
         <ol>
           <li><b>Ask, don't bury</b><span>a question in a paragraph is sent back</span></li>
           <li><b>Blocked means stop</b><span>nothing else runs until I answer</span></li>
+          <li><b>Read the guide first</b><span>no code is edited before its guide is read</span></li>
           <li><b>Prove the tests</b><span>every planted bug must fail one</span></li>
-          <li><b>Audit the answer</b><span>asked for, not yet enforced</span></li>
         </ol>
       </div>
       <div class="card" role="group" aria-labelledby="c-off">
@@ -172,6 +172,14 @@
             So it has to stop and ask.</p>
         </div>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/block_gate.py" data-says="after a block, the next call is refused">“after a block, the next call is refused”</span>.</p></div></li>
+      <li><time>13:30</time><div>
+        <h3>It's about to edit code</h3>
+        <div class="vs">
+          <p class="plain"><span class="label">Plain</span>My coding guide is in its instructions somewhere. Whether it read it today, nobody checks.</p>
+          <p class="ours"><span class="label">Mine</span><span class="claim" data-check="CLAUDE.md" data-says="refuses a code edit until the session has read them">The first edit is refused until it has read the coding guide, the style guide and the guide for that language.</span>
+            <span class="claim" data-check="scripts/guideline_gate.py" data-says="opened whole, with no offset or limit">Skimming one line of each doesn't count.</span></p>
+        </div>
+        <p class="proven">Tested by <span class="claim proof" data-check="scripts/guideline_gate.py" data-says="a Python edit with nothing read is refused, naming the three files to read">“a Python edit with nothing read is refused, naming the three files to read”</span>.</p></div></li>
       <li><time>14:00</time><div>
         <h3>It changes some code</h3>
         <div class="vs">
@@ -179,7 +187,8 @@
           <p class="ours"><span class="label">Mine</span>Before it can commit, <code>change_gate.py</code> plants small bugs, called mutants, on every line it changed, like turning <code>&lt;</code> into <code>&lt;=</code>.
             <span class="claim" data-check="scripts/change_gate.py" data-says="every mutant on a changed line is killed by the tests">Every mutant has to make a test fail,</span>
             <span class="claim" data-check="coding_guidelines.md" data-says="No function above cyclomatic complexity 10">and no function can grow too tangled to follow.</span>
-            <span class="claim" data-check="coding_guidelines.md" data-says="Never loosen a check to pass it">Loosening a check to get past it isn't allowed.</span></p>
+            <span class="claim" data-check="coding_guidelines.md" data-says="Never loosen a check to pass it">Loosening a check to get past it isn't allowed.</span>
+            <span class="claim" data-check="scripts/change_gate.py" data-says="Mutants run --jobs at a time, one per core unless">The mutants run side by side, one per core, so a big change no longer waits on them one at a time.</span></p>
         </div>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/change_gate.py" data-says="a self-test that misses the boundary lets a mutant live">“a self-test that misses the boundary lets a mutant live”</span>, and <span class="claim proof" data-check="scripts/tooling_commit.sh" data-says="a red gate commits nothing">“a red gate commits nothing”</span>.</p></div></li>
       <li><time>15:00</time><div>
@@ -195,7 +204,7 @@
         <div class="vs">
           <p class="plain"><span class="label">Plain</span>It mentions it once. When the window closes, it's gone.</p>
           <p class="ours"><span class="label">Mine</span>It writes a note in the project's journal, the log where every change goes.
-            <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open">Later, each note gets done, dropped or kept open on purpose.</span></p>
+            Later, each note gets done, dropped or kept open on purpose. <a href="#h-notes">More on notes below.</a></p>
         </div>
         <p class="proven">Tested by <span class="claim proof" data-check="scripts/journal.sh" data-says="ten entries written at once all land">“ten entries written at once all land”</span>.</p></div></li>
       <li><time>18:30</time><div>
@@ -222,6 +231,42 @@
       <li class="again"><time>09:00</time><div>
         <p>↺ The next session starts by reading all of it. That's the loop: each night feeds the next morning.</p></div></li>
     </ol>
+  </div>
+</section>
+
+<section aria-labelledby="h-three">
+  <h2 id="h-three">Three parts I'd show a friend</h2>
+  <div>
+    <h3 id="h-notes">Notes</h3>
+    <p>Work turns up things that aren't the task at hand: a step worth a script, a rule that's missing, a bug in someone else's corner.
+      The assistant doesn't stop for them, and it doesn't let them go either.
+      <span class="claim" data-check="scripts/journal.sh" data-says="one thing noticed and not yet placed">It writes each one down as a note, with one command.</span></p>
+    <p>Every note lives the same life.
+      <span class="claim" data-check="scripts/session_start_notes.sh" data-says="prints a count and the three oldest notes">The next session opens by showing me how many are open, and the three oldest.</span>
+      <span class="claim" data-check="skills/notes/SKILL.md" data-says="asks Do, Drop or Keep open for each of the oldest four">Then I go through them: do it, drop it, or keep it open.</span>
+      <span class="claim" data-check="skills/notes/SKILL.md" data-says="places each one marked Do as a memory fact, skill, command, script, rule, setting or ticket">A note I mark "do" turns into something that lasts: a checked fact, a rule, a script, a setting or a ticket.</span>
+      <span class="claim" data-check="scripts/session_end_notes.sh" data-says="place what the ending session noticed, unattended">If I close a session with notes still open, it places them on its own.</span></p>
+    <p>So something I noticed on Tuesday is still there on Friday, until I decide what it is. I really like this one.</p>
+    <p class="proven">Tested by <span class="claim proof" data-check="scripts/journal.sh" data-says="each note is its own line, carrying a minted id">“each note is its own line, carrying a minted id”</span>, and <span class="claim proof" data-check="scripts/journal.sh" data-says="a note placed as a memory fact records which fact">“a note placed as a memory fact records which fact”</span>.</p>
+
+    <h3 id="h-audit">The audit</h3>
+    <p>Before an answer reaches me, the assistant is told to read it again as a critic, against my credo.
+      <span class="claim" data-check="skills/audit/SKILL.md" data-says="every line of &quot;My principles&quot; and &quot;What I ask&quot;">Every principle and every ask in it.</span>
+      <span class="claim" data-check="skills/audit/SKILL.md" data-says="Findings, numbered, most severe first.">It lists what it finds, worst first:</span>
+      how it works, what's wrong, and the fix.
+      <span class="claim" data-check="skills/audit/SKILL.md" data-says="Nothing is edited until the user approves that finding.">It changes nothing until I say yes to that one finding.</span>
+      <span class="claim" data-check="skills/audit/SKILL.md" data-says="The report is a subject too.">Then it audits its own report before sending it.</span></p>
+    <p>It's the step that has told me a plan got too complicated, or that what it was about to build was already in the code.
+      It's also the weak spot. It's an instruction, not a hook, so sometimes it's skipped.</p>
+
+    <h3 id="h-scripts">The scripts</h3>
+    <p><span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">Anything done twice becomes a script.</span>
+      A script does the same thing every time, which an instruction doesn't.
+      <span class="claim" data-check="CLAUDE.md" data-says="lists the scripts whose name or header already covers it">Before writing a new one, it looks for one that already does the job.</span></p>
+    <p><span class="claim" data-check="CLAUDE.md" data-says="A script's `--self-test` prints TAP">Each script carries its own tests, one line per case, named for what holds.</span>
+      <span class="claim" data-check="scripts/tooling_commit.sh" data-says="a red gate commits nothing">A change goes in only when every script's tests pass</span>
+      and every planted bug on a changed line is caught. While this page was being built, the gate turned back several commits until their tests were fixed.</p>
+    <p class="proven">Tested by <span class="claim proof" data-check="scripts/tooling_commit.sh" data-says="a red gate commits nothing">“a red gate commits nothing”</span>.</p>
   </div>
 </section>
 
@@ -278,9 +323,11 @@
 </section>
 
 <section aria-labelledby="h-take">
-  <h2 id="h-take">Take a piece</h2>
+  <h2 id="h-take">Made for one person</h2>
   <div>
-    <p>It's all MIT-licensed, and none of it needs the rest. Good places to start:</p>
+    <p>This setup fits one person: me. My rules, my repos, my habits.
+      It says no in exactly the places I tend to slip, and that's why it works for me.</p>
+    <p>You won't want all of it. But the patterns travel, it's all MIT-licensed, and none of it needs the rest. Good places to start:</p>
     <ul class="take">
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/credo.md"><code>credo.md</code></a>. You could write your own. One line in your <code>CLAUDE.md</code>, <code>@~/.claude/credo.md</code>, loads it into every session.</li>
       <li><a href="https://github.com/iguigova/dotclaude/blob/main/scripts/ask_gate.py"><code>ask_gate.py</code></a>. If you've ever answered "sure" to a question you didn't read, this is the one. It's a Stop hook; <a href="https://github.com/iguigova/dotclaude/blob/main/settings.json"><code>settings.json</code></a> shows how it's wired.</li>
@@ -293,7 +340,9 @@
   <h2 id="h-gaps">What it can't do yet</h2>
   <div>
     <ul>
-      <li>The audit at 15:00 is the one step no code enforces. It happens when the assistant remembers to do it.</li>
+      <li>The audit is the one step no code enforces. It happens when the assistant remembers to do it.</li>
+      <li>Nothing measures the outcome yet. The tests show each part does what it says. Nothing shows yet that the whole makes my work better than a plain setup would.</li>
+      <li>Two sessions working in the same folder can trip over each other. Each one commits only the files it changed, but one can still find the other's half-finished edit in its way.</li>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The 04:30 check only runs while I'm logged in. A missed night runs at my next login.</span></li>
       <li>A ✓ holds mark means the file has the words the claim quotes. That's all it means. A ✓ tested mark means GitHub ran that exact test, and it passed. That's why each step of the day names its test, where it has one.</li>
       <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell is counted here, since lizard reads none">The complexity limit now covers shell scripts too.</span> Both checks look only at the lines a change touches. Older code gets checked the next time someone edits it, and some older shell functions are still above the limit.</li>

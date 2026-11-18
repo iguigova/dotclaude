@@ -23,10 +23,11 @@ Mutation runs per kind of file:
                       passes only by exiting 0 with a TAP plan and no failed
                       case. Its test code, a self_test function or an
                       `if … --self-test …; then` block, is not mutated.
-                      Mutants run one per core, each core on its own copy,
-                      once the unmutated self-test passes in every copy at
-                      once; one that fails beside a copy of itself, as a
-                      fixed path or port would, runs them one at a time.
+                      Mutants run --jobs at a time, one per core unless
+                      it says otherwise, each on its own copy, once the
+                      unmutated self-test passes in every copy at once;
+                      one that fails beside a copy of itself, as a fixed
+                      path or port would, runs them one at a time.
   Python              this script's mutator. The --test python command, else
                       `<repo>/.venv/bin/python -m pytest`, else `python3 -m
                       pytest`, runs once with per-test coverage (it needs
@@ -72,7 +73,7 @@ like any other file.
 
 Usage:
   change_gate.py [--base REF] [--check complexity|mutation] [--test <language>=<command>]…
-                 [--coverage <coverage file>] [<repo>]
+                 [--coverage <coverage file>] [--jobs N] [<repo>]
   change_gate.py --self-test
 
 Exit:
@@ -475,7 +476,6 @@ TAP_PLAN = re.compile(r"^1\.\.\d+$", re.M)
 
 
 BASELINE_TAIL = 15
-JOBS = os.cpu_count() or 1
 
 
 def run_tests(command: list[str], cwd: Path, timeout: float | None, tap: bool) -> tuple[bool, str]:
@@ -544,7 +544,7 @@ def report_mutation(what: str, total: int, lived: list[str], verdict: Verdict, e
 
 # ---------------------------------------------------------------- self-tested scripts, Ruby, Python
 
-def mutate_self_tested(repo: Path, change: Change, verdict: Verdict) -> None:
+def mutate_self_tested(repo: Path, change: Change, jobs: int, verdict: Verdict) -> None:
     language = "shell" if change.path.endswith(".sh") else "python"
     with tempfile.TemporaryDirectory() as tmp:
         work = (copy_listed(repo, Path(tmp) / "w") / change.path).parent
@@ -555,17 +555,17 @@ def mutate_self_tested(repo: Path, change: Change, verdict: Verdict) -> None:
             return verdict.fail(f"{change.path}: its --self-test fails before any mutation", *tail)
         region = test_region((work / name).read_text().splitlines(), language)
         found = mutants_of(work, Change(name, change.lines), language, frozenset(region))
-        lived = side_by_side(change.path, Path(tmp) / "w", work, found, (command, took * 3 + 10), verdict)
+        lived = side_by_side(change.path, Path(tmp) / "w", work, found, (command, took * 3 + 10), jobs, verdict)
         return mutation_verdict(change.path, found, lived, verdict)
 
 
-def side_by_side(what: str, root: Path, work: Path, mutants: list[Mutant], test: tuple[list[str], float], verdict: Verdict) -> list[Mutant]:
-    """survivors for one TAP command, JOBS mutants at a time, each worker in its own copy of root. The
+def side_by_side(what: str, root: Path, work: Path, mutants: list[Mutant], test: tuple[list[str], float], jobs: int, verdict: Verdict) -> list[Mutant]:
+    """survivors for one TAP command, jobs mutants at a time, each worker in its own copy of root. The
     unmutated test first runs in every copy at once; when any copy fails, the mutants run one at a
     time instead, since a test holding a fixed path or port collides with itself, and a collision
     would read as a killed mutant."""
     live = [m for m in mutants if not EQUIVALENT.search(m.before)]
-    jobs = min(JOBS, len(live))
+    jobs = min(jobs, len(live))
     if jobs < 2:
         return survivors(work, live, lambda _m: test, tap=True)
     rel = work.relative_to(root)
@@ -864,7 +864,7 @@ def check_mutation(repo: Path, base: str, files: list[Change], options: "Options
     if not scripts and not by_language:
         return verdict.ok("no changed source file")
     for c in scripts:
-        mutate_self_tested(repo, c, verdict)
+        mutate_self_tested(repo, c, options.jobs, verdict)
     for language, group in sorted(by_language.items()):
         run_language(repo, base, language, group, options, verdict)
     return None
@@ -906,6 +906,7 @@ class Options:
     checks: tuple[str, ...] = ("complexity", "mutation")
     tests: dict[str, list[str]] = dataclasses.field(default_factory=dict)
     coverage: str | None = None
+    jobs: int = dataclasses.field(default_factory=lambda: os.cpu_count() or 1)
 
 
 TESTED = ("python", "ruby", "clojure", "haskell", "js", "dart")
@@ -925,6 +926,13 @@ def check_named(value: str) -> tuple[str, ...]:
     return (value,)
 
 
+def jobs_named(value: str) -> int:
+    """A --jobs value, a whole number above 0."""
+    if not value.isdigit() or int(value) < 1:
+        raise ValueError(f"--jobs takes a whole number above 0, not {value!r}")
+    return int(value)
+
+
 def set_option(options: Options, flag: str, value: str) -> None:
     """Apply one flag that takes a value."""
     if flag == "--test":
@@ -932,11 +940,13 @@ def set_option(options: Options, flag: str, value: str) -> None:
         options.tests[language] = command
     elif flag == "--check":
         options.checks = check_named(value)
+    elif flag == "--jobs":
+        options.jobs = jobs_named(value)
     else:
         setattr(options, flag.removeprefix("--"), value)
 
 
-VALUED = ("--base", "--check", "--test", "--coverage")
+VALUED = ("--base", "--check", "--test", "--coverage", "--jobs")
 
 
 def parse(argv: list[str]) -> Options:
@@ -1318,26 +1328,22 @@ self_test() {
 
 
 def self_test_side_by_side(t: Tap) -> None:
-    global JOBS
-    saved = JOBS
-    t.check(saved == (os.cpu_count() or 1), "mutants run one per core unless a test says otherwise", str(saved))
-    try:
-        with tempfile.TemporaryDirectory() as tmp:
-            repo = self_test_repo(Path(tmp))
-            self_test_parallel(t, repo)
-            self_test_collides(t, repo)
-    finally:
-        JOBS = saved
+    t.check(parse([]).jobs == (os.cpu_count() or 1) and parse(["--jobs", "3"]).jobs == 3,
+            "mutants run one per core unless --jobs says how many")
+    for bad in ("0", "x", "-1"):
+        status, out = self_test_run(Path("."), "--jobs", bad)
+        t.check(status == 2 and "--jobs takes a whole number above 0" in out, f"--jobs {bad} is a usage error", out)
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = self_test_repo(Path(tmp))
+        self_test_parallel(t, repo)
+        self_test_collides(t, repo)
 
 
 def self_test_parallel(t: Tap, repo: Path) -> None:
-    global JOBS
     self_test_files(repo, {"w.sh": WEAK_SH})
     (repo / "gone").symlink_to(repo / "nowhere")
-    JOBS = 2
-    status, two = self_test_run(repo, "--check", "mutation")
-    JOBS = 1
-    _, one = self_test_run(repo, "--check", "mutation")
+    status, two = self_test_run(repo, "--check", "mutation", "--jobs", "2")
+    _, one = self_test_run(repo, "--check", "mutation", "--jobs", "1")
     lived = [line for line in two.splitlines() if "w.sh:" in line and "→" in line]
     t.check(status == 1 and "w.sh: mutants ran 2 at a time" in two and len(lived) == 1 and "-lt 3" in lived[0],
             "mutants run side by side, a dangling link copied as a link, and the one the test misses lives", two)
@@ -1346,10 +1352,8 @@ def self_test_parallel(t: Tap, repo: Path) -> None:
 
 
 def self_test_collides(t: Tap, repo: Path) -> None:
-    global JOBS
     self_test_files(repo, {"w.sh": COLLIDES_SH})
-    JOBS = 2
-    status, out = self_test_run(repo, "--check", "mutation")
+    status, out = self_test_run(repo, "--check", "mutation", "--jobs", "2")
     t.check(status == 0 and "w.sh: mutants ran one at a time, since its self-test failed beside copies of itself" in out,
             "a self-test that collides with a copy of itself runs its mutants one at a time, and passes", out)
 

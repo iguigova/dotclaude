@@ -44,7 +44,7 @@ The showcase page, `~/.claude/index.html`, served at https://iguigova.github.io/
 
 # Coding Guidelines
 
-The following guidelines are available at `~/.claude/` and apply to all projects. Read `coding_guidelines.md` and `style_guidelines.md` at the start of every session — no exception. Read the language-specific file(s) before editing that language. Apply them all.
+The following guidelines are available at `~/.claude/` and apply to all projects. Before editing code, read `coding_guidelines.md`, `style_guidelines.md` and that language's file; `~/.claude/scripts/guideline_gate.py` refuses a code edit until the session has read them. Apply them all.
 
 - `coding_guidelines.md`, `style_guidelines.md` — principles and style.
 - `<language>_coding_guidelines.md` — csharp, clojure, dart (Flutter too), go, haskell, javascript (TypeScript and React too), python, ruby, shell. The Ruby file is the Rails standard too: Active Record, jobs, security, RSpec.

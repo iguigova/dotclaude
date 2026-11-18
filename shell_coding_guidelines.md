@@ -442,7 +442,7 @@ fi
 
 > *Source: `~/.claude/scripts/change_gate.py`, `~/.claude/scripts/gate_lib.sh` (`gate_changed_code`), `~/.claude/scripts/selftest.sh` check 7, [lizard README](https://github.com/terryyin/lizard)*
 
-**Complexity has no counter in the gate.** `change_gate.py` measures cyclomatic complexity with lizard, which reads none of the shells: its README's list of supported languages names thirty, and neither bash nor shell is among them. `change_gate.py` measures Python, JavaScript, TypeScript, Go, Ruby, C# and Dart, and states "Shell, Clojure and Haskell have no counter and are not measured." The bar from `coding_guidelines.md` still holds for shell, and review holds it.
+**No function above cyclomatic complexity 10.** lizard reads none of the shells, so `change_gate.py` counts shell itself, by the rule its docstring states.
 
 **Every mutant on a changed line is killed.** `change_gate.py`'s mutator swaps, in the code part of each changed line and never inside a quoted string or a comment:
 

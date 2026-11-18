@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>dotclaude: an assistant that shows its work</title>
 <meta name="description" content="My Claude Code setup: small programs that hold an AI assistant to its rules, and can say no. A day with it next to a plain setup, the three parts I'd show a friend, and what it can't do yet.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='14' fill='%23137333'/%3E%3Cpath d='M9 16.5l4.5 4.5L23 11' fill='none' stroke='white' stroke-width='3.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="../brand.css">
 <script src="../brand.js"></script>
 <style>
@@ -67,6 +68,9 @@
   .evidence[hidden] { display: none; }
   .evidence code { background: none; padding: 0; white-space: pre-wrap; }
   .evidence b { color: var(--ink); }
+  .live { margin: 4px 0 0; padding: 8px 12px; border-left: 3px solid var(--good);
+    background: var(--panel); font-size: 15px; max-width: none; }
+  .live a { white-space: nowrap; margin-left: 6px; }
   .tally { margin: 10px 0 0; color: var(--ink); min-height: 1.6em; max-width: none; }
 
   .why { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -103,13 +107,15 @@
     <h1>Instructions get forgotten.<br><span class="hot">Code doesn't.</span></h1>
     <p class="tag">Claude Code is an AI that writes code from a terminal. On a long task it loses hold of the rules I gave it.
       So small programs keep them for it, and they can say no.</p>
+    <p class="live"><span id="live">Your browser is checking this page's claims against my files…</span>
+      <a href="#h-check">How it checks</a></p>
     <ol class="flow" aria-label="The loop">
       <li><span>Session starts</span></li><li class="gate"><span>Hooks</span></li><li><span>Work</span></li><li class="gate"><span>Gate</span></li><li><span>Commit</span></li><li><span>Session ends</span></li><li class="gate"><span>04:30 check</span></li>
     </ol>
     <div class="cards">
       <div class="card" role="group" aria-labelledby="c-on">
         <p class="eyebrow">While it works</p>
-        <h3 id="c-on">Hooks that say no</h3>
+        <h3 id="c-on">Gates that say no</h3>
         <ol>
           <li><b>Ask, don't bury</b><span>a question in a paragraph is sent back</span></li>
           <li><b>Blocked means stop</b><span>nothing else runs until I answer</span></li>
@@ -121,7 +127,7 @@
         <p class="eyebrow">While nobody's there</p>
         <h3 id="c-off">Upkeep that runs itself</h3>
         <ol>
-          <li><b>Notes placed</b><span>each becomes a rule, a script or a ticket</span></li>
+          <li><b>Notes placed</b><span>each becomes a rule, a script or a checked fact</span></li>
           <li><b>Branches swept</b><span>merged work is deleted</span></li>
           <li><b>Facts rechecked</b><span>a wrong one is gone by morning</span></li>
           <li><b>Page republished</b><span>refused if it holds a secret</span></li>
@@ -260,7 +266,7 @@
       It's also the weak spot. It's an instruction, not a hook, so sometimes it's skipped.</p>
 
     <h3 id="h-scripts">The scripts</h3>
-    <p><span class="claim" data-check="CLAUDE.md" data-says="Encode any repeated multi-step workflow as a tested script">Its rule is that anything done twice becomes a script.</span>
+    <p><span class="claim" data-check="CLAUDE.md" data-says="passes the credo's cost check becomes a tested script">Its rule is that work it repeats becomes a script, once the script is worth its upkeep.</span>
       A script does the same thing every time, which an instruction doesn't.
       <span class="claim" data-check="CLAUDE.md" data-says="lists the scripts whose name or header already covers it">Before writing a new one, it looks for one that already does the job.</span></p>
     <p><span class="claim" data-check="CLAUDE.md" data-says="A script's `--self-test` prints TAP">Each script carries its own tests, one line per case, named for what holds.</span>
@@ -300,9 +306,9 @@
 <section aria-labelledby="h-check">
   <h2 id="h-check">Don't take my word for it</h2>
   <div>
-    <p>Every claim with a mark after it names a file and the exact words that file should hold. Your browser fetched those files when the page loaded, and marks each claim with what it found
-      <span class="mark">✓ holds</span>. Press a mark to see the line.
-      A <span class="mark">✓ tested</span> mark also means GitHub's last run printed "ok" for that very test case.</p>
+    <p>Every claim with a mark after it names a file and the exact words that file should hold. Your browser fetched those files when the page loaded, and marks each claim whose file holds its words with
+      <span class="mark" data-code="0">✓</span>. Press a mark to see the line.
+      A <span class="mark" data-code="0">✓ tested</span> mark also means GitHub's last run printed "ok" for that very test case.</p>
     <p class="tally" id="tally" aria-live="polite">Checking…</p>
     <p class="tally" id="ran" aria-live="polite">Reading GitHub's last run…</p>
     <p>You can try to break one, too. If you pick a claim, change the words its file should hold and press Check it, the claim strikes itself out, wherever it is on the page.</p>
@@ -344,7 +350,7 @@
       <li>Nothing measures the outcome yet. The tests show each part does what it says. Nothing shows yet that the whole makes my work better than a plain setup would.</li>
       <li>Two sessions working in the same folder can trip over each other. Each one commits only the files it changed, but one can still find the other's half-finished edit in its way.</li>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The 04:30 check only runs while I'm logged in. A missed night runs at my next login.</span></li>
-      <li>A ✓ holds mark means the file has the words the claim quotes. That's all it means. A ✓ tested mark means GitHub ran that exact test, and it passed. That's why each step of the day names its test, where it has one.</li>
+      <li>A ✓ mark means the file has the words the claim quotes. That's all it means. A ✓ tested mark means GitHub ran that exact test, and it passed. That's why each step of the day names its test, where it has one.</li>
       <li><span class="claim" data-check="scripts/change_gate.py" data-says="Shell is counted here, since lizard reads none">The complexity limit covers shell scripts too.</span> <span class="claim" data-check="scripts/change_gate.py" data-says="no function in a changed file has a cyclomatic complexity above">It checks every function in a file a change touches,</span> not only the lines that changed, so every function in an edited file stays within the limit. Planted bugs go only on the lines a change touches, so older lines get them the next time someone edits them.</li>
     </ul>
   </div>
@@ -365,8 +371,11 @@ const BLOB = 'https://github.com/iguigova/dotclaude/blob/main/';
 // What GitHub's run of the self-tests printed, published with this page from
 // the same commit (.github/workflows/selftest.yml).
 const RUN = 'run/';
-const LABEL = { 0: '✓ holds', 1: '✗ no longer holds', 75: '? no answer' };
+// A claim that holds is marked by a bare ✓, so forty of them don't drown the
+// prose; its button still names the verdict to a screen reader.
+const LABEL = { 0: '✓', 1: '✗ no longer holds', 75: '? no answer' };
 const TESTED = { 0: '✓ tested', 1: '✗ not tested', 75: '? no answer' };
+const SPOKEN = { '✓': 'holds' };
 const reads = new Map();
 // One case that passed, as tap.sh and tap.py print it: "ok <n> - <name>".
 const OK = /^ok \d+ - (.*)$/;
@@ -429,6 +438,7 @@ const mark = (claim, v) => {
   button.className = 'mark';
   button.dataset.code = claim.dataset.code = v.code;
   button.textContent = (claim.classList.contains('proof') ? TESTED : LABEL)[v.code];
+  button.setAttribute('aria-label', `${SPOKEN[button.textContent] ?? button.textContent.slice(2)}: show the line`);
   button.setAttribute('aria-expanded', 'false');
   const box = document.createElement('span');
   box.className = 'evidence';
@@ -465,16 +475,24 @@ const proven = async (path, v) => {
 
 // The tally says what every check found.
 const count = (codes, c) => codes.filter(x => x === c).length;
-const tally = (codes) => {
+const found = (codes) => {
   const said = [`${count(codes, 0)} hold`];
   const gone = count(codes, 1);
   if (gone) said.push(gone === 1 ? '1 no longer holds and is struck out' : `${gone} no longer hold and are struck out`);
   if (count(codes, 75)) said.push(`${count(codes, 75)} got no answer`);
-  return `Your browser just checked the ${codes.length} claims on this page against the files they name: ${said.join(', ')}.`;
+  return said.join(', ');
 };
+const tally = (codes) =>
+  `Your browser just checked the ${codes.length} claims on this page against the files they name: ${found(codes)}.`;
 const claims = () => [...document.querySelectorAll('.claim')];
+// live — the same verdict at the top of the page, where a visitor starts.
+const live = (codes) => (count(codes, 0) === codes.length
+  ? `✓ Your browser just checked all ${codes.length} claims on this page against my files. Every one holds.`
+  : `Your browser just checked the ${codes.length} claims on this page against my files: ${found(codes)}.`);
 const retally = () => {
-  document.getElementById('tally').textContent = tally(claims().map(c => Number(c.dataset.code)));
+  const codes = claims().map(c => Number(c.dataset.code));
+  document.getElementById('tally').textContent = tally(codes);
+  document.getElementById('live').textContent = live(codes);
 };
 const checkAll = async (cut) => {
   await Promise.all(claims().map(c => checkClaim(c, cut)));

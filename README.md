@@ -56,7 +56,7 @@ machine without one; the scripts resolve paths from `$HOME`.
 ~/.claude/scripts/selftest.sh
 ```
 
-The selftest needs `git`, `python3` with `pytest` and `pytest-cov`, `shellcheck`
+The selftest needs `git`, `python3` with `pytest`, `pytest-cov` and ReportLab, `shellcheck`
 and `uv`.
 
 ## How it is published

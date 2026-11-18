@@ -47,146 +47,31 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 # ISSUE_JSON is jira-issue.sh's flat object. Prints "<arg>\t<rendering>", and
 # exits 2 when the effort is not a duration — billing against a misread number
 # is worse than not billing, so the caller stops before the worklog is posted.
-# The issue is cut to the fields the decision reads before it enters the
-# environment: the kernel caps one environment string at 128 KiB, which a long
-# description or comment thread passes.
+# jira_remaining_decide.py decides; the issue reaches it on stdin, which has no
+# size cap, as a long description or comment thread would pass the kernel's for
+# an environment string.
 decide() {  # ISSUE_JSON EFFORT HOURS_PER_DAY DAYS_PER_WEEK
-  local fields
-  fields=$(jq -c '{status, statusCategory, timeOriginalEstimate,
-                   timeRemainingEstimate, timeSpent}' <<<"$1") || return 2
-  ISSUE_JSON="$fields" EFFORT="$2" HPD="$3" DPW="$4" python3 <<'PY'
-import json, os, re, sys
-
-HPD = float(os.environ["HPD"])
-DPW = float(os.environ["DPW"])
-UNIT = {"m": 1.0, "h": 60.0, "d": HPD * 60.0, "w": DPW * HPD * 60.0}
-TOKEN = re.compile(r"(\d+(?:\.\d+)?)([wdhm])", re.I)
-# Tokens must be whitespace-separated. `2h30m` is unambiguous arithmetic and
-# still refused, because REST v3 refuses it: reading it here would only move
-# the failure to the POST, where a worklog is already half-made.
-SPACED = re.compile(r"^\s*\d+(?:\.\d+)?[wdhm](?:\s+\d+(?:\.\d+)?[wdhm])*\s*$", re.I)
-
-
-def minutes(s):
-    """A Jira duration in minutes, or None when the whole string is not one.
-    A partial reading is a wrong estimate, and a wrong estimate is the thing
-    this script exists to stop."""
-    if s is None or not SPACED.match(str(s)):
-        return None
-    return sum(float(m.group(1)) * UNIT[m.group(2).lower()]
-               for m in TOKEN.finditer(str(s)))
-
-
-def render(mins):
-    """Minutes as the spaced Jira form, in this instance's days and hours."""
-    mins = int(round(mins))
-    if mins <= 0:
-        return "0h"
-    d, rest = divmod(mins, int(HPD * 60))
-    h, m = divmod(rest, 60)
-    return " ".join(p for p in (f"{d}d" if d else "", f"{h}h" if h else "",
-                                f"{m}m" if m else "") if p)
-
-
-def out(arg, text):
-    print(f"{arg}\t{text}")
-    sys.exit(0)
-
-
-i = json.loads(os.environ["ISSUE_JSON"])
-effort = minutes(os.environ["EFFORT"])
-if effort is None or effort <= 0:
-    print("jira-remaining.sh: effort is not a Jira duration: %r"
-          % os.environ["EFFORT"], file=sys.stderr)
-    sys.exit(2)
-
-orig_s = i.get("timeOriginalEstimate")
-rem_s = i.get("timeRemainingEstimate")
-spent_s = i.get("timeSpent")
-status = i.get("status") or "?"
-cat = (i.get("statusCategory") or "").lower()
-orig, rem, spent = minutes(orig_s), minutes(rem_s), minutes(spent_s)
-
-over = ""
-if orig is not None and (spent or 0) + effort > orig:
-    over = (" — OVER: %s spent plus %s exceeds the %s original"
-            % (spent_s or "0h", os.environ["EFFORT"], orig_s))
-
-if orig is None and rem is None:
-    out("", "not set — no estimate on this ticket, so logging leaves it at 0h. "
-            "Suggest a real original estimate if it is sprint-bound.")
-
-if cat == "done":
-    out("0h", "0h — %s is a Done status, so the clock closes with the worklog.%s"
-              % (status, over))
-
-if rem is None:
-    out("", "unreadable (%r) — argument omitted, so Jira subtracts from the "
-            "original.%s" % (rem_s, over))
-
-if rem <= 0:
-    out("", "0h already — %s is open but the burndown is spent (%s logged against "
-            "an original of %s). Argument omitted: any number would raise it.%s"
-            % (status, spent_s or "0h", orig_s or "none", over))
-
-left = rem - effort
-if left <= 0:
-    out("", "this effort exhausts the %s left — argument omitted so Jira floors it "
-            "at 0h. Set a real estimate if the work is not finished.%s" % (rem_s, over))
-
-out(render(left), "%s (was %s; original %s)%s"
-                  % (render(left), rem_s, orig_s or "not set", over))
-PY
+  "$(dirname "${BASH_SOURCE[0]}")/jira_remaining_decide.py" "$2" "$3" "$4" <<<"$1"
 }
 
 HELPER_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 # ---------------------------------------------------------------- self-test
 
-# The decision is the contract, so the test drives `decide` over fixtures: no
-# network, and every state that omits the argument is named here.
+# jira_remaining_decide.py's own self-test holds the decision's cases. This one
+# holds the script around it: the stream each line goes to, an issue too large
+# for an environment string, a refused effort, and the instance's configuration.
 self_test() {
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
-  arg() {  # ISSUE_JSON EFFORT [HPD] [DPW] — the argument alone
-    local row; row=$(decide "$1" "$2" "${3:-8}" "${4:-5}") || return 2
-    printf '%s' "${row%%$'\t'*}"
-  }
-  why() {  # ISSUE_JSON EFFORT — the rendering alone
-    local row; row=$(decide "$1" "$2" 8 5) || return 2
-    printf '%s' "${row#*$'\t'}"
-  }
   local none='{"status":"Backlog","statusCategory":"new","timeOriginalEstimate":null,"timeRemainingEstimate":null,"timeSpent":null}'
-  local spent='{"status":"Testing","statusCategory":"indeterminate","timeOriginalEstimate":"8h","timeRemainingEstimate":"0h","timeSpent":"81h"}'
   local live='{"status":"In Progress","statusCategory":"indeterminate","timeOriginalEstimate":"8h","timeRemainingEstimate":"4h","timeSpent":"4h"}'
-  local day='{"status":"In Progress","statusCategory":"indeterminate","timeOriginalEstimate":"2d","timeRemainingEstimate":"1d","timeSpent":"1d"}'
-  local week='{"status":"In Progress","statusCategory":"indeterminate","timeOriginalEstimate":"2w","timeRemainingEstimate":"1w","timeSpent":"1w"}'
-  local done='{"status":"Done","statusCategory":"done","timeOriginalEstimate":"8h","timeRemainingEstimate":"2h","timeSpent":"6h"}'
-  local junk='{"status":"In Progress","statusCategory":"indeterminate","timeOriginalEstimate":"8h","timeRemainingEstimate":"about a day","timeSpent":"4h"}'
-
-  tap_is "a ticket with no estimate omits the argument" "$(arg "$none" 2h)" ""
-  tap_is "remaining already 0h on an open ticket omits it" "$(arg "$spent" 1h)" ""
-  tap_is "and says the burndown is spent, with the overrun" \
-    "$(why "$spent" 1h)" \
-    "0h already — Testing is open but the burndown is spent (81h logged against an original of 8h). Argument omitted: any number would raise it. — OVER: 81h spent plus 1h exceeds the 8h original"
-  tap_is "effort that exhausts what is left omits it" "$(arg "$live" 4h)" ""
-  tap_is "an unreadable remaining omits it rather than guessing" "$(arg "$junk" 1h)" ""
-  tap_is "an ordinary subtraction" "$(arg "$live" 2h)" "2h"
-  tap_is "a decimal effort" "$(arg "$live" 1.5h)" "2h 30m"
-  tap_is "days use this instance's working day, not 24h" "$(arg "$day" 2h)" "6h"
-  tap_is "a six-hour working day gives a different answer" "$(arg "$day" 1h 6)" "5h"
-  tap_is "weeks carry the working week" "$(arg "$week" 2.5h)" "4d 5h 30m"
-  tap_is "a Done ticket closes the clock" "$(arg "$done" 1h)" "0h"
   local big
   big=$(head -c 200000 /dev/zero | tr '\0' x \
     | jq -Rs --argjson l "$live" '$l + {description: .}')
-  tap_is "an issue over 128 KiB is decided, not refused by the kernel" "$(arg "$big" 2h)" \
-    "2h"
-  tap_is "the rendering names what it was and the original" \
-    "$(why "$live" 2h)" "2h (was 4h; original 8h)"
+  tap_is "an issue over 128 KiB is decided, not refused by the kernel" "$(decide "$big" 2h 8 5)" \
+    $'2h\t2h (was 4h; original 8h)'
   tap_is "an effort that is not a duration is refused" "$(decide "$live" "two hours" 8 5 >/dev/null 2>&1; echo $?)" \
-    2
-  tap_is "an unspaced compound is refused, as REST v3 refuses it" "$(decide "$live" "2h30m" 8 5 >/dev/null 2>&1; echo $?)" \
     2
 
   # The split matters as much as the decision: /timelog reads the argument off
@@ -194,7 +79,7 @@ self_test() {
   # becomes part of a worklog request.
   local fx self
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
-  cp "$HELPER_SELF" "$fx/jira-remaining.sh"
+  cp "$HELPER_SELF" "$(dirname "$HELPER_SELF")/jira_remaining_decide.py" "$fx/"
   self="$fx/jira-remaining.sh"
   printf '#!/usr/bin/env bash\ncat "$JR_ISSUE"\n' > "$fx/jira-issue.sh"
   chmod +x "$fx/jira-issue.sh"

@@ -201,9 +201,8 @@
         <h3>It answers me</h3>
         <div class="vs">
           <p class="plain"><span class="label">Plain</span>It sends what it wrote.</p>
-          <p class="ours"><span class="label">Mine</span>It's told to audit the answer first: read it again as a critic and look for holes, shortcuts and claims with no evidence behind them.
-            <span class="claim" data-check="skills/audit/SKILL.md" data-says="run unasked on every answer before it is sent">That's the instruction.</span>
-            But no hook enforces it, so sometimes it's skipped.</p>
+          <p class="ours"><span class="label">Mine</span>When I want a second look, I type <code>/audit</code>. It reads its last two answers again as a critic and looks for holes, shortcuts and claims with no evidence behind them.
+            <span class="claim" data-check="skills/audit/SKILL.md" data-says="Runs only when invoked, never unasked">I call it when I want it. No hook runs it, and that's on purpose.</span></p>
         </div></div></li>
       <li><time>17:00</time><div>
         <h3>It spots something it can't fix right now</h3>
@@ -346,7 +345,6 @@
   <h2 id="h-gaps">What it can't do yet</h2>
   <div>
     <ul>
-      <li>The audit is the one step no code enforces. It happens when the assistant remembers to do it.</li>
       <li>Nothing measures the outcome yet. The tests show each part does what it says. Nothing shows yet that the whole makes my work better than a plain setup would.</li>
       <li>Two sessions working in the same folder can trip over each other. Each one commits only the files it changed, but one can still find the other's half-finished edit in its way.</li>
       <li><span class="claim" data-check="scripts/memory_schedule.sh" data-says="a missed night runs at the next login">The 04:30 check only runs while I'm logged in. A missed night runs at my next login.</span></li>

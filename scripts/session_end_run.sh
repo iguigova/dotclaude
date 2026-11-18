@@ -57,6 +57,30 @@ open_ids() {  # SID — the ids of SID's notes still open, one per line
   "$SCRIPTS_DIR/journal_queue.sh" --opened-by "$1" --ids 2>/dev/null
 }
 
+# repo_list CWD — the repos whose commits and leftovers the report names, one
+# per line: SESSION_END_REPOS split on ':', else CWD and ~/.claude.
+repo_list() {
+  if [[ -n "$REPOS_ENV" ]]; then tr ':' '\n' <<<"$REPOS_ENV"
+  else printf '%s\n' "$1" "$HOME/.claude"; fi
+}
+
+# flagged FLAG — each non-empty line of stdin as two lines, FLAG then the line,
+# ready for mapfile to read as the report's arguments.
+flagged() {
+  local line
+  while IFS= read -r line; do
+    [[ -n "$line" ]] || continue
+    printf '%s\n%s\n' "$1" "$line"
+  done
+}
+
+# report_flags REPO HEAD BEFORE — the report's --commit and --left arguments for
+# REPO: its commits since HEAD, none with no HEAD, and what it left dirty.
+report_flags() {
+  [[ -n "$2" ]] && commits_since "$1" "$2" | flagged --commit
+  left_since "$1" "$3" | flagged --left
+}
+
 main() {
   LOCK="$1"; LOG="$2"; CWD="$3"; PFX="$4"; shift 4
 
@@ -65,9 +89,8 @@ main() {
   cd "$CWD"      || { stamp "cwd is gone, skipped"; return 0; }
 
   local sid="${PFX##*session=}"; sid="${sid%% *}"
-  local -a repos
-  if [[ -n "$REPOS_ENV" ]]; then IFS=: read -r -a repos <<<"$REPOS_ENV"
-  else repos=("$CWD" "$HOME/.claude"); fi
+  local -a repos flags
+  mapfile -t repos < <(repo_list "$CWD")
 
   declare -A before=() heads=()
   local r
@@ -76,9 +99,7 @@ main() {
   # The queue before and after is what says how much the run placed. A count the
   # run reported itself would be the run marking its own homework.
   local -a open_before=()
-  local id
-  while IFS= read -r id; do [[ -n "$id" ]] && open_before+=(--open "$id"); done \
-    < <(open_ids "$sid")
+  mapfile -t open_before < <(open_ids "$sid" | flagged --open)
 
   stamp "run started"
   "$@" >> "$LOG" 2>&1
@@ -89,12 +110,9 @@ main() {
                    --session "$sid" --rc "$rc"
                    "${open_before[@]}" --after "$(open_ids "$sid" | grep -c .)"
                    --dir "$CWD" --log "$LOG")
-  local line
   for r in "${repos[@]}"; do
-    while IFS= read -r line; do [[ -n "$line" ]] && report+=(--commit "$line"); done \
-      < <([[ -n "${heads[$r]}" ]] && commits_since "$r" "${heads[$r]}")
-    while IFS= read -r line; do [[ -n "$line" ]] && report+=(--left "$line"); done \
-      < <(left_since "$r" "${before[$r]}")
+    mapfile -t flags < <(report_flags "$r" "${heads[$r]}" "${before[$r]}")
+    report+=("${flags[@]}")
   done
   "${report[@]}" || stamp "the record could not be written; the run's work stands"
   return 0
@@ -124,6 +142,9 @@ self_test() {
     "$repo $(git -C "$repo" rev-parse --short HEAD) chore: ours"
   tap_is "a path the run left uncommitted is reported, another session's is not" "$(left_since "$repo" "$before")" \
     "$repo: left.txt"
+  tap_is "with no override, the repos are the cwd and ~/.claude" "$(REPOS_ENV="" HOME=/h repo_list /c)" \
+    $'/c\n/h/.claude'
+  tap_is "an override names the repos, split on colons" "$(REPOS_ENV=/a:/b repo_list /c)" $'/a\n/b'
 
   # End to end through main, as the hook invokes it — the half no other case
   # reaches, and the half where a real run once died silently.

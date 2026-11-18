@@ -32,8 +32,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-start() {
-  local ref="" suffix=PR name=1 source refjson url dir fetch tmp head ticket out
+start() {  # [<pr-ref>] [--suffix PR|BOT] [--no-name]
+  local ref="" suffix=PR name=1
   while (($#)); do
     case "$1" in
       --suffix) suffix="${2:?--suffix needs PR or BOT}"; shift 2 ;;
@@ -43,18 +43,35 @@ start() {
          ref="$1"; shift ;;
     esac
   done
-  source="the argument"
+  review "$ref" "$suffix" "$name"
+}
+
+review() {  # REF SUFFIX NAME — REF empty for the session title's PR
+  local source="the argument" url dir
+  [[ -n "$1" ]] || source="the session title"
+  url=$(pr_url "$1") || return
+  dir=$("$HERE/gh-pr-workdir.sh" "$url") || return 1
+  printf 'pr:    %s (from %s)\ndir:   %s\n' "$url" "$source" "$dir"
+  fetch_pr "$url" "$dir" || return 1
+  (($3)) || { echo "title: not written (--no-name)"; return 0; }
+  name_session "$url" "$2"
+}
+
+# pr_url REF — the PR's URL; with REF empty, the PR the session title names.
+pr_url() {
+  local ref=$1 refjson
   if [[ -z "$ref" ]]; then
     ref=$("$HERE/gh_pr_ref.py" --from-session) || {
       echo "gh-pr-start.sh: no PR given and the session title names none -- ask the user which PR" >&2
       return 2; }
-    source="the session title"
   fi
   refjson=$("$HERE/gh_pr_ref.py" "$ref") || return 1
-  url="https://github.com/$(jq -r '"\(.owner)/\(.repo)/pull/\(.number)"' <<<"$refjson")"
-  dir=$("$HERE/gh-pr-workdir.sh" "$url") || return 1
-  printf 'pr:    %s (from %s)\ndir:   %s\n' "$url" "$source" "$dir"
+  printf 'https://github.com/%s\n' "$(jq -r '"\(.owner)/\(.repo)/pull/\(.number)"' <<<"$refjson")"
+}
 
+# fetch_pr URL DIR — DIR/pr.json, written whole or not at all, and its line.
+fetch_pr() {
+  local url=$1 dir=$2 fetch tmp head ticket
   fetch="${GH_PR_START_FETCH:-$HERE/gh-pr-fetch.sh}"
   tmp=$(mktemp "$dir/pr.json.XXXXXX")
   if ! "$fetch" "$url" > "$tmp"; then
@@ -64,11 +81,12 @@ start() {
   head=$(jq -r '.head_sha // empty' "$dir/pr.json")
   ticket=$(jq -r '.ticket // empty' "$dir/pr.json")
   printf 'fetch: %s/pr.json at %s, ticket %s\n' "$dir" "${head:-?}" "${ticket:-none}"
+}
 
-  if ((!name)); then
-    echo "title: not written (--no-name)"; return 0
-  fi
-  if ! out=$("$HERE/gh-pr-name-session.sh" "$url" "$suffix" 2>&1); then
+# name_session URL SUFFIX — the title record; exit 4 when it is not written.
+name_session() {
+  local out
+  if ! out=$("$HERE/gh-pr-name-session.sh" "$1" "$2" 2>&1); then
     printf 'title: not written -- %s -- the review can go on\n' "$out"; return 4
   fi
   printf '%s\n' "$out"
@@ -115,6 +133,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # --no-name writes no record and says so.
   before=$(wc -l < "$SESSION_RENAME_TRANSCRIPT")
   run "$url" --no-name
+  tap_is "--no-name exits 0" "$code" 0
   tap_like "--no-name says the title was not written" "$out" "*title: not written (--no-name)*"
   tap_is "--no-name writes no title record" "$(wc -l < "$SESSION_RENAME_TRANSCRIPT")" "$before"
 
@@ -135,6 +154,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   run "$url" "$url"
   tap_is "two refs exit 1" "$code" 1
+  : > "$tmp/not-a-dir"
+  GH_PR_WORKDIR_BASE="$tmp/not-a-dir" run "$url"
+  tap_is "a working directory that cannot be made exits 1" "$code" 1
   tap_end
 fi
 

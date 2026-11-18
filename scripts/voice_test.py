@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
-"""Does the voice review still catch what the user rejected, and pass what the user kept?
+"""Does the voice review still judge each sample as the user did?
 
     voice_test.py                    # every case in skills/voice/cases.json
     voice_test.py --self-test
 
 The review is the voice skill's SKILL.md: a reviewer that did not write the text
-reads My voice in the credo and the cases, and quotes each sentence that fails. A case is a
-sentence the user rejected ("fails": true) or kept. Each case is reviewed in a
-fresh headless session that sees every other case but not its own, three times; it
-holds when the majority flagged it exactly when it fails. A case whose rule lives
-outside My voice names it, "section": "<path>#<heading>", and the reviewer is
-handed that section too.
+reads My voice in the credo and the samples, and quotes each passage that fails. A
+sample is a text the user liked or rejected ("liked": false). Each is reviewed in a
+fresh headless session that sees every sample, its own verdict included, three
+times; it holds when the majority flagged it exactly when the user rejected it. So the
+test shows the reviewer follows the samples, not that it would have guessed them. A sample judged
+under a voice section outside My voice names it, "section": "<path>#<heading>", and
+the reviewer is handed that section too.
 
 Exit 0 every case held, 1 a case failed, 75 a run got no answer.
 """
@@ -27,6 +28,7 @@ from tap import Tap  # noqa: E402
 ROOT = pathlib.Path.home() / ".claude"
 CREDO, REVIEW, CASES = ROOT / "credo.md", ROOT / "skills/voice/SKILL.md", ROOT / "skills/voice/cases.json"
 RUNS, WORKERS, SECONDS, NO_ANSWER = 3, 6, 300, 75
+SHOWN = 80
 SESSION = ["-p", "--tools", "", "--no-session-persistence", "--settings", '{"disableAllHooks":true}']
 
 
@@ -78,19 +80,25 @@ def ask(text: str) -> str | None:
 def verdict(case: dict, flags: list) -> bool | None:
     if None in flags:
         return None
-    return (sum(flags) * 2 > len(flags)) == case["fails"]
+    return (sum(flags) * 2 > len(flags)) != case["liked"]
+
+
+def shown(text: str) -> str:
+    """A sample's text on one result line: its first SHOWN characters, newlines as spaces."""
+    flat = " ".join(text.split())
+    return flat if len(flat) <= SHOWN else flat[:SHOWN] + "…"
 
 
 def run(cases: list, review: str, credo: str, asker=ask, runs: int = RUNS) -> int:
-    def one(i: int) -> tuple:
-        text = prompt(review, credo, cases[:i] + cases[i + 1:], cases[i]["text"], other(cases[i]))
+    def one(case: dict) -> tuple:
+        text = prompt(review, credo, cases, case["text"], other(case))
         flags = [flagged(asker(text)) for _ in range(runs)]
-        return verdict(cases[i], flags), flags
+        return verdict(case, flags), flags
     with concurrent.futures.ThreadPoolExecutor(WORKERS) as pool:
-        outcomes = list(pool.map(one, range(len(cases))))
+        outcomes = list(pool.map(one, cases))
     for case, (held, flags) in zip(cases, outcomes):
         mark = {True: "ok", False: "FAILED", None: "NO ANSWER"}[held]
-        print(f"  {mark:9} {'fails' if case['fails'] else 'passes'} {sum(f or 0 for f in flags)}/{len(flags)} flagged  {case['text']}")
+        print(f"  {mark:9} {'liked' if case['liked'] else 'rejected':8} {sum(f or 0 for f in flags)}/{len(flags)} flagged  {shown(case['text'])}")
     held = [o[0] for o in outcomes]
     return 1 if False in held else NO_ANSWER if None in held else 0
 
@@ -114,13 +122,16 @@ def self_test() -> int:
             "the named section reaches the prompt")
     skill = "---\nname: v\n---\n# V\nRules.\n\nText to check:\n\n$ARGUMENTS\n"
     t.check(instructions(skill) == "# V\nRules.", "the prompt drops the frontmatter and the text placeholder")
-    cases = [{"text": "A", "fails": True}, {"text": "B", "fails": False}]
-    p = prompt("R", credo, cases[1:], "A")
-    t.check('"B"' in p and '"A"' not in p.split("Text to review")[0], "a case never sees itself among the cases")
+    cases = [{"text": "A", "liked": False}, {"text": "B", "liked": True}]
+    samples = prompt("R", credo, cases, "A").split("Text to review")[0]
+    t.check('"A"' in samples and '"B"' in samples, "every sample is in view, the one under review included")
     t.check((flagged("NONE"), flagged('"x" — rule'), flagged("")) == (False, True, None),
             "NONE passes, a quoted line flags, an empty reply is no answer")
     t.check(verdict(cases[0], [True, True, False]) and verdict(cases[1], [False, False, True]),
             "the majority of runs decides")
+    t.check((shown("a\n\nb"), shown("x" * SHOWN), shown("x" * (SHOWN + 1)))
+            == ("a b", "x" * SHOWN, "x" * SHOWN + "…"),
+            "a result line shows a sample's text on one line, cut after SHOWN characters")
     t.check(verdict(cases[0], [True, None, True]) is None, "a run with no answer leaves the case unanswered")
     import io, contextlib
     with contextlib.redirect_stdout(io.StringIO()):

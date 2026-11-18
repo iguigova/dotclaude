@@ -7,10 +7,12 @@ on the code a change touched.
               C# and Dart. Shell is counted here, since lizard reads none: 1,
               plus one for each if, elif, while, until, for, case arm ended
               by ;; and each && or ||, in a function's own lines, its nested
-              functions and its quoted text left out. A self-test's lines are
-              not counted, since `cond && tap_ok || tap_not_ok` is an
-              assertion, as t.check is in Python. Clojure and Haskell have no
-              counter and are not measured.
+              functions, its quoted text, heredoc bodies and comments left
+              out. A quote that spans lines is text to its end, so an awk, jq
+              or Python program a function embeds is not counted, and is not
+              measured. A self-test's lines are not counted, since `cond &&
+              tap_ok || tap_not_ok` is an assertion, as t.check is in Python.
+              Clojure and Haskell have no counter and are not measured.
   mutation    every mutant on a changed line is killed by the tests, unless
               that line's comment carries `mutation: equivalent — <reason>`,
               the reason saying why no test can tell the mutant apart.
@@ -233,6 +235,11 @@ def over_limit(csv_text: str) -> list[str]:
 
 SHELL_FUNC = re.compile(r"^(\s*)(?:function\s+([\w:.-]+)\s*(?:\(\s*\))?|([\w:.-]+)\s*\(\s*\))\s*\{")
 SHELL_BRANCH = re.compile(r"\b(?:if|elif|while|until|for)\b|&&|\|\||;;&?|;&")
+SHELL_TEXT = re.compile(
+    r"(?P<head>(?<!<)<<-?\s*(?P<q>['\"]?)(?P<tag>[A-Za-z_]\w*)(?P=q)[^\n]*\n)(?s:.*?)^\s*(?P=tag)$"
+    r"|\\.|(?:^|(?<=\s))#[^\n]*|\$'(?:[^'\\]|\\.)*'|'[^']*'|\"(?:[^\"\\]|\\.)*\"",
+    re.M,
+)
 
 
 def shell_functions(lines: list[str]) -> list[tuple[str, int, int]]:
@@ -244,11 +251,23 @@ def shell_functions(lines: list[str]) -> list[tuple[str, int, int]]:
     return found
 
 
-def shell_ccn(lines: list[str], span: tuple[int, int], inner: list[tuple[int, int]]) -> int:
+def shell_code(text: str) -> list[str]:
+    """Each line with its quoted text, heredoc bodies and comments blanked, a quote that spans lines
+    included, as an awk or jq program does. A heredoc's opening line stays code, and so does an
+    escaped character, so \\' opens no quote."""
+    def blank(m: re.Match) -> str:
+        head = m["head"] or ""
+        if m[0].startswith("\\"):
+            return m[0]
+        return head + re.sub(r"[^\n]", " ", m[0][len(head):])
+    return SHELL_TEXT.sub(blank, text).splitlines()
+
+
+def shell_ccn(code: list[str], span: tuple[int, int], inner: list[tuple[int, int]]) -> int:
     own = set(range(span[0], span[1] + 1))
     for first, last in inner:
         own -= set(range(first, last + 1))
-    return 1 + sum(len(SHELL_BRANCH.findall(code_part(lines[n - 1], "shell"))) for n in own)
+    return 1 + sum(len(SHELL_BRANCH.findall(code[n - 1])) for n in own)
 
 
 def shell_over_limit(path: str, text: str) -> list[str]:
@@ -256,12 +275,13 @@ def shell_over_limit(path: str, text: str) -> list[str]:
     lines = text.splitlines()
     tests = test_region(lines, "shell")
     funcs = shell_functions(lines)
+    code = shell_code(text)
     over = []
     for name, first, last in funcs:
         if first in tests or name.endswith("self_test"):
             continue
         inner = [(f, e) for _, f, e in funcs if f in range(first + 1, last)]
-        ccn = shell_ccn(lines, (first, last), inner)
+        ccn = shell_ccn(code, (first, last), inner)
         if ccn > MAX_CCN:
             over.append(f"{path}:{first} {name} (CCN {ccn})")
     return over
@@ -1276,6 +1296,16 @@ def self_test_shell_ccn(t: Tap) -> None:
             "if, elif, while, until, for, ||, && and each case arm count one", *over(SHELL_CCN.format(branches=kinds)))
     quoted = "echo '&& && && && && && && && && &&' \"|| || || || || || || || || ||\" # && && && && && && && && && &&"
     t.check(over(SHELL_CCN.format(branches=quoted)) == [], "&& and || in quotes or a comment are not counted")
+    spanning = "awk '\n    " + ten + "\n  ' f\n  echo \"\n    " + ten + "\n  \""
+    t.check(over(SHELL_CCN.format(branches=spanning)) == [], "&& in a quote that spans lines, as an awk program, is not counted",
+            *over(SHELL_CCN.format(branches=spanning)))
+    heredoc = "cat <<EOF && a\n  don't\nEOF\n  " + ten
+    t.check(over(SHELL_CCN.format(branches=heredoc)) == ["s.sh:2 busy (CCN 12)"],
+            "a heredoc's body is text, an apostrophe in it opens no quote, and its opening line is code",
+            *over(SHELL_CCN.format(branches=heredoc)))
+    apostrophes = "# don't\n  echo it\\'s\n  " + ten
+    t.check(over(SHELL_CCN.format(branches=apostrophes)) == ["s.sh:2 busy (CCN 11)"],
+            "an apostrophe in a comment or escaped opens no quote", *over(SHELL_CCN.format(branches=apostrophes)))
     nested = "inner() {\n    " + ten + "\n  }\n  a && b"
     t.check(over(SHELL_CCN.format(branches=nested)) == ["s.sh:3 inner (CCN 11)"],
             "a nested function counts its own lines, and its outer function leaves them out", *over(SHELL_CCN.format(branches=nested)))

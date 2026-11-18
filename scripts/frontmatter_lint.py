@@ -72,29 +72,50 @@ def block(text: str):
 
 def lint(item: dict) -> list[str]:
     """Every problem in one census item, as a list of strings."""
-    path = pathlib.Path(item["path"])
     where = f"{item['scope']}:{item['kind']}:{item['name']}"
-    text, why = block(path.read_text(encoding="utf-8", errors="replace"))
+    fm, why = parsed(pathlib.Path(item["path"]))
     if why:
         return [f"{where} — {why}"]
+    fields = [f"{where}:{key} — {p}" for key in required(item)
+              if (p := field_problem(fm, key))]
+    return fields + name_problems(where, fm, item)
+
+
+def parsed(path: pathlib.Path):
+    """The frontmatter as a mapping, or None with the reason it is not one."""
+    text, why = block(path.read_text(encoding="utf-8", errors="replace"))
+    if why:
+        return None, why
     try:
         fm = yaml.load(text, Loader=StrictLoader)
     except yaml.YAMLError as e:
-        return [f"{where} — the frontmatter is not strict YAML: {str(e).splitlines()[0]}"]
+        return None, f"the frontmatter is not strict YAML: {str(e).splitlines()[0]}"
     if not isinstance(fm, dict):
-        return [f"{where} — the frontmatter is {type(fm).__name__}, not a mapping"]
+        return None, f"the frontmatter is {type(fm).__name__}, not a mapping"
+    return fm, None
 
-    out = []
-    for key in list(REQUIRED) + (["name"] if item["kind"] == "skill" else []):
-        if key not in fm:
-            out.append(f"{where}:{key} — missing")
-        elif not isinstance(fm[key], str):
-            out.append(f"{where}:{key} — parsed as {type(fm[key]).__name__}, not a string; quote it")
-        elif not fm[key].strip():
-            out.append(f"{where}:{key} — empty")
-    if item["kind"] == "skill" and isinstance(fm.get("name"), str) and fm["name"] != item["name"]:
-        out.append(f"{where}:name — {fm['name']!r} does not match its directory {item['name']!r}")
-    return out
+
+def required(item: dict) -> list[str]:
+    return list(REQUIRED) + (["name"] if item["kind"] == "skill" else [])
+
+
+def field_problem(fm: dict, key: str) -> str | None:
+    """What is wrong with one required key, None when nothing is."""
+    if key not in fm:
+        return "missing"
+    if not isinstance(fm[key], str):
+        return f"parsed as {type(fm[key]).__name__}, not a string; quote it"
+    if not fm[key].strip():
+        return "empty"
+    return None
+
+
+def name_problems(where: str, fm: dict, item: dict) -> list[str]:
+    """A skill's name: must be its directory's."""
+    name = fm.get("name")
+    if item["kind"] != "skill" or not isinstance(name, str) or name == item["name"]:
+        return []
+    return [f"{where}:name — {name!r} does not match its directory {item['name']!r}"]
 
 
 def items_under(root: pathlib.Path, scope: str) -> list[dict]:
@@ -142,6 +163,8 @@ def self_test() -> int:
         check("a complete skill is clean", [],
               problems("skills/s/SKILL.md", '---\nname: s\ndescription: d\nargument-hint: "[x]"\n---\n'))
         check("a command is not asked for a name", [], problems("commands/noname.md", good))
+        check("a command's own name: need not match its file", [],
+              problems("commands/named.md", '---\nname: other\ndescription: d\nargument-hint: "x"\n---\n'))
 
         # One file per rule, breaking that rule and nothing else.
         def first(rel, body):

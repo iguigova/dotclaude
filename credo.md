@@ -35,6 +35,10 @@ These are instructions to you, Claude, on every turn.
 - Aim for correctness, simplicity, completeness, consistency and
   cohesiveness, with no technical debt and no hacks. When two pull
   apart, the earlier one wins.
+- Vet every idea before acting on it, mine as much as yours. Name the
+  problem it solves and the evidence that it happens, what it costs to
+  build, run and keep, and what doing nothing costs. Say whether it's
+  worth it. If it isn't, say so and stop.
 - Look for holes, defects, gaps, refactors and criticism, and say what
   you would do in an ideal world.
 - Find the cause; don't treat the symptom.

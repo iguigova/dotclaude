@@ -348,30 +348,53 @@ note_id_key() {  # <open queue> -> "<id>\t<key>" per open sweep note
 # proves nothing and stays open. An item still noted, skipped or failed
 # keeps its note.
 stale_notes() {  # <outcome records> <open queue> -> close records
-  local v c k n r id key rest kind
-  local -A now=()
+  local id key c
   local -a scanned=()
-  while IFS="$TAB" read -r v c k n r; do
-    [[ -n "$v" ]] && now[$(note_key "$c" "$k" "$n")]="$v$TAB$r"
-  done <<<"$1"
   while IFS= read -r c; do scanned+=("${c#"$ROOT"/}"); done < <(clones "$ROOT")
   while IFS="$TAB" read -r id key; do
     [[ -n "$id" ]] || continue
-    for c in "${scanned[@]}"; do
-      rest=${key#"sweep:$c/"}
-      [[ "$rest" != "$key" ]] || continue
-      kind=${rest%%/*}
-      [[ "$kind" =~ ^(branch|worktree|stash)$ ]] || continue
-      v=${now[$key]:-}
-      case "${v%%"$TAB"*}" in
-        "")                r="no longer in $c" ;;
-        keep|delete|deleted) r="${v%%"$TAB"*}: ${v#*"$TAB"}" ;;
-        *)                 continue 2 ;;
-      esac
-      printf 'close\t%s\t%s\t%s\tnote %s: %s\n' "$c" "$kind" "${rest#*/}" "$id" "$r"
-      continue 2
-    done
+    c=$(clone_of "$key" "${scanned[@]}") || continue
+    stale_close "$1" "$id" "$key" "$c"
   done < <(note_id_key "$2")
+}
+
+# The scanned clone a note's key names a branch, worktree or stash of.
+clone_of() {  # <key> <clone…> -> clone; exit 1 for none
+  local key=$1 c rest; shift
+  for c in "$@"; do
+    rest=${key#"sweep:$c/"}
+    [[ "$rest" != "$key" ]] || continue
+    [[ "${rest%%/*}" =~ ^(branch|worktree|stash)$ ]] || continue
+    printf '%s\n' "$c"; return 0
+  done
+  return 1
+}
+
+# The close record for a note whose item is gone, kept or deleted; nothing
+# for one still noted, skipped or failed.
+stale_close() {  # <outcome records> <id> <key> <clone>
+  local id=$2 key=$3 c=$4 rest kind v r
+  rest=${key#"sweep:$c/"}
+  kind=${rest%%/*}
+  v=$(outcome_of "$1" "$key")
+  case "${v%%"$TAB"*}" in
+    "")                  r="no longer in $c" ;;
+    keep|delete|deleted) r="${v%%"$TAB"*}: ${v#*"$TAB"}" ;;
+    *)                   return 0 ;;  # mutation: equivalent — stale_notes is read only through its output, never its status
+  esac
+  printf 'close\t%s\t%s\t%s\tnote %s: %s\n' "$c" "$kind" "${rest#*/}" "$id" "$r"
+}
+
+# The last outcome this run had for the item a note key names, as
+# "<verdict>\t<reason>", or nothing.
+outcome_of() {  # <outcome records> <key> -> verdict and reason
+  local v c k n r hit=""
+  while IFS="$TAB" read -r v c k n r; do
+    [[ -n "$v" ]] || continue
+    [[ "$(note_key "$c" "$k" "$n")" == "$2" ]] || continue
+    hit="$v$TAB$r"
+  done <<<"$1"
+  printf '%s' "$hit"
 }
 
 act() {  # <verdict> <clone> <kind> <name> <target> -> outcome
@@ -389,32 +412,67 @@ open_queue() {
 }
 
 apply() {  # <records> -> outcome records, and one journal entry
-  local queue v c k n r t out outcomes="" stale id closed=0
+  local queue outcomes stale
   local -a bullets=() notes=() closes=()
   queue=$(open_queue)
+  outcomes=$(apply_each "$1" "$queue")
+  stale=$(stale_notes "$outcomes" "$queue")
+  [[ -z "$outcomes" ]] || printf '%s\n' "$outcomes"
+  closed_records "$stale"
+  mapfile -t bullets < <(journal_args deleted "$outcomes")
+  mapfile -t notes < <(journal_args noted "$outcomes")
+  mapfile -t closes < <(journal_args close "$stale")
+  if (( ${#bullets[@]} + ${#notes[@]} + ${#closes[@]} == 0 )); then
+    return 0  # mutation: equivalent — main reads apply's output, never its status
+  fi
+  (( ${#bullets[@]} )) || bullets=(-b "$(nothing_deleted "$outcomes" "$stale")")
+  (cd "$ROOT" && "$SCRIPTS_DIR/journal.sh" -t "chore: git sweep" \
+     "${bullets[@]}" "${notes[@]}" "${closes[@]}" >&2)
+}
+
+# Each record acted on, as "<outcome>\t<clone>\t<kind>\t<name>\t<reason>". An
+# item to note that the open queue already holds is noted-before.
+apply_each() {  # <records> <open queue> -> outcome records
+  local v c k n r t out
   while IFS="$TAB" read -r v c k n r t; do
     [[ -n "$v" ]] || continue
     out=$(act "$v" "$c" "$k" "$n" "$t")
-    if [[ "$out" == note ]]; then
-      if already_noted "$(note_key "$c" "$k" "$n")" "$queue"
-      then out=noted-before
-      else out=noted; notes+=(-n "$(note_text "$c" "$k" "$n" "$r")"); fi
-    fi
-    [[ "$out" == deleted ]] && bullets+=(-b "Deleted $k $n in $c: $r")
-    outcomes+=$(printf '%s\t%s\t%s\t%s\t%s' "$out" "$c" "$k" "$n" "$r")$'\n'
+    [[ "$out" == note ]] && out=$(noted_as "$c" "$k" "$n" "$2")
+    printf '%s\t%s\t%s\t%s\t%s\n' "$out" "$c" "$k" "$n" "$r"
   done <<<"$1"
-  stale=$(stale_notes "$outcomes" "$queue")
+}
+
+nothing_deleted() {  # <outcome records> <close records> -> the bullet for a run that deleted nothing
+  printf 'Deleted nothing; opened %s notes, closed %s' \
+    "$(grep -c "^noted$TAB" <<<"$1")" "$(grep -c "^close$TAB" <<<"$2")"
+}
+
+noted_as() {  # <clone> <kind> <name> <open queue> -> noted or noted-before
+  if already_noted "$(note_key "$1" "$2" "$3")" "$4"; then echo noted-before; else echo noted; fi
+}
+
+closed_records() {  # <close records> -> one closed outcome record each
+  local v c k n r
   while IFS="$TAB" read -r v c k n r; do
     [[ -n "$v" ]] || continue
-    id=${r#note }; id=${id%%:*}
-    closes+=(--placed "$id: - — ${r#*: }"); closed=$((closed + 1))
-    outcomes+=$(printf 'closed\t%s\t%s\t%s\t%s' "$c" "$k" "$n" "$r")$'\n'
-  done <<<"$stale"
-  printf '%s' "$outcomes"
-  (( ${#bullets[@]} + ${#notes[@]} + ${#closes[@]} )) || return 0
-  (( ${#bullets[@]} )) || bullets=(-b "Deleted nothing; opened ${#notes[@]} notes, closed $closed")
-  (cd "$ROOT" && "$SCRIPTS_DIR/journal.sh" -t "chore: git sweep" \
-     "${bullets[@]}" "${notes[@]}" "${closes[@]}" >&2)
+    printf 'closed\t%s\t%s\t%s\t%s\n' "$c" "$k" "$n" "$r"
+  done <<<"$1"
+}
+
+# journal.sh's arguments for the records of one KIND, a flag and its value on a
+# line each, for mapfile: a deleted outcome is a bullet, a noted one a note, and
+# a close record closes its note.
+journal_args() {  # <deleted|noted|close> <records>
+  local v c k n r id
+  while IFS="$TAB" read -r v c k n r; do
+    [[ "$v" == "$1" ]] || continue
+    case "$1" in
+      deleted) printf -- '-b\nDeleted %s %s in %s: %s\n' "$k" "$n" "$c" "$r" ;;
+      noted)   printf -- '-n\n%s\n' "$(note_text "$c" "$k" "$n" "$r")" ;;
+      close)   id=${r#note }; id=${id%%:*}
+               printf -- '--placed\n%s: - — %s\n' "$id" "${r#*: }" ;;
+    esac
+  done <<<"$2"
 }
 
 # ---------------------------------------------------------------- main
@@ -679,6 +737,10 @@ EOF
     bash -c "! grep -qE 'sweep:repo/(branch/(nopr|closed)|stash/)' <<<'$open'"
   check "the still-noted item's note is open" grep -q 'sweep:repo/branch/after' <<<"$open"
   check "the foreign note is open" grep -q 'sweep:elsewhere/branch/x' <<<"$open"
+  tap_is "a run that deleted nothing counts each note it opened and closed once" \
+    "$(nothing_deleted "noted${TAB}repo${TAB}branch${TAB}x${TAB}r
+noted-before${TAB}repo${TAB}branch${TAB}y${TAB}r" "close${TAB}repo${TAB}branch${TAB}z${TAB}note abcd: gone")" \
+    "Deleted nothing; opened 1 notes, closed 1"
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; tap_end; }

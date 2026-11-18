@@ -54,35 +54,50 @@ ACCOUNT_BOUND=(.credentials.json 'remote-settings.json*' 'policy-limits.json*'
 bound() { local b; for b in "${ACCOUNT_BOUND[@]}"; do [[ "$1" == $b ]] && return 0; done; return 1; }
 
 ca_sync() {  # DIR
-  local dir="$1" shared="$HOME/.claude" rc=0 src name dst
+  local dir="$1" shared="$HOME/.claude" rc=0 src dst
   mkdir -p "$dir" && chmod 700 "$dir" || return 2
   shopt -s dotglob nullglob
-  for src in "$shared"/*; do
-    name=$(basename "$src"); dst="$dir/$name"
-    bound "$name" && continue
-    if [[ -L "$dst" ]]; then
-      [[ "$(readlink "$dst")" == "$src" ]] && continue
-      echo "claude_account: $dst links elsewhere ($(readlink "$dst")); left as it is" >&2; rc=1
-    elif [[ -e "$dst" ]]; then
-      echo "claude_account: $dst is a real entry, not a link to $src; left as it is" >&2; rc=1
-    else
-      ln -s "$src" "$dst"
-    fi
-  done
-  for dst in "$dir"/*; do
-    name=$(basename "$dst")
-    if [[ -L "$dst" ]]; then
-      [[ ! -e "$dst" && "$(readlink "$dst")" == "$shared"/* ]] && rm -- "$dst"
-    elif [[ ! -e "$shared/$name" && "$name" != .claude.json ]] && ! bound "$name"; then
-      echo "claude_account: $dst is only in this account; move it into $shared to share it, or add it to ACCOUNT_BOUND" >&2; rc=1
-    fi
-  done
+  for src in "$shared"/*; do ca_link "$src" "$dir/$(basename "$src")" || rc=1; done
+  for dst in "$dir"/*; do ca_prune "$shared" "$dst" || rc=1; done
   shopt -u dotglob nullglob
+  ca_mirror_mcp "$dir" || rc=1
+  return $rc
+}
 
-  [[ -f "$HOME/.claude.json" ]] || return $rc
+# Links DST to the shared entry SRC unless SRC is account-bound. Anything else
+# already at DST is left as it is and reported, exit 1.
+ca_link() {  # SRC DST
+  local src=$1 dst=$2
+  bound "$(basename "$src")" && return 0
+  if [[ -L "$dst" ]]; then
+    [[ "$(readlink "$dst")" == "$src" ]] && return 0
+    echo "claude_account: $dst links elsewhere ($(readlink "$dst")); left as it is" >&2; return 1
+  fi
+  [[ -e "$dst" ]] || { ln -s "$src" "$dst"; return; }
+  echo "claude_account: $dst is a real entry, not a link to $src; left as it is" >&2; return 1
+}
+
+# Removes DST, an entry of the account, when it links into SHARED and its target
+# is gone. A real entry only the account has is reported, exit 1, unless it is
+# the account's .claude.json or account-bound.
+ca_prune() {  # SHARED DST
+  local shared=$1 dst=$2 name
+  name=$(basename "$dst")
+  if [[ -L "$dst" ]]; then
+    [[ ! -e "$dst" && "$(readlink "$dst")" == "$shared"/* ]] && rm -- "$dst"
+    return 0
+  fi
+  [[ -e "$shared/$name" || "$name" == .claude.json ]] && return 0
+  bound "$name" && return 0
+  echo "claude_account: $dst is only in this account; move it into $shared to share it, or add it to ACCOUNT_BOUND" >&2; return 1
+}
+
+ca_mirror_mcp() {  # DIR
+  local dir=$1
+  [[ -f "$HOME/.claude.json" ]] || return 0
   # Written only when the mirror differs, so a running session's own writes to
   # the file are not raced on every launch.
-  python3 - "$HOME/.claude.json" "$dir/.claude.json" <<'PY' || rc=1
+  python3 - "$HOME/.claude.json" "$dir/.claude.json" <<'PY'
 import json, os, sys
 src_path, dst_path = sys.argv[1], sys.argv[2]
 want = json.load(open(src_path)).get("mcpServers", {})
@@ -93,7 +108,6 @@ if dst.get("mcpServers", {}) != want:
     with open(tmp, "w") as f: json.dump(dst, f, indent=2)
     os.chmod(tmp, 0o600); os.replace(tmp, dst_path)
 PY
-  return $rc
 }
 
 ca_real() { realpath -m -- "$1"; }
@@ -188,11 +202,22 @@ J
   tap_is "an entry only the account has is reported" "$orc" 1
   tap_is "and named on stderr" "$(grep -q 'agents is only in this account' "$d/err" && echo 0 || echo 1)" 0
   tap_is "and the account's own entry is kept" "$([[ -d $acct/agents ]] && echo present || echo absent)" present
+  rmdir "$acct/agents"
   mkdir "$acct/sessions"; touch "$acct/policy-limits.json.signature.json"
-  HOME="$d/home" "$self" sync "$acct" 2>"$d/err" >/dev/null
+  HOME="$d/home" "$self" sync "$acct" 2>"$d/err" >/dev/null; local brc=$?
+  tap_is "account-bound entries alone leave a sync clean" "$brc" 0
   tap_is "an account-bound entry is not reported" "$(grep -q 'sessions' "$d/err" && echo 0 || echo 1)" 1
   tap_is "nor one a bound pattern matches" "$(grep -q 'policy-limits' "$d/err" && echo 0 || echo 1)" 1
-  rmdir "$acct/agents" "$acct/sessions"; rm "$acct/policy-limits.json.signature.json"
+  rmdir "$acct/sessions"; rm "$acct/policy-limits.json.signature.json"
+
+  ln -sfn /elsewhere "$acct/CLAUDE.md"
+  tap_is "a link to somewhere else is a conflict" "$(sync)" 1
+  tap_is "and the link is kept" "$(readlink "$acct/CLAUDE.md")" /elsewhere
+  ln -sfn "$d/home/.claude/CLAUDE.md" "$acct/CLAUDE.md"
+
+  mv "$d/home/.claude.json" "$d/home.json"
+  tap_is "a home with no .claude.json syncs clean, with nothing to mirror" "$(sync)" 0
+  mv "$d/home.json" "$d/home/.claude.json"
 
   rm -r "$d/home/.claude/skills"
   sync >/dev/null
@@ -212,7 +237,7 @@ J
   tap_is "dir prints nothing when a config dir is already set" "$out" ""
 
   mkdir -p "$d/blank/.claude"; echo '  ' > "$d/blank/.claude/config_dir"
-  out=$(cd "$d/blank" && HOME="$d/home" "$self" dir 2>"$d/err"); local brc=$?
+  out=$(cd "$d/blank" && HOME="$d/home" "$self" dir 2>"$d/err"); brc=$?
   tap_is "a blank config_dir is refused" "$brc:$out" "1:"
   tap_is "and says it is blank" "$(grep -q 'is blank' "$d/err" && echo 0 || echo 1)" 0
 

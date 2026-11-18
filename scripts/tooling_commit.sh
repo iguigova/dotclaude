@@ -6,6 +6,7 @@
 #
 # Usage:
 #   tooling_commit.sh -m "<message>" -- <path>…
+#   tooling_commit.sh -m "<message>" --patch <file> -- <path>…
 #   tooling_commit.sh --help
 #   tooling_commit.sh --self-test
 #
@@ -30,9 +31,19 @@
 # (--only), so another session's staged or dirty work is left as it was. A
 # deleted path is committed as its deletion.
 #
+# With --patch, the commit is HEAD plus that patch rather than the named paths
+# as they are now, so one session's hunks commit alone from a file another
+# session is also editing. The patch is `git diff HEAD -- <path>` with the other
+# hunks cut out; -U0 output, which keeps hunks apart, is accepted. It must touch
+# exactly the named paths, be present in the working tree, and apply to the
+# index. The gate runs on HEAD plus the patch, the commit is built in a scratch
+# index, and the patch is then applied to the real index, so the working tree is
+# never touched and whatever another session staged stays staged.
+#
 # A commit that changes a skill's or command's description, or its trigger cases,
 # also passes those cases through skill_trigger_test.py, whose header states them;
-# a description with no cases is refused.
+# a description with no cases is refused. The cases read the named files on disk,
+# with --patch too.
 #
 # The message's subject, its first line, takes one of two forms: Conventional
 # Commits, `type(scope)!: summary` with the scope and the `!` optional and the
@@ -54,8 +65,9 @@ TYPES=(build chore ci docs feat fix perf refactor revert style test)
 UNGATED=.claude/session_history.md
 SELF=$(realpath -- "${BASH_SOURCE[0]}")
 
-die()   { echo "tooling_commit.sh: $*" >&2; exit 1; }
-usage() { echo "usage: tooling_commit.sh -m <message> -- <path>…" >&2; exit 2; }
+warn()  { echo "tooling_commit.sh: $*" >&2; }
+die()   { warn "$@"; exit 1; }
+usage() { echo "usage: tooling_commit.sh -m <message> [--patch <file>] -- <path>…" >&2; exit 2; }
 
 # ---------------------------------------------------------------- resolve
 
@@ -123,6 +135,21 @@ has_changes() {  # TOP REL…
     || die "nothing changed in the named paths in $top"
 }
 
+# patch_fits TOP PATCH REL… — PATCH touches exactly the named paths, is in the
+# working tree, and applies to the index, so the commit can neither carry text
+# that is not on disk nor leave the index reverting it.
+patch_fits() {
+  local top="$1" patch="$2" got want; shift 2
+  got=$(git -C "$top" apply --numstat -- "$patch" | cut -f3 | sort -u) \
+    || die "$patch is not a patch git can read"
+  want=$(printf '%s\n' "$@" | sort -u)
+  [[ "$got" == "$want" ]] || die "$patch touches $(paste -sd' ' <<<"$got"), not the named paths"
+  git -C "$top" apply --check --reverse --unidiff-zero -- "$patch" 2>/dev/null \
+    || die "$patch is not in the working tree of $top"
+  git -C "$top" apply --check --cached --unidiff-zero -- "$patch" 2>/dev/null \
+    || die "$patch does not apply to the index of $top; is part of it staged already?"
+}
+
 # gated REL… — 0 unless every path is the session history.
 gated() {
   local p
@@ -130,18 +157,20 @@ gated() {
   return 1
 }
 
-# gate_tree SCRATCH TOP REL… — clone TOP's HEAD into SCRATCH/tree and lay the
-# named paths over it as they are now, a deleted one deleted. Each top-level
-# entry TOP's .gitignore ignores (nested repos, venvs, secrets) is linked in:
-# it is the environment the tracked scripts run in, not anyone's work. An
-# untracked entry that is not ignored stays out, since it may be.
-gate_tree() {
-  local tree="$1/tree" top="$2" p e; shift 2
-  git clone -q --shared "$top" "$tree" 2>/dev/null || die "could not clone $top to gate it"
+# link_ignored TREE TOP — link in each top-level entry TOP's .gitignore ignores
+# (nested repos, venvs, secrets): it is the environment the tracked scripts run
+# in, not anyone's work. An untracked entry that is not ignored stays out, since
+# it may be.
+link_ignored() {
+  local e
   while IFS= read -r e; do
     e=${e%/}
-    [[ "$e" == */* || -e "$tree/$e" ]] || ln -s -- "$top/$e" "$tree/$e"
-  done < <(git -C "$top" ls-files --others --ignored --exclude-standard --directory)
+    [[ "$e" == */* || -e "$1/$e" ]] || ln -s -- "$2/$e" "$1/$e"
+  done < <(git -C "$2" ls-files --others --ignored --exclude-standard --directory)
+}
+
+lay_paths() {  # TREE TOP REL… — the named paths as they are now, a deleted one deleted
+  local tree="$1" top="$2" p; shift 2
   for p in "$@"; do
     rm -rf -- "${tree:?}/$p"
     [[ -e "$top/$p" || -L "$top/$p" ]] || continue
@@ -149,12 +178,25 @@ gate_tree() {
   done
 }
 
-run_gates() {  # TOP REL…
+lay_patch() {  # TREE PATCH
+  git -C "$1" apply --unidiff-zero -- "$2" 2>/dev/null || { warn "$2 does not apply to HEAD"; return 1; }
+}
+
+# gate_tree SCRATCH TOP PATCH REL… — clone TOP's HEAD into SCRATCH/tree and lay
+# over it the change to commit: PATCH when one is given, else the named paths.
+gate_tree() {
+  local tree="$1/tree" top="$2" patch="$3"; shift 3
+  git clone -q --shared "$top" "$tree" 2>/dev/null || die "could not clone $top to gate it"
+  link_ignored "$tree" "$top"
+  if [[ -n "$patch" ]]; then lay_patch "$tree" "$patch"; else lay_paths "$tree" "$top" "$@"; fi
+}
+
+run_gates() {  # TOP PATCH REL…
   local -a gates; local g out scratch st=0
   mapfile -t gates < <(gates_of "$1")
   [[ ${#gates[@]} -gt 0 ]] || die "$1 carries no selftest, so nothing gates the commit"
-  scratch=$(mktemp -d)
-  gate_tree "$scratch" "$@"
+  scratch=$(mktemp -d) || die "no scratch folder to gate in"
+  gate_tree "$scratch" "$@" || { rm -rf "$scratch"; die "nothing committed"; }
   for g in "${gates[@]}"; do
     g="$scratch/tree/${g#"$1"/}"
     # MEM_PROJECT_ROOT (memory_lib.sh) is the repo, so a gate finds its memory store.
@@ -195,12 +237,35 @@ commit() {  # TOP MESSAGE REL…
   git -C "$top" rev-parse --short HEAD
 }
 
-# parse_args ARG… — set MSG and PATHS from `-m <message> -- <path>…`.
+# scratch_commit TOP MESSAGE PATCH INDEX — commit HEAD plus PATCH through the
+# scratch INDEX, so the real index and the working tree are not read.
+scratch_commit() {
+  GIT_INDEX_FILE="$4" git -C "$1" read-tree HEAD \
+    && GIT_INDEX_FILE="$4" git -C "$1" apply --cached --unidiff-zero -- "$3" \
+    && GIT_INDEX_FILE="$4" git -C "$1" commit -q -F - <<<"$2"
+}
+
+# commit_patch TOP MESSAGE PATCH — then apply PATCH to the real index too, so
+# it shows what another session staged and not the commit reversed.
+commit_patch() {
+  local top="$1" dir st=0
+  dir=$(mktemp -d) || die "no scratch folder for the index"
+  scratch_commit "$top" "$2" "$3" "$dir/index" || st=1
+  rm -rf "$dir"
+  [[ "$st" -eq 0 ]] || die "could not commit $3 onto HEAD in $top; nothing committed"
+  git -C "$top" apply --cached --unidiff-zero -- "$3" \
+    || die "committed, but the index of $top did not take $3; it shows the commit reversed as staged"
+  git -C "$top" rev-parse --short HEAD
+}
+
+# parse_args ARG… — set MSG, PATCH and PATHS from
+# `-m <message> [--patch <file>] -- <path>…`.
 parse_args() {
-  MSG=""
+  MSG="" PATCH=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -m) MSG="${2-}"; shift 2 || usage ;;
+      --patch) [[ -f "${2-}" ]] || usage; PATCH=$(realpath -- "$2"); shift 2 ;;
       --) shift; break ;;
       *)  usage ;;
     esac
@@ -210,9 +275,9 @@ parse_args() {
 }
 
 main() {
-  local MSG; local -a PATHS
+  local MSG PATCH; local -a PATHS
   parse_args "$@"
-  local msg=$MSG
+  local msg=$MSG patch=$PATCH
   subject_ok "$msg"
 
   local -a abs=() rel=(); local p top
@@ -223,9 +288,10 @@ main() {
   permitted "$top"
   all_known "$top" "${rel[@]}"
   has_changes "$top" "${rel[@]}"
-  if gated "${rel[@]}"; then run_gates "$top" "${rel[@]}"; run_trigger_cases "${abs[@]}"
-  else echo "tooling_commit.sh: the session history alone; no gate reads it" >&2; fi
-  commit "$top" "$msg" "${rel[@]}"
+  [[ -z "$patch" ]] || patch_fits "$top" "$patch" "${rel[@]}"
+  if gated "${rel[@]}"; then run_gates "$top" "$patch" "${rel[@]}"; run_trigger_cases "${abs[@]}"
+  else warn "the session history alone; no gate reads it"; fi
+  if [[ -n "$patch" ]]; then commit_patch "$top" "$msg" "$patch"; else commit "$top" "$msg" "${rel[@]}"; fi
   if gated "${rel[@]}"; then warn_export "$top"; fi
 }
 
@@ -406,6 +472,57 @@ e.txt"
 
   "$SELF" -- "$r/p.txt" >/dev/null 2>&1
   tap_is "no message is a usage error" "$?" "2"
+  "$SELF" -m "chore: x" --patch "$tmp/absent.patch" -- "$r/p.txt" >/dev/null 2>&1
+  tap_is "a --patch that is no file is a usage error" "$?" "2"
+
+  # Red when scripts/RED exists or f.txt holds another session's line.
+  local pr="$tmp/patch"; mkrepo "$pr" scripts/selftest.sh
+  # shellcheck disable=SC2016  # the gate's own text, expanded when it runs
+  printf '#!/usr/bin/env bash\nd=$(dirname "$0")\n[[ ! -e "$d/RED" ]] && ! grep -q theirs "$d/../f.txt"\n' \
+    > "$pr/scripts/selftest.sh"
+  seq 1 30 > "$pr/f.txt"; git -C "$pr" add -A; git -C "$pr" commit -qm f
+  sed -i '28s/.*/theirs/' "$pr/f.txt"; git -C "$pr" add f.txt
+  sed -i '2s/.*/mine/' "$pr/f.txt"; git -C "$pr" diff > "$tmp/mine.patch"
+  out=$(tc -m "chore: mine" --patch "$tmp/mine.patch" -- "$pr/f.txt")
+  tap_is "a patch commits its hunk alone, gated without another session's" \
+    "$(git -C "$pr" show HEAD:f.txt | sed -n '2p;28p' | paste -sd' ')" "mine 28"
+  tap_is "and prints the sha of the commit it made" "$out" "$(head_of "$pr")"
+  tap_is "another session's staged hunk stays staged" \
+    "$(git -C "$pr" diff --cached -U0 | grep '^[-+][^-+]' | paste -sd' ')" "-28 +theirs"
+  tap_is "and the working tree is untouched" "$(sed -n '2p;28p' "$pr/f.txt" | paste -sd' ')" "mine theirs"
+
+  git -C "$pr" reset -q -- f.txt; sed -i '5s/.*/five/' "$pr/f.txt"
+  git -C "$pr" diff -U0 HEAD -- f.txt | awk '/^@@/ { hunk = 1; keep = /^@@ -5 / } !hunk || keep' > "$tmp/five.patch"
+  tc -m "chore: five" --patch "$tmp/five.patch" -- "$pr/f.txt" >/dev/null
+  tap_is "a -U0 patch beside an unstaged hunk leaves the index at the new HEAD" "$(git -C "$pr" diff --cached --stat)" ""
+  tap_is "and only that hunk uncommitted" "$(git -C "$pr" diff -U0 HEAD | grep '^[-+][^-+]' | paste -sd' ')" \
+    "-28 +theirs"
+
+  h=$(head_of "$pr")
+  out=$(tc -m "chore: again" --patch "$tmp/five.patch" -- "$pr/f.txt")
+  tap_is "a patch the index already holds commits nothing" "$(head_of "$pr")" "$h"
+  tap_is "and says it does not apply to the index" "$(grep -c 'does not apply to the index' <<<"$out")" "1"
+  sed 's/^+five$/+six/' "$tmp/five.patch" > "$tmp/six.patch"
+  out=$(tc -m "chore: six" --patch "$tmp/six.patch" -- "$pr/f.txt")
+  tap_is "a patch not in the working tree is refused" "$(grep -c 'is not in the working tree' <<<"$out")" "1"
+  echo more >> "$pr/base.txt"
+  out=$(tc -m "chore: base" --patch "$tmp/five.patch" -- "$pr/base.txt")
+  tap_is "a patch touching paths other than the named ones is refused" \
+    "$(grep -c 'touches f.txt, not the named paths' <<<"$out")" "1"
+  git -C "$pr" checkout -q -- base.txt
+  echo red > "$pr/scripts/RED"; git -C "$pr" add scripts/RED
+  git -C "$pr" diff --cached -- scripts/RED > "$tmp/red.patch"; git -C "$pr" reset -q -- scripts/RED
+  out=$(tc -m "chore: red" --patch "$tmp/red.patch" -- "$pr/scripts/RED")
+  tap_is "a red patch commits nothing" "$(head_of "$pr")" "$h"
+  tap_is "and says its gate was red" "$(grep -c 'is red; nothing committed' <<<"$out")" "1"
+  rm "$pr/scripts/RED"
+  sed -i '10s/.*/staged/' "$pr/f.txt"; git -C "$pr" add f.txt
+  sed -i '10s/.*/onto/' "$pr/f.txt"; git -C "$pr" diff > "$tmp/onto.patch"
+  out=$(tc -m "chore: onto" --patch "$tmp/onto.patch" -- "$pr/f.txt")
+  tap_is "a patch built on another session's staged hunk commits nothing" "$(head_of "$pr")" "$h"
+  tap_is "and says it does not apply to HEAD" "$(grep -c 'does not apply to HEAD' <<<"$out")" "1"
+  tap_is "and stops before any gate runs on HEAD without it" "$(tail -1 <<<"$out")" \
+    "tooling_commit.sh: nothing committed"
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; tap_end; }

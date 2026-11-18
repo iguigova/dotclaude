@@ -205,54 +205,103 @@ mc_all_report() {
   fi
 }
 
+# A line of the last report is "unchecked since DATE: NAME in ROOT — REASON". A
+# name holds no space, and the root runs to the first " — ", wherever else a
+# reason has one. A line of a store's run is "  unchecked  NAME — REASON".
+RE_PREV='^unchecked since ([0-9-]+): ([a-z0-9-]+) in (.+)$'
+RE_RUN='^  unchecked  ([a-z0-9-]+) — (.*)$'
+
 # mc_all — one run of this script per store, each told its project. Exits
 # non-zero when any run did. A fact left unchecked is reported with the night it
 # was first left unchecked, carried from the last report, so one that stays
 # unchecked night after night reads as such; a store skipped tonight keeps last
 # night's lines, since skipping it learned nothing.
 mc_all() {
-  local mem folder root st out line rc=0 problems="" args=()
-  local -A since=() kept=()
+  local folder pfile problems="" rc=0 args=()
   [[ "$DRY" -eq 1 ]] && args+=(--dry-run)
-  # A line is "unchecked since DATE: NAME in ROOT — REASON". A name holds no
-  # space, and the root runs to the first " — ", wherever else a reason has one.
-  local re_prev='^unchecked since ([0-9-]+): ([a-z0-9-]+) in (.+)$'
-  local re_run='^  unchecked  ([a-z0-9-]+) — (.*)$'
-  if [[ -f "$ALL_REPORT" ]]; then
-    while IFS= read -r line; do
-      [[ "$line" =~ $re_prev ]] || continue
-      root=${BASH_REMATCH[3]%% — *}
-      since["$root/${BASH_REMATCH[2]}"]=${BASH_REMATCH[1]}
-      kept["$(mem_project_folder "$root")"]+="$line"$'\n'
-    done < "$ALL_REPORT"
-  fi
+  pfile=$(mktemp) || return 1
   for folder in "$HOME"/.claude/projects/*; do
-    # A folder linked into a volume that is not mounted holds no store to see.
-    if [[ -L "$folder" && ! -e "$folder" ]]; then
-      echo "memory_check: $folder links to $(readlink "$folder"), which is not there; skipped"
-      problems+="skipped $folder — its store is not mounted"$'\n'"${kept[$folder]:-}"
-      continue
-    fi
-    mem="$folder/memory/MEMORY.md"
-    [[ -f "$mem" ]] || continue
-    root=$(mc_root_of "$folder")
-    if [[ -z "$root" ]]; then
-      echo "memory_check: no session in $folder names its project; skipped"
-      problems+="skipped $folder — no session names its project"$'\n'"${kept[$folder]:-}"
-      continue
-    fi
-    echo "== $root"
-    out=$(MEM_PROJECT_ROOT="$root" MEMORY_FILE="$mem" "$SCRIPTS_DIR/memory_check.sh" "${args[@]}" 2>&1)
-    st=$?
-    printf '%s\n' "$out"
-    while IFS= read -r line; do
-      [[ "$line" =~ $re_run ]] || continue
-      problems+="unchecked since ${since["$root/${BASH_REMATCH[1]}"]:-$TODAY}: ${BASH_REMATCH[1]} in $root — ${BASH_REMATCH[2]}"$'\n'
-    done <<<"$out"
-    [[ "$st" -eq 0 ]] || { rc=1; problems+="failed $root — its run exited $st"$'\n'; }
+    mc_all_store "$pfile" "$folder" "${args[@]}" || rc=1
   done
+  # read -d '' stops at the end of the file, keeping its last newline.
+  IFS= read -r -d '' problems < "$pfile"
+  rm -f "$pfile"
   mc_all_report "$problems"
   return $rc
+}
+
+# mc_all_store PROBLEMS FOLDER [ARG…] — checks FOLDER's store with this script,
+# printing its run and appending what it could not do to the file PROBLEMS.
+# Exit 1 when the run did.
+mc_all_store() {
+  local pfile=$1 folder=$2 mem root out st; shift 2
+  # A folder linked into a volume that is not mounted holds no store to see.
+  if [[ -L "$folder" && ! -e "$folder" ]]; then
+    echo "memory_check: $folder links to $(readlink "$folder"), which is not there; skipped"
+    mc_skip "$folder" "its store is not mounted" >> "$pfile"; return 0
+  fi
+  mem="$folder/memory/MEMORY.md"
+  [[ -f "$mem" ]] || return 0
+  root=$(mc_root_of "$folder")
+  if [[ -z "$root" ]]; then
+    echo "memory_check: no session in $folder names its project; skipped"
+    mc_skip "$folder" "no session names its project" >> "$pfile"; return 0
+  fi
+  echo "== $root"
+  out=$(MEM_PROJECT_ROOT="$root" MEMORY_FILE="$mem" "$SCRIPTS_DIR/memory_check.sh" "$@" 2>&1)
+  st=$?
+  printf '%s\n' "$out"
+  mc_unchecked "$root" <<<"$out" >> "$pfile"
+  [[ "$st" -eq 0 ]] && return 0
+  printf 'failed %s — its run exited %s\n' "$root" "$st" >> "$pfile"; return 1
+}
+
+# mc_skip FOLDER REASON — the problem lines of a store skipped tonight: the skip,
+# then the store's lines from the last report.
+mc_skip() {
+  printf 'skipped %s — %s\n' "$1" "$2"
+  [[ -f "$ALL_REPORT" ]] && mc_lines_of "$1" < "$ALL_REPORT"
+}
+
+# mc_lines_of FOLDER — the unchecked lines of a report, on stdin, whose root's
+# store is FOLDER.
+mc_lines_of() {
+  local line
+  while IFS= read -r line; do
+    [[ "$line" =~ $RE_PREV ]] || continue
+    [[ "$(mem_project_folder "${BASH_REMATCH[3]%% — *}")" == "$1" ]] || continue
+    printf '%s\n' "$line"
+  done
+}
+
+# mc_unchecked ROOT — a problem line for each fact a run of ROOT's store, on
+# stdin, left unchecked.
+mc_unchecked() {
+  local line name reason
+  while IFS= read -r line; do
+    [[ "$line" =~ $RE_RUN ]] || continue
+    name=${BASH_REMATCH[1]} reason=${BASH_REMATCH[2]}
+    printf 'unchecked since %s: %s in %s — %s\n' "$(mc_since "$1" "$name")" "$name" "$1" "$reason"
+  done
+}
+
+# mc_since ROOT NAME — the night the last report says NAME in ROOT was first
+# left unchecked, else today.
+mc_since() {
+  local night=""
+  [[ -f "$ALL_REPORT" ]] && night=$(mc_night_of "$1" "$2" < "$ALL_REPORT")
+  printf '%s\n' "${night:-$TODAY}"
+}
+
+# mc_night_of ROOT NAME — the night on the first unchecked line of a report, on
+# stdin, for NAME in ROOT.
+mc_night_of() {
+  local line
+  while IFS= read -r line; do
+    [[ "$line" =~ $RE_PREV ]] || continue
+    [[ "${BASH_REMATCH[3]%% — *}" == "$1" && "${BASH_REMATCH[2]}" == "$2" ]] || continue
+    printf '%s\n' "${BASH_REMATCH[1]}"; break
+  done
 }
 
 # --- The run ----------------------------------------------------------------
@@ -466,7 +515,7 @@ mc_e2e_test() {
 
   # --all finds the store from HOME alone, and its project from a session's cwd.
   local folder; folder="$fx/home/.claude/projects/${fx//[^a-zA-Z0-9]/-}-proj"
-  mkdir -p "$folder/memory" "$fx/home/.claude/projects/-orphan/memory"
+  mkdir -p "$folder/memory" "$fx/home/.claude/projects/-orphan/memory" "$fx/home/.claude/projects/-nomem"
   printf '{"cwd":"%s"}\n' "$fx/proj" > "$folder/s.jsonl"
   echo "# fixtures" > "$folder/memory/MEMORY.md"
   mc_fixture "$folder/memory" allheld 'true'
@@ -479,6 +528,11 @@ mc_e2e_test() {
     'true'
   local all_report="$fx/home/.claude/memory_check.last"
   tap_is "a dry run of --all writes no report" "$([[ ! -f "$all_report" ]] && echo true || echo false)" 'true'
+  mkdir -p "$fx/stub"; printf '#!/usr/bin/env bash\nexit 3\n' > "$fx/stub/memory_check.sh"; chmod +x "$fx/stub/memory_check.sh"
+  tap_is "a store whose run fails fails --all" \
+    "$(DRY=0 ALL_REPORT="$fx/failed.last" SCRIPTS_DIR="$fx/stub" HOME="$fx/home" mc_all >/dev/null 2>&1; echo $?)" 1
+  tap_is "and is reported with its exit" "$(grep -c "^failed $fx/proj — its run exited 3" "$fx/failed.last")" 1
+  tap_is "--all with no room for its notes fails" "$(DRY=1 TMPDIR="$fx/none" HOME="$fx/home" mc_all >/dev/null 2>&1; echo $?)" 1
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
   tap_is "--all reports the store it skipped where a session reads" "$(grep -q 'skipped .*-orphan — no session names its project' "$all_report" 2>/dev/null && echo true || echo false)" \
     'true'
@@ -488,19 +542,27 @@ mc_e2e_test() {
     'true'
 
   ln -s "$fx/unmounted/data" "$fx/home/.claude/projects/-unmounted"
-  HOME="$fx/home" "$self" --all >/dev/null 2>&1
+  HOME="$fx/home" "$self" --all >/dev/null 2>&1; st=$?
+  tap_is "a store skipped as not mounted leaves --all clean" "$st" 0
   tap_is "--all reports a store linked to a volume that is not mounted" "$(grep -q 'skipped .*-unmounted — its store is not mounted' "$all_report" 2>/dev/null && echo true || echo false)" \
     'true'
   rm "$fx/home/.claude/projects/-unmounted"
+  mv "$folder" "$fx/store"; ln -s "$fx/store" "$folder"
+  out=$(HOME="$fx/home" "$self" --all --dry-run 2>&1)
+  tap_is "a store linked to a mounted volume is checked, not skipped" \
+    "$(grep -c 'not there; skipped' <<<"$out"):$(grep -c "^== $fx/proj" <<<"$out")" "0:1"
+  rm "$folder"; mv "$fx/store" "$folder"
 
   mc_fixture "$folder/memory" allwait 'exit 75'
+  mc_fixture "$folder/memory" allwait2 'exit 75'
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
   tap_is "--all reports an unchecked fact from tonight" "$(grep -q "^unchecked since $(date -u +%F): allwait in $fx/proj — its verify got no answer" "$all_report" 2>/dev/null && echo true || echo false)" \
     'true'
-  sed -i 's/^unchecked since [0-9-]*:/unchecked since 2026-01-01:/' "$all_report"
+  sed -i 's/^unchecked since [0-9-]*: allwait in/unchecked since 2026-01-01: allwait in/; s/^unchecked since [0-9-]*: allwait2 in/unchecked since 2026-02-02: allwait2 in/' "$all_report"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
   tap_is "and keeps the night it was first unchecked" "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)" \
     'true'
+  tap_is "each fact of a store keeps its own night" "$(grep -c "^unchecked since 2026-02-02: allwait2 in $fx/proj" "$all_report")" 1
   sed -i 's/ — .*/ — a reason — with a dash in it/' "$all_report"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
   tap_is "a reason holding a dash keeps the night too" "$(grep -q "^unchecked since 2026-01-01: allwait in $fx/proj — its verify" "$all_report" 2>/dev/null && echo true || echo false)" \
@@ -510,7 +572,8 @@ mc_e2e_test() {
   tap_is "a store skipped tonight keeps last night's unchecked lines" "$(grep -q "skipped .* — its store is not mounted" "$all_report" && grep -q "^unchecked since 2026-01-01: allwait in $fx/proj" "$all_report" 2>/dev/null && echo true || echo false)" \
     'true'
   rm "$folder"; mv "$fx/store" "$folder"
-  rm "$folder/memory/allwait.md"; sed -i '/(allwait.md)/d' "$folder/memory/MEMORY.md"
+  rm "$folder/memory/allwait.md" "$folder/memory/allwait2.md"
+  sed -i '/(allwait.md)/d; /(allwait2.md)/d' "$folder/memory/MEMORY.md"
   HOME="$fx/home" "$self" --all >/dev/null 2>&1
   tap_is "a fact checked again leaves the report" "$([[ ! -f "$all_report" ]] && echo true || echo false)" \
     'true'

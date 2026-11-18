@@ -35,8 +35,7 @@ resolve_base() {
 
 probe() {
   local target=$1 fetch=$2
-  local root branch base baseref counts ahead behind dirty untracked
-  local -a decisions=()
+  local root branch base baseref ahead behind dirty untracked
 
   root=$(git -C "$target" rev-parse --show-toplevel 2>/dev/null) || {
     echo "dev_setup: not a git repo: $target" >&2
@@ -47,24 +46,8 @@ probe() {
 
   branch=$(git -C "$root" rev-parse --abbrev-ref HEAD 2>/dev/null)
   base=$(resolve_base "$root")
-
-  baseref=""
-  if [[ -n "$base" ]]; then
-    if git -C "$root" show-ref --verify --quiet "refs/remotes/origin/$base"; then
-      baseref="origin/$base"
-    elif git -C "$root" show-ref --verify --quiet "refs/heads/$base"; then
-      baseref="$base"
-    fi
-  fi
-
-  ahead=0 behind=0
-  if [[ -n "$baseref" ]]; then
-    counts=$(git -C "$root" rev-list --left-right --count "$baseref...HEAD" 2>/dev/null)
-    behind=${counts%%[[:space:]]*}
-    ahead=${counts##*[[:space:]]}
-    [[ "$behind" =~ ^[0-9]+$ ]] || behind=0
-    [[ "$ahead"  =~ ^[0-9]+$ ]] || ahead=0
-  fi
+  baseref=$(base_ref "$root" "$base")
+  read -r ahead behind < <(drift "$root" "$baseref")
 
   dirty=$(git -C "$root" status --porcelain 2>/dev/null | grep -vc '^??')
   untracked=$(git -C "$root" status --porcelain 2>/dev/null | grep -c '^??')
@@ -78,11 +61,39 @@ probe() {
   fi
   printf 'uncommit  %s modified, %s untracked\n' "$dirty" "$untracked"
 
-  [[ "$branch" == HEAD ]] && decisions+=("detached HEAD — check out a branch before working")
-  (( behind > 0 )) &&
-    decisions+=("behind $baseref by $behind — branch off the latest base or rebase")
-
   echo
+  decide "$branch" "$behind" "$baseref"
+}
+
+# base_ref ROOT BASE — the ref BASE is read at: origin's, else the local
+# branch, else nothing.
+base_ref() {
+  [[ -n "$2" ]] || return 0
+  if git -C "$1" show-ref --verify --quiet "refs/remotes/origin/$2"; then
+    printf 'origin/%s\n' "$2"
+  elif git -C "$1" show-ref --verify --quiet "refs/heads/$2"; then
+    printf '%s\n' "$2"
+  fi
+}
+
+# drift ROOT BASEREF — "<ahead> <behind>" of HEAD against BASEREF; 0 0 with none.
+drift() {
+  local counts ahead behind
+  [[ -n "$2" ]] || { echo "0 0"; return 0; }
+  counts=$(git -C "$1" rev-list --left-right --count "$2...HEAD" 2>/dev/null)
+  behind=${counts%%[[:space:]]*}
+  ahead=${counts##*[[:space:]]}
+  [[ "$behind" =~ ^[0-9]+$ ]] || behind=0
+  [[ "$ahead"  =~ ^[0-9]+$ ]] || ahead=0
+  printf '%s %s\n' "$ahead" "$behind"
+}
+
+# decide BRANCH BEHIND BASEREF — "ready", else each decision needed first, exit 1.
+decide() {
+  local -a decisions=()
+  [[ "$1" == HEAD ]] && decisions+=("detached HEAD — check out a branch before working")
+  (( $2 > 0 )) &&
+    decisions+=("behind $3 by $2 — branch off the latest base or rebase")
   if (( ${#decisions[@]} == 0 )); then
     echo "ready"
     return 0
@@ -152,6 +163,11 @@ self_test() {
   got=$("$0" "$w" --dry-run 2>/dev/null | sed -n 's/^repo  *//p')
   want=$(git -C "$w" rev-parse --show-toplevel)
   tap_is "it reports the repo it was pointed at" "$got" "$want"
+
+  tap_is "no base names no ref, cleanly" "$(base_ref "$w" ""; echo "rc=$?")" "rc=0"
+  tap_is "no base ref is no drift, cleanly" "$(drift "$w" ""; echo "rc=$?")" $'0 0\nrc=0'
+  echo c > "$w/c"; git "${G[@]}" -C "$w" add -A; git "${G[@]}" -C "$w" commit --quiet -m C
+  tap_is "a commit past the base is one ahead" "$(drift "$w" origin/main)" "1 0"
 
   rm -rf "$tmp"
 }

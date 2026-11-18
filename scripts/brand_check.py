@@ -69,6 +69,8 @@ TEXT = {"--ink", "--muted", "--link", "--good"}
 LARGE = {"--title", "--rule"}
 SURFACE = {"--bg", "--hair", "--band", "--panel"}
 RENDERS = 3
+THEME_FLAGS = {"light": [], "dark": ["--force-dark-mode"]}
+PAGES = re.compile(rb"Pages:\s+(\d+)")
 SKIP_DIRS = {"node_modules", "dist", ".git", "test", "coverage"}
 REF = re.compile(
     r"""(?:url\(\s*["']?|href=["'])([^"')]*brand\.css)""")
@@ -280,20 +282,35 @@ def pages(root, found):
     styled = {f.resolve() for refs in found.values() for f, _, _ in refs}
     out = []
     for repo, refs in found.items():
-        if builds_copy(repo):
-            out += [(f, False) for f, _, target in refs
-                    if f.suffix == ".html" and target == brand]
-            continue
-        for f in walk(repo):
-            if f.suffix != ".html":
-                continue
-            text = f.read_text(errors="replace")
-            links = {resolve(root, f, u) for u in LINK.findall(text)}
-            if f.resolve() in styled or links & styled:
-                out.append((f, any(
-                    "@page" in p.read_text(errors="replace")
-                    for p in links if p.exists())))
+        out += (linked_pages(refs, brand) if builds_copy(repo)
+                else styled_pages(root, repo, styled))
     return sorted(out)
+
+
+def linked_pages(refs, brand):
+    """(page, False) for each HTML page of REFS that links BRAND itself."""
+    return [(f, False) for f, _, target in refs
+            if f.suffix == ".html" and target == brand]
+
+
+def styled_pages(root, repo, styled):
+    """(page, prints) for each HTML page of REPO that is a STYLED file or
+    links one; prints when a stylesheet it links holds an @page rule."""
+    html = [f for f in walk(repo) if f.suffix == ".html"]
+    return [hit for f in html if (hit := styled_page(root, f, styled))]
+
+
+def styled_page(root, page, styled):
+    links = {resolve(root, page, u)
+             for u in LINK.findall(page.read_text(errors="replace"))}
+    if page.resolve() not in styled and not links & styled:
+        return None
+    return page, prints(links)
+
+
+def prints(links):
+    return any("@page" in p.read_text(errors="replace")
+               for p in links if p.exists())
 
 
 def repos(root):
@@ -409,37 +426,59 @@ def render_page(root, page, is_doc, sites, tmp):
     """Print what the new brand.css changes on one page."""
     rel = page.relative_to(root)
     path = url_path(root, page)
-    for theme in ("light", "dark"):
-        flags = ["--force-dark-mode"] if theme == "dark" else []
-        shots = {"old": [], "new": []}
-        for name, site in sites.items():
-            for i in range(RENDERS):
-                shots[name].append(tmp / f"{name}{i}.png")
-                chrome(*flags, "--window-size=1200,1600",
-                       f"--screenshot={shots[name][-1]}", site + path)
-        change = min(differing(o, n)
-                     for o in shots["old"] for n in shots["new"])
-        noise = max(differing(a, b) for a, b in
-                    itertools.combinations(shots["new"], 2))
+    for theme, flags in THEME_FLAGS.items():
+        change, noise = spread(differing, screenshots(sites, path, flags, tmp))
         print(f"  {rel} {theme}: {change:g} differing pixels"
               f" (its own renders vary by up to {noise:g})")
     if is_doc:
-        pdfs = {}
-        for name, site in sites.items():
-            pdfs[name] = tmp / f"{name}.pdf"
-            chrome("--no-pdf-header-footer",
-                   f"--print-to-pdf={pdfs[name]}", site + path)
-        counts = [re.search(rb"Pages:\s+(\d+)", subprocess.run(
-            ["pdfinfo", str(p)], capture_output=True).stdout)
-            .group(1).decode() for p in pdfs.values()]
-        pngs = []
-        for name, p in pdfs.items():
-            subprocess.run(["pdftoppm", "-r", "60", "-png", "-f",
-                            "1", "-l", "1", "-singlefile", str(p),
-                            str(tmp / f"{name}-pdf")])
-            pngs.append(tmp / f"{name}-pdf.png")
-        print(f"  {rel} printed: pages {counts[0]} -> {counts[1]},"
-              f" {differing(*pngs):g} differing pixels on page 1")
+        render_print(rel, path, sites, tmp)
+
+
+def screenshots(sites, path, flags, tmp):
+    """RENDERS screenshots of PATH on each site, by the site's name."""
+    shots = {name: [tmp / f"{name}{i}.png" for i in range(RENDERS)]
+             for name in sites}
+    for name, site in sites.items():
+        for shot in shots[name]:
+            chrome(*flags, "--window-size=1200,1600", f"--screenshot={shot}",
+                   site + path)
+    return shots
+
+
+def spread(differ, shots):
+    """The change, the fewest pixels any old render differs from any new
+    one by, and the noise, the most two new renders differ by."""
+    change = min(differ(o, n) for o in shots["old"] for n in shots["new"])
+    noise = max(differ(a, b)
+                for a, b in itertools.combinations(shots["new"], 2))
+    return change, noise
+
+
+def render_print(rel, path, sites, tmp):
+    """Print each site's printed page count, and how page 1 differs."""
+    pdfs = {name: tmp / f"{name}.pdf" for name in sites}
+    for name, site in sites.items():
+        chrome("--no-pdf-header-footer", f"--print-to-pdf={pdfs[name]}",
+               site + path)
+    counts = [page_count(pdfinfo(p)) for p in pdfs.values()]
+    pngs = [first_page(p, tmp / f"{name}-pdf") for name, p in pdfs.items()]
+    print(f"  {rel} printed: pages {counts[0]} -> {counts[1]},"
+          f" {differing(*pngs):g} differing pixels on page 1")
+
+
+def pdfinfo(pdf):
+    return subprocess.check_output(["pdfinfo", str(pdf)])
+
+
+def page_count(info):
+    return PAGES.search(info).group(1).decode()
+
+
+def first_page(pdf, stem):
+    """Page 1 of PDF as STEM.png."""
+    subprocess.run(["pdftoppm", "-r", "60", "-png", "-f", "1", "-l", "1",
+                    "-singlefile", str(pdf), str(stem)])
+    return stem.with_name(stem.name + ".png")
 
 
 def run(root, offline, rev):
@@ -469,10 +508,25 @@ def run(root, offline, rev):
 
 def self_test():
     t = Tap()
+    good = self_test_palette(t)
+    with tempfile.TemporaryDirectory() as tmp:
+        root = pathlib.Path(tmp)
+        self_test_links(t, root, good)
+        self_test_build(t, root, good)
+        self_test_site(t, root, good)
+    self_test_render(t)
+    return t.end()
 
+
+def self_test_expecter(t):
     def expect(cond, msg):
         t.check(bool(cond), msg)
+    return expect
 
+
+def self_test_palette(t):
+    """Checks the contrast rules; returns the passing palette."""
+    expect = self_test_expecter(t)
     good = (":root {\n  --bg: light-dark(#ffffff, #0a0a0a);"
             " --ink: light-dark(#666666, #f2f2f2); --title: #cc6633;\n"
             "  --hair: #cccccc; --sans: Arial;\n}\nbody { color: red }\n")
@@ -490,141 +544,169 @@ def self_test():
     expect(rep.failed, "a colour token with no role fails")
     expect(f"{ratio('#cc6633', '#ffffff'):.2f}" == "3.81",
            "ratio matches the published 3.81:1 for the title")
+    return good
 
-    with tempfile.TemporaryDirectory() as tmp:
-        root = pathlib.Path(tmp)
-        hub = root / HUB
-        hub.mkdir()
-        (hub / "brand.css").write_text(good)
-        (root / "brand.css").symlink_to(hub / "brand.css")
-        (hub / "brand.js").write_text("switch")
-        (root / "brand.js").symlink_to(hub / "brand.js")
-        proj = root / "proj" / "demo"
-        proj.mkdir(parents=True)
-        (proj / "a.css").write_text('@import url("../../brand.css");\n')
-        (proj / "p.html").write_text('<link rel="stylesheet" href="a.css">')
-        (hub / "index.html").write_text('<link href="brand.css">')
-        brand = (hub / "brand.css").resolve()
-        found = consumers(root)
-        rep = Report(quiet=True)
-        check_imports(root, brand, found, rep)
-        check_themes(root, found, rep)
-        expect(not rep.failed, "a correct relative import passes")
-        expect([p.name for p, _ in pages(root, found)]
-               == ["index.html", "p.html"],
-               "pages finds a direct link and one through a project CSS")
-        rep = Report(quiet=True)
-        check_switch(root, found, rep)
-        expect(rep.failed, "a page that does not load brand.js fails")
-        (hub / "index.html").write_text(
-            '<link href="brand.css"><script src="brand.js"></script>')
-        (proj / "p.html").write_text(
-            '<link rel="stylesheet" href="a.css">'
-            '<script src="../brand.js"></script>')
-        rep = Report(quiet=True)
-        check_switch(root, found, rep)
-        expect(rep.failed, "a brand.js path that misses the hub's file fails")
-        (proj / "p.html").write_text(
-            '<link rel="stylesheet" href="a.css">'
-            '<script src="../../brand.js"></script>')
-        (proj / "a.css").write_text(
-            '@import url("../../brand.css");\n@page { size: A4 }\n')
-        (proj / "d.html").write_text('<link rel="stylesheet" href="a.css">')
-        rep = Report(quiet=True)
-        check_switch(root, consumers(root), rep)
-        expect(not rep.failed, "pages load the hub's brand.js; a printed"
-               " document need not")
-        (proj / "d.html").unlink()
-        (proj / "b.css").write_text('@import url("../brand.css");\n')
-        rep = Report(quiet=True)
-        check_imports(root, brand, consumers(root), rep)
-        expect(rep.failed, "an import that misses the hub's file fails")
-        (proj / "b.css").write_text("@media (prefers-color-scheme: dark)"
-                                    " { :root { --x: #000 } }\n")
-        rep = Report(quiet=True)
-        check_themes(root, consumers(root), rep)
-        expect(rep.failed, "a consumer with prefers-color-scheme fails")
-        ext = root / "ext"
-        (ext / "static").mkdir(parents=True)
-        (ext / "dist").mkdir()
-        (ext / "package.json").write_text('"build": "cp ../brand.css dist/"')
-        (ext / "static" / "p.html").write_text(
-            '<link href="brand.css"><script src="brand.js"></script>')
-        (ext / "dist" / "brand.css").write_text(good)
-        (ext / "dist" / "brand.js").write_text("old")
-        found = consumers(root)
-        rep = Report(quiet=True)
-        check_imports(root, brand, {ext: found[ext]}, rep)
-        check_switch(root, {ext: found[ext]}, rep)
-        expect(not rep.failed, "a repo that builds a copy may link it bare")
-        (ext / "index.html").write_text(
-            '<link href="../brand.css"><script src="brand.js"></script>')
-        found = consumers(root)
-        rep = Report(quiet=True)
-        check_switch(root, {ext: found[ext]}, rep)
-        expect(rep.failed and [p.name for p, _ in pages(root, {ext: found[ext]})]
-               == ["index.html"], "a page beside a build that links the hub's"
-               " brand.css is a page, and loads the hub's brand.js")
-        (ext / "index.html").write_text(
-            '<link href="../brand.css"><script src="../brand.js"></script>')
-        rep = Report(quiet=True)
-        check_switch(root, {ext: consumers(root)[ext]}, rep)
-        expect(not rep.failed, "so it passes when it loads ../brand.js")
-        (ext / "index.html").unlink()
-        found = consumers(root)
-        rep = Report(quiet=True)
-        check_copies(root, brand, found, rep)
-        expect(rep.failed, "a stale built copy of brand.js fails")
-        dest = root.parent / (root.name + "-mirror")
-        dest.mkdir()
-        snap = root.parent / (root.name + "-snapshot")
-        try:
-            mirror(root, dest)
-            expect((dest / "brand.css").resolve() == brand
-                   and (dest / "index.html").resolve()
-                   == (hub / "index.html")
-                   and (dest / "proj").resolve() == (root / "proj")
-                   and not (dest / HUB).exists(),
-                   "the mirror is the site: hub at the top, repos below")
-            for repo in (hub, root / "proj"):
-                g = ["git", "-C", str(repo), "-c", "user.name=t",
-                     "-c", "user.email=t@example.com"]
-                subprocess.run([*g, "init", "-q"], check=True)
-                subprocess.run([*g, "add", "-A"], check=True)
-                subprocess.run([*g, "commit", "-qm", "one"], check=True)
-            (hub / "brand.css").write_text("NEW")
-            (proj / "a.css").write_text("NEW")
-            snapshot(root, "HEAD", snap)
-            expect((snap / "brand.css").read_text() == good
-                   and (snap / "proj" / "demo" / "a.css").read_text()
-                   .startswith("@import")
-                   and (snap / "ext").resolve() == ext,
-                   "the snapshot is every repo as committed, and a folder"
-                   " that is no repo as it is")
-            built = proj / "built.html"
-            built.write_text("BUILT")
-            uncommitted(root, built, snap)
-            (proj / "p.html").write_text("CHANGED")
-            uncommitted(root, proj / "p.html", snap)
-            expect((snap / "proj" / "demo" / "built.html").read_text()
-                   == "BUILT"
-                   and "a.css" in (snap / "proj" / "demo" / "p.html")
-                   .read_text(),
-                   "a page with no committed copy is its working file on"
-                   " both sides, and a committed one stays as committed")
-            expect(url_path(root, hub / "index.html") == "/index.html"
-                   and url_path(root, proj / "p.html")
-                   == "/proj/demo/p.html",
-                   "a file's site path drops the hub's folder name")
-            with serve(dest) as site:
-                with urllib.request.urlopen(site + "/proj/demo/a.css") as r:
-                    expect(r.read() == b"NEW",
-                           "the server reaches a repo's working tree"
-                           " through its symlink")
-        finally:
-            shutil.rmtree(dest)
-            shutil.rmtree(snap, ignore_errors=True)
-    return t.end()
+
+def self_test_links(t, root, good):
+    """A hub, a project linking it through its CSS, and the import, theme
+    and switch checks over them."""
+    expect = self_test_expecter(t)
+    hub = root / HUB
+    hub.mkdir()
+    (hub / "brand.css").write_text(good)
+    (root / "brand.css").symlink_to(hub / "brand.css")
+    (hub / "brand.js").write_text("switch")
+    (root / "brand.js").symlink_to(hub / "brand.js")
+    proj = root / "proj" / "demo"
+    proj.mkdir(parents=True)
+    (proj / "a.css").write_text('@import url("../../brand.css");\n')
+    (proj / "p.html").write_text('<link rel="stylesheet" href="a.css">')
+    (hub / "index.html").write_text('<link href="brand.css">')
+    brand = (hub / "brand.css").resolve()
+    found = consumers(root)
+    rep = Report(quiet=True)
+    check_imports(root, brand, found, rep)
+    check_themes(root, found, rep)
+    expect(not rep.failed, "a correct relative import passes")
+    expect([p.name for p, _ in pages(root, found)]
+           == ["index.html", "p.html"],
+           "pages finds a direct link and one through a project CSS")
+    rep = Report(quiet=True)
+    check_switch(root, found, rep)
+    expect(rep.failed, "a page that does not load brand.js fails")
+    (hub / "index.html").write_text(
+        '<link href="brand.css"><script src="brand.js"></script>')
+    (proj / "p.html").write_text(
+        '<link rel="stylesheet" href="a.css">'
+        '<script src="../brand.js"></script>')
+    rep = Report(quiet=True)
+    check_switch(root, found, rep)
+    expect(rep.failed, "a brand.js path that misses the hub's file fails")
+    (proj / "p.html").write_text(
+        '<link rel="stylesheet" href="a.css">'
+        '<script src="../../brand.js"></script>')
+    (proj / "a.css").write_text(
+        '@import url("../../brand.css");\n@page { size: A4 }\n')
+    (proj / "d.html").write_text('<link rel="stylesheet" href="a.css">')
+    rep = Report(quiet=True)
+    check_switch(root, consumers(root), rep)
+    expect(not rep.failed, "pages load the hub's brand.js; a printed"
+           " document need not")
+    (proj / "d.html").unlink()
+    (proj / "b.css").write_text('@import url("../brand.css");\n')
+    rep = Report(quiet=True)
+    check_imports(root, brand, consumers(root), rep)
+    expect(rep.failed, "an import that misses the hub's file fails")
+    (proj / "b.css").write_text("@media (prefers-color-scheme: dark)"
+                                " { :root { --x: #000 } }\n")
+    rep = Report(quiet=True)
+    check_themes(root, consumers(root), rep)
+    expect(rep.failed, "a consumer with prefers-color-scheme fails")
+
+
+def self_test_build(t, root, good):
+    """A repo whose build copies brand.css and brand.js."""
+    expect = self_test_expecter(t)
+    brand = (root / HUB / "brand.css").resolve()
+    ext = root / "ext"
+    (ext / "static").mkdir(parents=True)
+    (ext / "dist").mkdir()
+    (ext / "package.json").write_text('"build": "cp ../brand.css dist/"')
+    (ext / "static" / "p.html").write_text(
+        '<link href="brand.css"><script src="brand.js"></script>')
+    (ext / "dist" / "brand.css").write_text(good)
+    (ext / "dist" / "brand.js").write_text("old")
+    found = consumers(root)
+    rep = Report(quiet=True)
+    check_imports(root, brand, {ext: found[ext]}, rep)
+    check_switch(root, {ext: found[ext]}, rep)
+    expect(not rep.failed, "a repo that builds a copy may link it bare")
+    (ext / "index.html").write_text(
+        '<link href="../brand.css"><script src="brand.js"></script>')
+    found = consumers(root)
+    rep = Report(quiet=True)
+    check_switch(root, {ext: found[ext]}, rep)
+    expect(rep.failed and [p.name for p, _ in pages(root, {ext: found[ext]})]
+           == ["index.html"], "a page beside a build that links the hub's"
+           " brand.css is a page, and loads the hub's brand.js")
+    (ext / "index.html").write_text(
+        '<link href="../brand.css"><script src="../brand.js"></script>')
+    rep = Report(quiet=True)
+    check_switch(root, {ext: consumers(root)[ext]}, rep)
+    expect(not rep.failed, "so it passes when it loads ../brand.js")
+    (ext / "index.html").unlink()
+    found = consumers(root)
+    rep = Report(quiet=True)
+    check_copies(root, brand, found, rep)
+    expect(rep.failed, "a stale built copy of brand.js fails")
+
+
+def self_test_site(t, root, good):
+    """The mirror, the snapshot and the server over the fixture."""
+    expect = self_test_expecter(t)
+    hub, proj, ext = root / HUB, root / "proj" / "demo", root / "ext"
+    brand = (hub / "brand.css").resolve()
+    dest = root.parent / (root.name + "-mirror")
+    dest.mkdir()
+    snap = root.parent / (root.name + "-snapshot")
+    try:
+        mirror(root, dest)
+        expect((dest / "brand.css").resolve() == brand
+               and (dest / "index.html").resolve()
+               == (hub / "index.html")
+               and (dest / "proj").resolve() == (root / "proj")
+               and not (dest / HUB).exists(),
+               "the mirror is the site: hub at the top, repos below")
+        for repo in (hub, root / "proj"):
+            g = ["git", "-C", str(repo), "-c", "user.name=t",
+                 "-c", "user.email=t@example.com"]
+            subprocess.run([*g, "init", "-q"], check=True)
+            subprocess.run([*g, "add", "-A"], check=True)
+            subprocess.run([*g, "commit", "-qm", "one"], check=True)
+        (hub / "brand.css").write_text("NEW")
+        (proj / "a.css").write_text("NEW")
+        snapshot(root, "HEAD", snap)
+        expect((snap / "brand.css").read_text() == good
+               and (snap / "proj" / "demo" / "a.css").read_text()
+               .startswith("@import")
+               and (snap / "ext").resolve() == ext,
+               "the snapshot is every repo as committed, and a folder"
+               " that is no repo as it is")
+        built = proj / "built.html"
+        built.write_text("BUILT")
+        uncommitted(root, built, snap)
+        (proj / "p.html").write_text("CHANGED")
+        uncommitted(root, proj / "p.html", snap)
+        expect((snap / "proj" / "demo" / "built.html").read_text()
+               == "BUILT"
+               and "a.css" in (snap / "proj" / "demo" / "p.html")
+               .read_text(),
+               "a page with no committed copy is its working file on"
+               " both sides, and a committed one stays as committed")
+        expect(url_path(root, hub / "index.html") == "/index.html"
+               and url_path(root, proj / "p.html")
+               == "/proj/demo/p.html",
+               "a file's site path drops the hub's folder name")
+        with serve(dest) as site:
+            with urllib.request.urlopen(site + "/proj/demo/a.css") as r:
+                expect(r.read() == b"NEW",
+                       "the server reaches a repo's working tree"
+                       " through its symlink")
+    finally:
+        shutil.rmtree(dest)
+        shutil.rmtree(snap, ignore_errors=True)
+
+
+def self_test_render(t):
+    expect = self_test_expecter(t)
+    shots = {"old": [10, 30], "new": [14, 17, 40]}
+    expect(spread(lambda a, b: abs(a - b), shots) == (4, 26),
+           "the change is the closest old and new renders, the noise the"
+           " farthest two new ones")
+    expect(page_count(b"Title: x\nPages:          12\n") == "12",
+           "the page count is read from pdfinfo")
+    expect(THEME_FLAGS["dark"] == ["--force-dark-mode"]
+           and THEME_FLAGS["light"] == [], "only the dark render forces it")
 
 
 def main():

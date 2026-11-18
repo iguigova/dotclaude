@@ -173,31 +173,45 @@ def find(query: list[str], items: list[dict], limit: int,
     nothing and a word one script uses decides. A word in the name or the
     header's first sentence -- what the script says it does -- counts twice,
     above one met only in the detail further down."""
-    docs = []
-    for it in items:
-        if it["path"] == skip:
-            continue
-        head = header_of(Path(it["path"]))
-        lead = set(WORD.findall(f"{it['name']} {summary(head)}".lower()))
-        docs.append((it, head, set(WORD.findall(f"{it['name']} {head}".lower())),
-                     lead))
+    docs = [document(it) for it in items if it["path"] != skip]
     query = [q.lower() for q in query]
-    holds = {q: [any(w.startswith(q) for w in d[2]) for d in docs]
-             for q in query}
-    leads = {q: [any(w.startswith(q) for w in d[3]) for d in docs]
-             for q in query}
-    weight = {q: math.log(len(docs) / n) if (n := sum(h)) else 0.0
-              for q, h in holds.items()}
-    hits = []
-    for k, (it, head, _, _) in enumerate(docs):
-        found = [q for q in query if holds[q][k]]
-        score = sum(weight[q] * (2 if leads[q][k] else 1) for q in found)
-        if found:
-            hits.append({**it, "score": round(score, 1),
-                         "words": found,
-                         "line": summary(head) or "(no header)"})
+    weight = weights(query, docs)
+    hits = [h for d in docs if (h := hit(d, query, weight))]
     hits.sort(key=lambda h: (-h["score"], h["name"]))
     return hits[:limit]
+
+
+def document(it: dict) -> tuple[dict, str, set[str], set[str]]:
+    """(item, header, the words of its name and header, the words of its name
+    and first sentence)."""
+    head = header_of(Path(it["path"]))
+    return (it, head, words_in(f"{it['name']} {head}"),
+            words_in(f"{it['name']} {summary(head)}"))
+
+
+def words_in(text: str) -> set[str]:
+    return set(WORD.findall(text.lower()))
+
+
+def holds(q: str, words: set[str]) -> bool:
+    return any(w.startswith(q) for w in words)
+
+
+def weights(query: list[str], docs: list[tuple]) -> dict[str, float]:
+    """log(N/n) per query word, n the documents holding it; 0 for none."""
+    counts = {q: sum(holds(q, d[2]) for d in docs) for q in query}
+    return {q: math.log(len(docs) / n) if n else 0.0 for q, n in counts.items()}
+
+
+def hit(doc: tuple, query: list[str], weight: dict[str, float]) -> dict | None:
+    """The document as a hit, scored, or None when it holds no query word."""
+    it, head, every, lead = doc
+    found = [q for q in query if holds(q, every)]
+    if not found:
+        return None
+    score = sum(weight[q] * (2 if holds(q, lead) else 1) for q in found)
+    return {**it, "score": round(score, 1), "words": found,
+            "line": summary(head) or "(no header)"}
 
 
 def summary(head: str) -> str:
@@ -216,51 +230,64 @@ def render(hits: list[dict]) -> str:
 
 # ---------------------------------------------------------------- self-test
 
+def self_test_fixture(root: Path) -> tuple[list[dict], Path]:
+    """Scripts in a home and a project, and the project."""
+    home, project = root / "home", root / "proj"
+    si.write(home / "scripts/camera_report.py",
+             '"""Per-camera LPR\nreport. More.\n\nReads plates."""\n')
+    si.write(home / "scripts/broken.py", '"""unterminated\n')
+    si.write(project / ".claude/helpers/lambda-tail.sh",
+             "#!/usr/bin/env bash\n# Tail a Lambda's log stream. Newest\n"
+             "# stream first.\nset -e\n")
+    si.write(project / ".claude/scripts/plates.sh",
+             "#!/bin/sh\n# Count plates along each camera, from 10.0.75.1.\n#\n"
+             "# Production source: plate reads\n#\n"
+             "# Production source: Camera roles\nset -e\n"
+             "# Production source: past the header\n")
+    si.write(home / "scripts/rails_sql.py",
+             '"""Read Rails.\n\nProduction source: Rails Postgres\n'
+             'Not a source: line\n\nExit 0 rows, 75 a failed call.\n"""\n')
+    si.write(project / ".claude/scripts/deploy.sh",
+             "#!/bin/sh\n# Deploy.\nset -e\n# Production use: past the header\necho prod-db\n")
+    si.write(project / ".claude/scripts/golive.sh",
+             "#!/bin/sh\n# Go live.\n#\n# Production use: writes the config\necho prod-db\n")
+    si.write(project / ".claude/scripts/tail.py",
+             '"""Tail it."""\nDB = "prod-db"\n')
+    si.write(project / "api/repo/.claude/settings.json", "{}\n")
+    return scripts(home, project), project
+
+
+def self_test_answers(items: list[dict], project: Path) -> dict:
+    def named(*query: str) -> list[str]:
+        return [h["name"] for h in find(list(query), items, LIMIT)]
+
+    def lines(*query: str) -> list[str]:
+        return [h["line"] for h in find(list(query), items, LIMIT)]
+
+    return {
+        "ranked": [(h["name"], h["words"]) for h in
+                   find(["camera", "plates", "long"], items, LIMIT)],
+        "rare": named("lambda", "camera"),
+        "lead": named("reads") + named("newest", "report"),
+        "limit": len(find(["camera", "plates"], items, 1)),
+        "summary": summary("x" * 200)[-2:],
+        "wrapped": lines("report"),
+        "line": lines("lambda"),
+        "broken": named("unterminated"),
+        "project": project_of(project / ".claude/scripts") == project,
+        "nested": project_of(project / "api/repo") == project,
+        "sources": [(n, it["name"]) for n, it in sources(items)],
+        "untagged": [(kind, it["name"]) for kind, it in
+                     untagged(items, re.compile(r"prod-db|Rails"))],
+        "skip": [it["name"] for _, it in untagged(items, re.compile(r"prod-db|Rails"),
+                                                  str(project / ".claude/scripts/tail.py"))],
+    }
+
+
 def self_test() -> int:
     with tempfile.TemporaryDirectory() as d:
-        root = Path(d)
-        home, project = root / "home", root / "proj"
-        si.write(home / "scripts/camera_report.py",
-                 '"""Per-camera LPR\nreport. More.\n\nReads plates."""\n')
-        si.write(home / "scripts/broken.py", '"""unterminated\n')
-        si.write(project / ".claude/helpers/lambda-tail.sh",
-                 "#!/usr/bin/env bash\n# Tail a Lambda's log stream. Newest\n"
-                 "# stream first.\nset -e\n")
-        si.write(project / ".claude/scripts/plates.sh",
-                 "#!/bin/sh\n# Count plates along each camera, from 10.0.75.1.\n#\n"
-                 "# Production source: plate reads\n#\n"
-                 "# Production source: Camera roles\nset -e\n"
-                 "# Production source: past the header\n")
-        si.write(home / "scripts/rails_sql.py",
-                 '"""Read Rails.\n\nProduction source: Rails Postgres\n'
-                 'Not a source: line\n\nExit 0 rows, 75 a failed call.\n"""\n')
-        si.write(project / ".claude/scripts/deploy.sh",
-                 "#!/bin/sh\n# Deploy.\nset -e\n# Production use: past the header\necho prod-db\n")
-        si.write(project / ".claude/scripts/golive.sh",
-                 "#!/bin/sh\n# Go live.\n#\n# Production use: writes the config\necho prod-db\n")
-        si.write(project / ".claude/scripts/tail.py",
-                 '"""Tail it."""\nDB = "prod-db"\n')
-        si.write(project / "api/repo/.claude/settings.json", "{}\n")
-        items = scripts(home, project)
-        got = {
-            "ranked": [(h["name"], h["words"]) for h in
-                       find(["camera", "plates", "long"], items, LIMIT)],
-            "rare": [h["name"] for h in find(["lambda", "camera"], items, LIMIT)],
-            "lead": [h["name"] for h in find(["reads"], items, LIMIT)]
-                    + [h["name"] for h in find(["newest", "report"], items, LIMIT)],
-            "limit": len(find(["camera", "plates"], items, 1)),
-            "summary": summary("x" * 200)[-2:],
-            "wrapped": [h["line"] for h in find(["report"], items, LIMIT)],
-            "line": [h["line"] for h in find(["lambda"], items, LIMIT)],
-            "broken": [h["name"] for h in find(["unterminated"], items, LIMIT)],
-            "project": project_of(project / ".claude/scripts") == project,
-            "nested": project_of(project / "api/repo") == project,
-            "sources": [(n, it["name"]) for n, it in sources(items)],
-            "untagged": [(kind, it["name"]) for kind, it in
-                         untagged(items, re.compile(r"prod-db|Rails"))],
-            "skip": [it["name"] for _, it in untagged(items, re.compile(r"prod-db|Rails"),
-                                                      str(project / ".claude/scripts/tail.py"))],
-        }
+        items, project = self_test_fixture(Path(d))
+        got = self_test_answers(items, project)
     want = {"ranked": [("plates.sh", ["camera", "plates"]),
                        ("camera_report.py", ["camera", "plates"])],
             "rare": ["lambda-tail.sh", "camera_report.py", "plates.sh"],
@@ -317,31 +344,41 @@ def parser() -> argparse.ArgumentParser:
 
 
 def main() -> int:
-    args = parser().parse_args()
+    ap = parser()
+    args = ap.parse_args()
     if args.self_test:
         return self_test()
-    if args.sources:
-        if args.word:
-            parser().error("--sources takes no words")
-        found = sources(scripts(si.HOME, project_of(Path.cwd())))
-        print(render_sources(found) if found else
-              "no script's header names a production source")
-        return 0
-    if args.untagged:
-        if args.word:
-            parser().error("--untagged takes no words")
-        found = untagged(scripts(si.HOME, project_of(Path.cwd())), re.compile(args.untagged),
-                         args.skip)
-        for kind, it in found:
-            print(f"{kind:<8}  {it['scope']:<7}  {si.short(it['path'])}")
-        return 1 if found else 0
+    mode = (list_sources if args.sources else
+            list_untagged if args.untagged else list_found)
+    return mode(ap, args)
+
+
+def list_sources(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    if args.word:
+        ap.error("--sources takes no words")
+    found = sources(scripts(si.HOME, project_of(Path.cwd())))
+    print(render_sources(found) if found else
+          "no script's header names a production source")
+    return 0
+
+
+def list_untagged(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
+    if args.word:
+        ap.error("--untagged takes no words")
+    found = untagged(scripts(si.HOME, project_of(Path.cwd())), re.compile(args.untagged),
+                     args.skip)
+    for kind, it in found:
+        print(f"{kind:<8}  {it['scope']:<7}  {si.short(it['path'])}")
+    return 1 if found else 0
+
+
+def list_found(ap: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if not args.word:
-        parser().error("give at least one word")
+        ap.error("give at least one word")
     hits = find(args.word, scripts(si.HOME, project_of(Path.cwd())), args.limit)
     print(render(hits) if hits else "no script's name or header holds any of: "
           + " ".join(args.word))
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

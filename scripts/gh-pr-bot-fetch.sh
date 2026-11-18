@@ -35,8 +35,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-fetch() {
-  local ref="" wait=0 bots=() dir comments score tb ts interval deadline
+fetch() {  # <pr-ref> [--wait] [bot-login-substr ...]
+  local ref="" wait=0 bots=() dir tb ts rc
   while (($#)); do
     case "$1" in
       --wait) wait=1; shift ;;
@@ -46,32 +46,48 @@ fetch() {
   done
   [[ -n "$ref" ]] || { echo "Usage: gh-pr-bot-fetch.sh <pr-ref> [--wait] [bot-login-substr ...]" >&2; return 1; }
   dir=$("$HERE/gh-pr-workdir.sh" "$ref") || return 1
-  comments="${GH_PR_BOT_COMMENTS:-$HERE/gh-pr-bot-comments.sh}"
+  tb=$(mktemp "$dir/bot.json.XXXXXX")
+  ts=$(mktemp "$dir/score.json.XXXXXX")
+  fetch_both "$ref" "$wait" "$tb" "$ts" "${bots[@]}" || { rc=$?; rm -f "$tb" "$ts"; return "$rc"; }
+  mv "$tb" "$dir/bot.json"
+  mv "$ts" "$dir/score.json"
+  report "$dir"
+}
+
+# The score first, waited on with WAIT 1, then the threads, so both describe
+# the same run of the bot. Exit 1 a failed fetch, 3 a wait that ran out.
+fetch_both() {  # REF WAIT BOT_TMP SCORE_TMP [BOTS…]
+  local ref=$1 wait=$2 tb=$3 ts=$4; shift 4
+  await_score "$ref" "$wait" "$ts" "$@" || return
+  fetched "$tb" "${GH_PR_BOT_COMMENTS:-$HERE/gh-pr-bot-comments.sh}" "$ref" "$@" \
+    || { echo "gh-pr-bot-fetch.sh: comment fetch failed for $ref" >&2; return 1; }
+}
+
+await_score() {  # REF WAIT SCORE_TMP [BOTS…]
+  local ref=$1 wait=$2 ts=$3 score interval deadline; shift 3
   score="${GH_PR_BOT_SCORE:-$HERE/gh-pr-bot-score.sh}"
   interval="${GH_PR_BOT_FETCH_INTERVAL:-20}"
   deadline=$((SECONDS + ${GH_PR_BOT_FETCH_WAIT:-100}))
-  tb=$(mktemp "$dir/bot.json.XXXXXX")
-  ts=$(mktemp "$dir/score.json.XXXXXX")
-
   while :; do
-    if ! "$score" "$ref" "${bots[@]}" > "$ts" || ! jq -e 'type == "object"' "$ts" >/dev/null 2>&1; then
-      rm -f "$tb" "$ts"; echo "gh-pr-bot-fetch.sh: score fetch failed for $ref" >&2; return 1
-    fi
-    ((wait)) || break
-    jq -e '.score == null or (.stale | not)' "$ts" >/dev/null && break
+    fetched "$ts" "$score" "$ref" "$@" || { echo "gh-pr-bot-fetch.sh: score fetch failed for $ref" >&2; return 1; }
+    ((wait)) || return 0
+    jq -e '.score == null or (.stale | not)' "$ts" >/dev/null && return 0
     if ((SECONDS + interval >= deadline)); then
       echo "gh-pr-bot-fetch.sh: the score is still for $(jq -r '.reviewed_sha // "no commit"' "$ts"), not the head $(jq -r '.head_sha' "$ts") -- the bot has not re-run yet: run again" >&2
-      rm -f "$tb" "$ts"; return 3
+      return 3
     fi
     sleep "$interval"
   done
+}
 
-  if ! "$comments" "$ref" "${bots[@]}" > "$tb" || ! jq -e 'type == "object"' "$tb" >/dev/null 2>&1; then
-    rm -f "$tb" "$ts"; echo "gh-pr-bot-fetch.sh: comment fetch failed for $ref" >&2; return 1
-  fi
-  mv "$tb" "$dir/bot.json"
-  mv "$ts" "$dir/score.json"
+# Holds when COMMAND succeeds and what it wrote to OUT is a JSON object.
+fetched() {  # OUT COMMAND [ARG…]
+  local out=$1; shift
+  "$@" > "$out" && jq -e 'type == "object"' "$out" >/dev/null 2>&1
+}
 
+report() {  # DIR
+  local dir=$1
   jq -r --arg f "$dir/bot.json" '"bot:   \($f) -- \(.open_count) bot threads, \(.human_open_count) human threads open; \([.human_notes[]? | select(.answered | not)] | length) human notes unanswered; own review \(if .own_review == null then "none" elif (.own_review.asks | not) then "nothing asked" elif .own_review.answered then "answered" else "unanswered" end), \(.own_open_count) own threads open"' "$dir/bot.json"
   jq -r --arg f "$dir/score.json" '
     if .score == null then "score: \($f) -- none from this bot; \(.outside_diff_count) out-of-diff"

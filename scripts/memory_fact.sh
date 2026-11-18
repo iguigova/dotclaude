@@ -41,8 +41,10 @@ mf_lint() {
   return 1
 }
 
+refuse() { echo "memory_fact: $1" >&2; return 1; }
+
 mf_write() {  # NAME HOOK  (fact file on stdin)
-  local name="$1" hook="$2" body tmp idx_bak file_bak=""
+  local name="$1" hook="$2" body tmp idx_bak file_bak="" fresh=""
   [[ "$name" =~ ^[a-z0-9-]+$ ]] || die "a fact name is lowercase letters, digits and dashes, got: $name"
   [[ -n "${hook// }" ]]         || die "a pointer needs a hook — the line that says when this fact matters"
   body=$(cat)
@@ -50,60 +52,77 @@ mf_write() {  # NAME HOOK  (fact file on stdin)
 
   local file="$MEM_DIR/$name.md"
   tmp=$(mktemp); printf '%s\n' "$body" > "$tmp"
-  # Validated against the file that will be written, not against the arguments,
-  # so a body disagreeing with its own name is caught before either file moves.
-  [[ "$(mem_field "$tmp" name)" == "$name" ]] || { rm -f "$tmp"; die "the body's name: is not $name"; }
-  # Named before the emptiness check below, which a block scalar would otherwise
-  # trip while reporting a missing field rather than an unreadable one.
-  local blocks; blocks=$(mem_block_fields "$tmp" | tr '\n' ' ')
-  [[ -z "${blocks// }" ]] || { rm -f "$tmp"
-    die "a frontmatter value is a single line; these are block scalars: ${blocks% }"; }
-  [[ -n "$(mem_field "$tmp" verify)" ]]       || { rm -f "$tmp"; die "the body carries no verify:"; }
-
-  # A fact is admitted because its check passes now, not because it has one.
-  # Anything but 0 refuses, 75 included: a claim nobody could confirm is an item
-  # still open, not a fact.
-  local vrc vcmd
-  vcmd=$(mem_field "$tmp" verify)
-  mem_verify "$vcmd"
-  vrc=$?
-  # The command is quoted back because the fault may be the frontmatter's
-  # reading of it rather than the claim itself.
-  [[ "$vrc" -eq 0 ]] || { rm -f "$tmp"
-    die "its verify: exited $vrc, so the claim is not confirmed; leave it open in the queue
-  verify: $vcmd"; }
-
-  # A project's first fact starts its store, and a rollback takes the store back.
-  # Only inside the folder the harness keeps for the project: with none, no
-  # session ever started at $MEM_PROJECT_ROOT, so the working directory is not a
-  # project — a store made there is one no session reads.
-  local fresh=""
+  mf_admit "$name" "$tmp" || { rm -f "$tmp"; exit 1; }
   if [[ ! -f "$MEMORY_FILE" ]]; then
-    [[ -d "$(dirname "$MEM_DIR")" ]] || { rm -f "$tmp"
-      die "no session has started at $MEM_PROJECT_ROOT, so it has no store to start; run from the project's root"; }
-    fresh=1; mkdir -p "$MEM_DIR"; : > "$MEMORY_FILE"
+    mf_start_store || { rm -f "$tmp"; exit 1; }
+    fresh=1
   fi
   idx_bak=$(mktemp); cp "$MEMORY_FILE" "$idx_bak"
   if [[ -f "$file" ]]; then file_bak=$(mktemp); cp "$file" "$file_bak"; fi
 
   mv "$tmp" "$file"
-  if grep -q "^- \[$name\](" "$MEMORY_FILE"; then
-    local new; new=$(mf_pointer "$name" "$hook")
-    awk -v n="- [$name](" -v line="$new" \
-      'index($0, n) == 1 { print line; next } { print }' "$idx_bak" > "$MEMORY_FILE"
-  else
-    mf_pointer "$name" "$hook" >> "$MEMORY_FILE"
-  fi
-
+  mf_point "$name" "$hook" "$idx_bak"
   if ! mf_lint; then
-    cp "$idx_bak" "$MEMORY_FILE"
-    if [[ -n "$file_bak" ]]; then cp "$file_bak" "$file"; else rm -f "$file"; fi
-    if [[ -n "$fresh" ]]; then rm -f "$MEMORY_FILE"; rmdir "$MEM_DIR" 2>/dev/null; fi
-    rm -f "$idx_bak" "$file_bak"
+    mf_rollback "$file" "$idx_bak" "$file_bak" "$fresh"
     die "the lint rejected this fact; the store is unchanged"
   fi
   rm -f "$idx_bak" "$file_bak"
   echo "fact written → $name"
+}
+
+# mf_admit NAME FILE — the fact in FILE may enter the store: it names itself
+# NAME, every frontmatter value is one line, and its verify: passes now.
+mf_admit() {
+  local name="$1" tmp="$2" blocks vrc vcmd
+  # Validated against the file that will be written, not against the arguments,
+  # so a body disagreeing with its own name is caught before either file moves.
+  [[ "$(mem_field "$tmp" name)" == "$name" ]] || refuse "the body's name: is not $name" || return
+  # Named before the emptiness check below, which a block scalar would otherwise
+  # trip while reporting a missing field rather than an unreadable one.
+  blocks=$(mem_block_fields "$tmp" | tr '\n' ' ')
+  [[ -z "${blocks// }" ]] || refuse "a frontmatter value is a single line; these are block scalars: ${blocks% }" || return
+  vcmd=$(mem_field "$tmp" verify)
+  [[ -n "$vcmd" ]] || refuse "the body carries no verify:" || return
+  # A fact is admitted because its check passes now, not because it has one.
+  # Anything but 0 refuses, 75 included: a claim nobody could confirm is an item
+  # still open, not a fact. The command is quoted back because the fault may be
+  # the frontmatter's reading of it rather than the claim itself.
+  mem_verify "$vcmd"
+  vrc=$?
+  [[ "$vrc" -eq 0 ]] || refuse "its verify: exited $vrc, so the claim is not confirmed; leave it open in the queue
+  verify: $vcmd"
+}
+
+# A project's first fact starts its store, and a rollback takes the store back.
+# Only inside the folder the harness keeps for the project: with none, no
+# session ever started at $MEM_PROJECT_ROOT, so the working directory is not a
+# project — a store made there is one no session reads.
+mf_start_store() {
+  [[ -d "$(dirname "$MEM_DIR")" ]] \
+    || refuse "no session has started at $MEM_PROJECT_ROOT, so it has no store to start; run from the project's root" || return
+  mkdir -p "$MEM_DIR"; : > "$MEMORY_FILE"
+}
+
+# mf_point NAME HOOK INDEX — writes NAME's pointer into MEMORY.md from the
+# index as it was, INDEX: in place of its old pointer, else at the end.
+mf_point() {
+  local name="$1" hook="$2" idx="$3" new
+  new=$(mf_pointer "$name" "$hook")
+  if grep -q "^- \[$name\](" "$idx"; then
+    awk -v n="- [$name](" -v line="$new" \
+      'index($0, n) == 1 { print line; next } { print }' "$idx" > "$MEMORY_FILE"
+  else
+    printf '%s\n' "$new" >> "$MEMORY_FILE"
+  fi
+}
+
+# mf_rollback FILE INDEX FILE_BAK FRESH — puts the store back as it was.
+mf_rollback() {
+  local file="$1" idx_bak="$2" file_bak="$3" fresh="$4"
+  cp "$idx_bak" "$MEMORY_FILE"
+  if [[ -n "$file_bak" ]]; then cp "$file_bak" "$file"; else rm -f "$file"; fi
+  if [[ -n "$fresh" ]]; then rm -f "$MEMORY_FILE"; rmdir "$MEM_DIR" 2>/dev/null; fi
+  rm -f "$idx_bak" "$file_bak"
 }
 
 mf_remove() {  # NAME

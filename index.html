@@ -115,13 +115,28 @@
   .stat { border: 1px solid var(--hair); border-radius: 8px; padding: 10px 14px; }
   .stat b { display: block; font: 700 32px/1.1 var(--mono); color: var(--ink); }
   .stat span { color: var(--muted); font-size: 13px; }
+  .glance { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin: 26px 0 0;
+    list-style: none; padding: 0; max-width: none; }
+  @media (max-width: 860px) { .glance { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @media (max-width: 480px) { .glance { grid-template-columns: 1fr; } }
+  .glance li { margin: 0; }
+  .glance a { display: block; height: 100%; box-sizing: border-box; padding: 12px 14px; border: 1px solid var(--hair);
+    border-top: 4px solid var(--good); border-radius: 8px; color: var(--ink); text-decoration: none; }
+  .glance a:hover { background: var(--panel); }
+  .glance i { display: block; font: 700 26px/1 var(--mono); font-style: normal; color: var(--good); margin-bottom: 8px; }
+  .glance b { display: block; font-size: 16px; margin-bottom: 4px; }
+  .glance span { color: var(--muted); font-size: 13px; }
+  .bars-h { font-size: 13px; font-family: var(--mono); text-transform: uppercase; letter-spacing: .06em;
+    color: var(--good); margin: 4px 0 8px; }
+  .bars-h.work { color: var(--muted); margin-top: 18px; }
+  .bars.work .bar { background: var(--muted); }
   .bars { list-style: none; padding: 0; margin: 0; max-width: none; display: grid; gap: 6px; }
   .bars li { margin: 0; display: grid; grid-template-columns: 11em minmax(0, 1fr); gap: 10px; align-items: center; font-size: 14px; }
   .bars .track { display: flex; align-items: center; gap: 8px; }
   .bars .bar { height: 14px; border-radius: 0 4px 4px 0; background: var(--good); min-width: 2px; }
   .bars .n { font: 13px var(--mono); color: var(--muted); }
   @media (max-width: 640px) { .bars li { grid-template-columns: 1fr; gap: 2px; } }
-  .stats-off .stats, .stats-off .bars { display: none; }
+  .stats-off .stats, .stats-off .bars, .stats-off .bars-h { display: none; }
   a:focus-visible { outline: 2px solid var(--link); outline-offset: 2px; }
 </style>
 </head>
@@ -148,6 +163,12 @@
           <li><span class="box end">Followed<small>or the step is refused</small></span></li>
         </ol></div>
     </div>
+    <ul class="glance" aria-label="What sets it apart">
+      <li><a href="#h-tested"><i>01</i><b>The instructions have tests</b><span>A skill must fire on the right prompts. The voice check must agree with me.</span></a></li>
+      <li><a href="#t-0430"><i>02</i><b>Memory forgets on evidence</b><span>Every fact carries the command that can prove it wrong.</span></a></li>
+      <li><a href="#h-day"><i>03</i><b>Gates refuse, not remind</b><span>No edit before the guides are read. No question asked in prose.</span></a></li>
+      <li><a href="#t-1400"><i>04</i><b>Tests must catch planted bugs</b><span>On every changed line, even in shell scripts.</span></a></li>
+    </ul>
   </div>
 </header>
 <main>
@@ -210,8 +231,12 @@
       <div class="stat"><b data-count="skills">–</b><span>skills it picks up when a request fits</span></div>
       <div class="stat"><b data-count="guides">–</b><span>guides it reads before it edits code</span></div>
     </div>
-    <ul class="bars" aria-label="The scripts, by job"></ul>
+    <h3 class="bars-h">Travels to any setup</h3>
+    <ul class="bars" data-travels="1" aria-label="Scripts that travel, by job"></ul>
+    <h3 class="bars-h work">Plumbing for my job</h3>
+    <ul class="bars work" data-travels="0" aria-label="Scripts for my job, by service"></ul>
     <p class="caption">The scripts do the work. The rules mostly name the script that enforces them.
+      The top half is the part worth taking. The bottom half is just how my job runs.
       The gates and the 04:30 check are plain programs that make no AI call, so a refused step costs nothing.
       <span class="stats-note">Counted live from <a href="https://github.com/iguigova/dotclaude">the repo</a>.</span></p>
   </div>
@@ -233,7 +258,7 @@
       <li><h3><time>13:30</time>It's about to edit code</h3>
         <div class="vs"><p class="plain">Did it read my coding guide today? Nobody checks.</p>
           <p class="ours">The edit is refused until it has read the guides, whole.</p></div></li>
-      <li><h3><time>14:00</time>It commits a change</h3>
+      <li id="t-1400"><h3><time>14:00</time>It commits a change</h3>
         <div class="vs"><p class="plain">The tests pass, so it's done.</p>
           <p class="ours">The tests have to catch bugs planted in the change.</p></div>
         <div class="more">
@@ -268,7 +293,7 @@
       <li><h3><time>18:30</time>I close the session</h3>
         <div class="vs"><p class="plain">That's it.</p>
           <p class="ours">The notes it can place are placed, and this page is published again. Once a day, branches proven merged are deleted, and anything else left over becomes a note.</p></div></li>
-      <li><h3><time>04:30</time>Nobody's here</h3>
+      <li id="t-0430"><h3><time>04:30</time>Nobody's here</h3>
         <div class="vs"><p class="plain">A fact it learned went stale. Tomorrow it repeats it, with confidence.</p>
           <p class="ours">Every remembered fact runs its own check again.</p></div>
         <div class="more">
@@ -364,12 +389,12 @@
 (function () {
   const REPO = 'iguigova/dotclaude';
   const JOBS = [
-    ['Gates', /_gate|^tooling_commit|^gate_lib/],
-    ['Session start and end', /^session_/],
-    ['Memory and journal', /^memory_|^journal|^git_fact/],
-    ['Self-checks', /lint|test|^tap\.|_check|shellcheck|^skill_inventory|^script_find/],
-    ['GitHub', /^gh[-_]|^git_/],
-    ['Jira, Confluence, Slack', /^jira|^confluence|^atlassian|^slack|^storage|^review_request/],
+    ['Gates', /_gate|^tooling_commit|^gate_lib/, true],
+    ['Session start and end', /^session_/, true],
+    ['Memory and journal', /^memory_|^journal|^git_fact/, true],
+    ['Self-checks', /lint|test|^tap\.|_check|shellcheck|^skill_inventory|^script_find/, true],
+    ['GitHub reviews', /^gh[-_]|^git_/, false],
+    ['Jira, Confluence, Slack', /^jira|^confluence|^atlassian|^slack|^storage|^review_request/, false],
   ];
   const section = document.getElementById('inside');
   const fail = () => section.classList.add('stats-off');
@@ -387,15 +412,15 @@
       guides: paths.filter((p) => /^[^/]+_guidelines\.md$/.test(p)).length,
     };
     section.querySelectorAll('[data-count]').forEach((el) => { el.textContent = counts[el.dataset.count]; });
-    const groups = JOBS.map(([name]) => ({ name, files: [] }));
-    const other = { name: 'Everything else', files: [] };
+    const groups = JOBS.map(([name, , travels]) => ({ name, travels, files: [] }));
+    const other = { name: 'Other helpers', travels: false, files: [] };
     scripts.forEach((f) => {
       const i = JOBS.findIndex(([, re]) => re.test(f));
       (i < 0 ? other : groups[i]).files.push(f);
     });
     const rows = groups.concat(other).filter((g) => g.files.length);
     const most = Math.max(...rows.map((g) => g.files.length));
-    section.querySelector('.bars').replaceChildren(...rows.map((g) => {
+    const bar = (g) => {
       const li = document.createElement('li');
       li.title = g.files.join(', ');
       li.innerHTML = '<span></span><span class="track"><span class="bar"></span><span class="n"></span></span>';
@@ -403,7 +428,11 @@
       li.querySelector('.bar').style.width = `${(g.files.length / most) * 85}%`;
       li.querySelector('.n').textContent = g.files.length;
       return li;
-    }));
+    };
+    section.querySelectorAll('.bars').forEach((ul) => {
+      const travels = ul.dataset.travels === '1';
+      ul.replaceChildren(...rows.filter((g) => g.travels === travels).map(bar));
+    });
   }).catch(fail);
 })();
 </script>

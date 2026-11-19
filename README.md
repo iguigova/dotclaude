@@ -22,6 +22,13 @@ shown with itself at [iguigova.github.io/style.html](https://iguigova.github.io/
 Beside it, [`brand.js`](https://github.com/iguigova/iguigova.github.io/blob/main/brand.js)
 gives every page the same Light and Dark switch.
 
+## Layers
+
+Two layers: `~/.claude` holds the methods, scripts and rules every project
+shares, and each project's own `.claude/` holds its values, secrets, verbs
+and records. [`ARCHITECTURE.md`](ARCHITECTURE.md) states the parts, how they
+fit together, and how one is added, changed or removed.
+
 ## The loop
 
 A rule names the script that enforces it. The script carries its own

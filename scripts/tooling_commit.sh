@@ -409,7 +409,7 @@ e.txt"
 
   # The export's source holds every path on its allowlist, or git archive refuses.
   local d="$tmp/dotsrc" f; mkdir -p "$d/skills/a" "$d/.github"
-  for f in CLAUDE.md credo.md x_guidelines.md statusline.sh settings.json skills/a/SKILL.md \
+  for f in CLAUDE.md credo.md ARCHITECTURE.md x_guidelines.md statusline.sh settings.json skills/a/SKILL.md \
            index.html README.md LICENSE .github/w.yml; do echo "$f" > "$d/$f"; done
   mkrepo "$d" scripts/selftest.sh; echo "secret-co" > "$d/dotclaude_denylist.txt"
   echo ok > "$d/scripts/ok.sh"

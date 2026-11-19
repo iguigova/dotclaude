@@ -44,7 +44,7 @@
 # Exit 0 committed, nothing to commit or a clean scan, 1 refused or a hit, 2 usage.
 set -uo pipefail
 
-ALLOW=(CLAUDE.md credo.md '*_guidelines.md' statusline.sh settings.json skills scripts
+ALLOW=(CLAUDE.md credo.md ARCHITECTURE.md '*_guidelines.md' statusline.sh settings.json skills scripts
        index.html README.md LICENSE .github)
 KEEP=(.git .claude)
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
@@ -200,7 +200,7 @@ self_test() {
   g() { git -C "$1" -c user.name=t -c user.email=t@example.com "${@:2}"; }
 
   mkdir -p "$fx/src/scripts" "$fx/src/skills/a" "$fx/src/commands" "$fx/src/projects"
-  for f in credo.md statusline.sh settings.json commands/c.md; do echo "$f" > "$fx/src/$f"; done
+  for f in credo.md ARCHITECTURE.md statusline.sh settings.json commands/c.md; do echo "$f" > "$fx/src/$f"; done
   # It leaves bytecode behind, as a Python selftest does.
   printf '%s\n' '#!/usr/bin/env bash' 'mkdir -p "${0%/*}/__pycache__"; : > "${0%/*}/__pycache__/x.pyc"' \
     > "$fx/src/scripts/selftest.sh"
@@ -220,7 +220,7 @@ self_test() {
            export_to "$fx/src" "$fx/dst" "$1") 2>&1; }
 
   out=$(run "first export") && tap_ok "a clean export succeeds" || tap_not_ok "a clean export succeeds" "$out"
-  [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && tap_ok "the allowlist is copied" || tap_not_ok "the allowlist is copied" "allowlist missing"
+  [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/ARCHITECTURE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && tap_ok "the allowlist is copied" || tap_not_ok "the allowlist is copied" "allowlist missing"
   [[ -f "$fx/dst/index.html" && -f "$fx/dst/README.md" && -f "$fx/dst/.github/workflows/selftest.yml" ]] \
     && tap_ok "the page, the README and the workflow are copied from the source" || tap_not_ok "the page, the README and the workflow are copied from the source" "public files missing"
   [[ ! -e "$fx/dst/projects" && ! -e "$fx/dst/dotclaude_denylist.txt" ]] && tap_ok "paths off the allowlist stay behind" || tap_not_ok "paths off the allowlist stay behind" "an unlisted path was exported"

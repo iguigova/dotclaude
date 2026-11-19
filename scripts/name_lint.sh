@@ -277,7 +277,10 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local d rc=0 out self
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
-  d=$(mktemp -d); trap 'rm -rf "$d" "$d.linked"' RETURN
+  d=$(mktemp -d); trap 'rm -rf "$d" "$d.linked" "$d.home"' RETURN
+  # $HOME is a root of every run, so an empty one keeps each verdict off the live
+  # home tree. It is not $d: $HOME is never a project, and $d is the project.
+  mkdir "$d.home"; local -x HOME="$d.home"
   mkdir -p "$d/.claude/scripts" "$d/.claude/skills/probe" "$d/.claude/skills/probe:sub"
   : > "$d/.claude/scripts/real.sh"
   : > "$d/.claude/skills/probe/SKILL.md"

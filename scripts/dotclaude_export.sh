@@ -133,13 +133,35 @@ scan_emails() {
   return "$hits"
 }
 
+# present_allowed <src> — each top-level name at <src>'s HEAD that an ALLOW
+# entry matches. The allowlist says what may be published, so an entry the
+# source does not hold is left out rather than refused.
+present_allowed() {
+  local name entry
+  while IFS= read -r name; do
+    for entry in "${ALLOW[@]}"; do
+      # shellcheck disable=SC2053  # an entry may be a glob on purpose
+      [[ "$name" == $entry ]] && { printf '%s\n' "$name"; break; }
+    done
+  done < <(git -C "$1" ls-tree --name-only HEAD)
+}
+
+# archive_allowed <src> — a tar of the allowlisted part of <src>'s HEAD. With
+# no names, git archive would take the whole tree, so that is refused.
+archive_allowed() {
+  local -a names
+  mapfile -t names < <(present_allowed "$1")
+  [[ "${#names[@]}" -gt 0 ]] || { echo "dotclaude_export.sh: $1 holds nothing on the allowlist" >&2; return 1; }
+  git -C "$1" archive HEAD -- "${names[@]}"
+}
+
 # scan_head <src> — scan the allowlist as committed at <src>'s HEAD, in a
 # scratch repo so files() lists it as the export would.
 scan_head() {
   local src=$1 tmp st
   git -C "$src" rev-parse --verify -q HEAD >/dev/null || die "$src is not a git repo with a commit"
   tmp=$(mktemp -d); git init -q "$tmp"
-  git -C "$src" archive HEAD -- "${ALLOW[@]}" | tar -x -C "$tmp" || { rm -rf "$tmp"; die "git archive of $src failed"; }
+  archive_allowed "$src" | tar -x -C "$tmp" || { rm -rf "$tmp"; die "git archive of $src failed"; }
   scan "$tmp" "$src/dotclaude_denylist.txt"; st=$?
   rm -rf "$tmp"; return "$st"
 }
@@ -176,7 +198,7 @@ export_to() {  # <src> <target> <message>
   check_ends "$src" "$dst"
   sha=$(git -C "$src" rev-parse --short HEAD)
   clear_target "$dst"
-  git -C "$src" archive HEAD -- "${ALLOW[@]}" | tar -x -C "$dst" || die "git archive of $src failed"
+  archive_allowed "$src" | tar -x -C "$dst" || die "git archive of $src failed"
 
   scan "$dst" "$src/dotclaude_denylist.txt" >&2 || refuse "$dst" "the copy holds the hits above"
   [[ -x "$dst/scripts/selftest.sh" ]] || refuse "$dst" "the copy has no executable scripts/selftest.sh"
@@ -200,7 +222,7 @@ self_test() {
   g() { git -C "$1" -c user.name=t -c user.email=t@example.com "${@:2}"; }
 
   mkdir -p "$fx/src/scripts" "$fx/src/skills/a" "$fx/src/commands" "$fx/src/projects"
-  for f in credo.md ARCHITECTURE.md statusline.sh settings.json commands/c.md; do echo "$f" > "$fx/src/$f"; done
+  for f in credo.md statusline.sh settings.json commands/c.md; do echo "$f" > "$fx/src/$f"; done
   # It leaves bytecode behind, as a Python selftest does.
   printf '%s\n' '#!/usr/bin/env bash' 'mkdir -p "${0%/*}/__pycache__"; : > "${0%/*}/__pycache__/x.pyc"' \
     > "$fx/src/scripts/selftest.sh"
@@ -220,7 +242,7 @@ self_test() {
            export_to "$fx/src" "$fx/dst" "$1") 2>&1; }
 
   out=$(run "first export") && tap_ok "a clean export succeeds" || tap_not_ok "a clean export succeeds" "$out"
-  [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/ARCHITECTURE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && tap_ok "the allowlist is copied" || tap_not_ok "the allowlist is copied" "allowlist missing"
+  [[ -f "$fx/dst/CLAUDE.md" && -f "$fx/dst/go_coding_guidelines.md" && -f "$fx/dst/skills/a/SKILL.md" ]] && tap_ok "the allowlist is copied" || tap_not_ok "the allowlist is copied" "allowlist missing"
   [[ -f "$fx/dst/index.html" && -f "$fx/dst/README.md" && -f "$fx/dst/.github/workflows/selftest.yml" ]] \
     && tap_ok "the page, the README and the workflow are copied from the source" || tap_not_ok "the page, the README and the workflow are copied from the source" "public files missing"
   [[ ! -e "$fx/dst/projects" && ! -e "$fx/dst/dotclaude_denylist.txt" ]] && tap_ok "paths off the allowlist stay behind" || tap_not_ok "paths off the allowlist stay behind" "an unlisted path was exported"
@@ -233,6 +255,10 @@ self_test() {
 
   out=$(scan_head "$fx/src") && tap_ok "--scan passes a clean HEAD" || tap_not_ok "--scan passes a clean HEAD" "$out"
   scan_denylist "$fx/src" "$fx/no-denylist"; tap_is "a missing denylist denies nothing" "$?" 0
+  [[ ! -e "$fx/dst/ARCHITECTURE.md" ]] && tap_ok "an allowlisted path the source lacks is left out, not refused" \
+    || tap_not_ok "an allowlisted path the source lacks is left out, not refused" "a path the source lacks appeared"
+  mkdir "$fx/bare"; echo "x" > "$fx/bare/private.md"; g "$fx/bare" init -q; g "$fx/bare" add -A; g "$fx/bare" commit -qm one
+  tap_fails "a source holding nothing on the allowlist is refused" archive_allowed "$fx/bare"
   echo "works at Secret-Co" > "$fx/src/scripts/s.sh"
   out=$(scan_head "$fx/src") && tap_ok "--scan reads HEAD, not the working tree" || tap_not_ok "--scan reads HEAD, not the working tree" "$out"
   g "$fx/src" add -A; g "$fx/src" commit -qm scan

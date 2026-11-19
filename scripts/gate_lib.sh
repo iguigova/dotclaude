@@ -21,6 +21,8 @@
 #                                    name_lint --gate over the prose changed since HEAD
 #   gate_changed_code <repo>         change_gate.py over the code changed since HEAD:
 #                                    complexity, and every mutant on a changed line killed
+#   gate_layer_names <.claude dir>   no skill name in both layers, and every script
+#                                    overriding a global one passes its --self-test
 #   gate_end                         the verdict line, then exit
 #
 # Usage:
@@ -215,6 +217,42 @@ gate_changed_code() {  # <repo>
   gate_run "$GATE_SCRIPTS/change_gate.py" --base HEAD "$1"
 }
 
+# gate_layer_names — a project's .claude/ against ~/.claude. Claude Code loads
+# the personal skill over a project skill of the same name, so a shared skill
+# name leaves the project's never loaded. A project script that overrides a
+# global one keeps its contract, which the global script's own --self-test
+# proves when it runs the implementation UNDER_TEST names. Each repo's own
+# selftest.sh is its gate, not an override.
+LAYER_OWN=selftest.sh
+
+skill_names() {  # <skills dir>
+  [ -d "$1" ] && find "$1" -mindepth 2 -maxdepth 2 -name SKILL.md -printf '%h\n' | sed 's#.*/##' | LC_ALL=C sort
+}
+
+script_names() {  # <scripts dir>
+  [ -d "$1" ] && find "$1" -maxdepth 1 -type f ! -name "$LAYER_OWN" -printf '%f\n' | LC_ALL=C sort
+}
+
+override_ok() {  # <global script> <project script>
+  grep -q UNDER_TEST "$1" \
+    || { echo "  FAIL $2 overrides $1, whose --self-test never reads UNDER_TEST"; return 1; }
+  UNDER_TEST=$2 "$1" --self-test >/dev/null 2>&1 \
+    || { echo "  FAIL $2 fails $1's --self-test"; return 1; }
+  echo "  ok  $2 passes $1's --self-test"
+}
+
+gate_layer_names() {  # <project .claude dir>
+  local dir=$1 global="$HOME/.claude" name clash=0
+  while IFS= read -r name; do
+    echo "  FAIL skill $name is in both $global/skills and $dir/skills"; clash=1
+  done < <(LC_ALL=C comm -12 <(skill_names "$global/skills") <(skill_names "$dir/skills"))
+  while IFS= read -r name; do
+    override_ok "$global/scripts/$name" "$dir/scripts/$name" || clash=1
+  done < <(LC_ALL=C comm -12 <(script_names "$global/scripts") <(script_names "$dir/scripts"))
+  [ "$clash" -eq 0 ] && echo "  ok  no skill in both layers, and every override keeps its contract"
+  [ "$clash" -eq 0 ] || fail=1
+}
+
 gate_end() {
   echo
   [ "$fail" -eq 0 ] && echo "selftest: PASS" || echo "selftest: FAIL"
@@ -335,5 +373,30 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_like "a changed doc naming what does not exist fails" "$(gate)" "*fail=1"
   printf 'plain words\n' > repo/a.md
   tap_like "a changed doc naming nothing passes" "$(gate)" "*fail=0"
+
+  mkdir -p h/.claude/skills/shared h/.claude/skills/solo h/.claude/scripts p/skills/mine p/scripts
+  : > h/.claude/skills/shared/SKILL.md; : > h/.claude/skills/solo/SKILL.md; : > p/skills/mine/SKILL.md
+  printf '#!/usr/bin/env bash\n"${UNDER_TEST:-true}"\n' > h/.claude/scripts/testable.sh
+  printf '#!/usr/bin/env bash\ntrue\n' > h/.claude/scripts/fixed.sh
+  printf '#!/usr/bin/env bash\nexit 0\n' > h/.claude/scripts/selftest.sh
+  chmod +x h/.claude/scripts/*.sh
+  layers() { ( HOME="$fx/h"; run gate_layer_names "$fx/p" ); }
+  tap_is "a project sharing no name with the global layer passes" "$(layers)" \
+    $'  ok  no skill in both layers, and every override keeps its contract\nfail=0'
+  cp h/.claude/scripts/selftest.sh p/scripts/
+  tap_like "each repo's own selftest.sh is not an override" "$(layers)" "*fail=0"
+  mkdir p/skills/shared; : > p/skills/shared/SKILL.md
+  tap_is "a skill in both layers fails, named" "$(layers)" \
+    "  FAIL skill shared is in both $fx/h/.claude/skills and $fx/p/skills"$'\nfail=1'
+  rm -r p/skills/shared
+  printf '#!/usr/bin/env bash\nexit 0\n' > p/scripts/testable.sh; chmod +x p/scripts/testable.sh
+  tap_like "an override that passes the global self-test passes" "$(layers)" \
+    "  ok  $fx/p/scripts/testable.sh passes $fx/h/.claude/scripts/testable.sh's --self-test*fail=0"
+  printf '#!/usr/bin/env bash\nexit 1\n' > p/scripts/testable.sh
+  tap_like "an override that fails the global self-test fails" "$(layers)" \
+    "  FAIL $fx/p/scripts/testable.sh fails *fail=1"
+  rm p/scripts/testable.sh; cp h/.claude/scripts/fixed.sh p/scripts/
+  tap_like "an override of a script whose self-test cannot run it fails" "$(layers)" \
+    "  FAIL $fx/p/scripts/fixed.sh overrides *never reads UNDER_TEST*fail=1"
   tap_end
 fi

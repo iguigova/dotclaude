@@ -407,10 +407,7 @@ e.txt"
   tap_is "a repo with a remote commits once the clone opts in" "$out" "$(head_of "$rm_")"
   tap_is "and the commit is never pushed" "$(git -C "$tmp/origin.git" for-each-ref)" ""
 
-  # The export's source holds every path on its allowlist, or git archive refuses.
-  local d="$tmp/dotsrc" f; mkdir -p "$d/skills/a" "$d/.github"
-  for f in CLAUDE.md credo.md ARCHITECTURE.md x_guidelines.md statusline.sh settings.json skills/a/SKILL.md \
-           index.html README.md LICENSE .github/w.yml; do echo "$f" > "$d/$f"; done
+  local d="$tmp/dotsrc"
   mkrepo "$d" scripts/selftest.sh; echo "secret-co" > "$d/dotclaude_denylist.txt"
   echo ok > "$d/scripts/ok.sh"
   out=$(DOTCLAUDE_SRC="$d" "$SELF" -m "chore: ok" -- "$d/scripts/ok.sh" 2>&1)

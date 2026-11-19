@@ -7,8 +7,10 @@
 # Every name a file mentions must resolve. This catches text going stale; it says
 # nothing about whether the text is good advice.
 #
-# Four outcomes, all printed, so silence means checked:
+# Five outcomes, all printed, so silence means checked:
 #   ok         resolved in this tree
+#   verb       a verb each project provides, listed with its contract in
+#              project_verbs.txt beside this script, so no global tree holds it
 #   elsewhere  resolved only in repositories nested under the project, every one
 #              of which is named. Not a failure: a skill may document another
 #              repo. It is flagged because the name says nothing about which one,
@@ -61,6 +63,8 @@ NL_PROJECT=""   # the run's project; --project names it, else the first file's
 NL_TMP=""       # scratch for the HEAD copy --gate reads
 # Where a bare basename lives, in this tree and in a nested one alike.
 NL_SUBDIRS='scripts .claude/scripts'
+# The verbs only projects hold, each listed with its contract.
+NL_VERBS="$(dirname "${BASH_SOURCE[0]}")/project_verbs.txt"
 # Harness commands own no file. Verified present in the installed binary.
 BUILTINS=' compact clear help config model memory init mcp hooks permissions login bug rename '
 
@@ -169,6 +173,9 @@ nl_resolve() {
   nl_in_roots "$t" "${roots[@]}"
 }
 
+# nl_verb TOKEN — 0 when TOKEN is a project verb project_verbs.txt lists.
+nl_verb() { grep -q "^$1	" "$NL_VERBS" 2>/dev/null; }
+
 # nl_command NAME ROOT… — 0 when /NAME is a harness built-in or a command or
 # skill file in either layout of any root.
 nl_command() {
@@ -236,6 +243,7 @@ nl_file() {  # FILE
       printf '  skipped    %-44s %s\n' "$t" "${verdict#skip: }"; skipn=$((skipn+1)); continue
     fi
     if nl_resolve "$t" "$f"; then printf '  ok         %s\n' "$t"; okn=$((okn+1))
+    elif nl_verb "$t"; then printf '  verb       %s\n' "$t"; okn=$((okn+1))
     elif where=$(nl_elsewhere "$t"); then
       printf '  elsewhere  %-44s in %s\n' "$t" "$where"; elsen=$((elsen+1))
     else printf '  MISSING    %s\n' "$t"; miss=$((miss+1)); fi
@@ -309,6 +317,7 @@ A results table marks a pass `(/)` and a failure `(x)`.
 Runtime paths like `"$D/out.json"`, fragments like `'/def` and code like `send_file("/uploads/`.
 Run /probe:sub with no backticks, and read git show origin/main:doc.md, which is a ref.
 A bare `theirs.py` names a script the nested repository keeps under scripts/.
+A project verb such as `prod_sql.sh` is listed with its contract, not held here.
 `postman/` is in one clone's tree and only on the other's default branch.
 DOC
   printf 'A flat-layout `/flat`, and an absolute `%s/.claude/scripts/real.sh`.\n' "$d" >> "$d/doc.md"
@@ -328,6 +337,7 @@ DOC
   check "a trailing slash is a directory name"         'grep -q "ok         .claude/scripts/" <<<"$out"'
   check "a URL ending in a slash is not a directory"  'grep -q "skipped    https://example.invalid/jobs/ .*a URL" <<<"$out"'
   check "a deleted script is MISSING"                  'grep -q "MISSING    .claude/scripts/gone.sh" <<<"$out"'
+  check "a listed project verb resolves as a verb"     'grep -q "verb       prod_sql.sh" <<<"$out"'
   check "an unknown slash command is MISSING"          'grep -q "MISSING    /nosuchcommand" <<<"$out"'
   check "a missing name fails the run"                 '[[ '"$rc"' -eq 1 ]]'
   check "a git ref is skipped, with the reason"        'grep -q "skipped    origin/main .*no extension" <<<"$out"'
@@ -412,7 +422,7 @@ DOC
      && grep -q "is in no git repo" <<<"$out2"'
 
   check "every token is accounted for, so silence means checked" \
-    '[[ $(grep -cE "^  (ok|elsewhere|MISSING|skipped) " <<<"$out") \
+    '[[ $(grep -cE "^  (ok|verb|elsewhere|MISSING|skipped) " <<<"$out") \
         -eq $(nl_tokens "'"$d"'/doc.md" | grep -c .) ]]'
 }
 

@@ -1,0 +1,6 @@
+# project_verbs.txt — the verbs a project provides to the global workflows, one
+# per line: its name, a tab, its contract. A global skill or script calls one by
+# name through project_file.sh --script, and a project without it stops at that
+# step, naming it. The project's script states the rest in its own --help.
+# name_lint.sh resolves a name listed here, since only projects hold the file.
+prod_sql.sh	SQL from a file, or - for stdin, run read-only against the project's production databases, every scope by default; rows on stdout. --help states the scopes and what the database holds that its models do not say. Exit 0 every scope answered, 2 usage, 75 a call failed.

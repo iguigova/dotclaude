@@ -440,7 +440,7 @@ def line_mutants(path: str, number: int, line: str, language: str, code: str | N
     return out
 
 
-SHELL_TEST_START = re.compile(r"^(\s*)(self_test\s*\(\)\s*\{|if .*--self-test.*;\s*then\s*$)")
+SHELL_TEST_START = re.compile(r"^(\s*)(self_test\w*\s*\(\)\s*\{|if .*--self-test.*;\s*then\s*$)")
 PY_TEST_DEF = re.compile(r"^(\s*)def _?self_test\w*\(")
 
 
@@ -1107,6 +1107,8 @@ def self_test_edges(t: Tap) -> None:
     t.check(not passes(["/nonexistent/x"], Path("."), 10, tap=False) and not passes(["sleep", "5"], Path("."), 0.1, tap=False),
             "a command that cannot start or overruns its timeout has not passed")
     t.check(test_region(["x=1", "self_test() { echo; }", "y=2"], "shell") == {2}, "a one-line shell self_test is test code alone")
+    t.check(test_region(["x=1", "self_test_e2e() {", "  echo", "}", "y=2"], "shell") == {2, 3, 4},
+            "a shell self_test_ helper is test code, as a Python one is")
     lines = ["a = 1\n", "# mutation: equivalent — why\n"]
     with tempfile.TemporaryDirectory() as tmp:
         (Path(tmp) / "f").write_text("".join(lines))

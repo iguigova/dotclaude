@@ -11,6 +11,7 @@
   {"text": "I measure before I change anything, too.", "liked": false, "source": "2026-11-17, a cover letter"},
   {"text": "I kept the connection warm, and warm p90 went from 770 ms to 408 ms.", "liked": false, "source": "2026-11-17, a cover letter", "section": "~/src/oceanhue/macha/.claude/skills/job:apply/SKILL.md#Application voice"},
   {"text": "I have 3+ years of C++, and I haven't written Rust yet.", "liked": false, "source": "2026-11-17, a cover letter"},
+  {"text": "Railway is a small team with one specific, unusual problem, and that kind of company suits me best.", "liked": false, "source": "2026-11-19, a screening answer; the user replaced \"suits me best\" with \"I like working in\"", "section": "~/src/oceanhue/macha/.claude/skills/job:apply/SKILL.md#Application voice"},
   {"text": "Is it OK to go ahead once each location is confirmed?", "liked": true, "source": "2026-10-14, the rewrite of the second case"},
   {"text": "He reviewed nearly as many PRs as he wrote, for engineers across every team, and my own work was better for it more than once.", "liked": true, "source": "2026-08-16, a recommendation the user kept"},
   {"text": "I haven't written Rust yet.", "liked": true, "source": "2026-11-14, a cover letter"},

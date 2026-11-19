@@ -1,0 +1,51 @@
+<h2>Postmortem summary</h2>
+<table data-layout="default"><tbody>
+<tr><th><p><strong>Postmortem owner</strong></p></th><th><p><ac:link><ri:user ri:account-id="[owner's Atlassian account id]" /></ac:link></p></th></tr>
+<tr><td><p><strong>Incident</strong></p></td><td><p>[<a href="KEY's url, from its evidence file">KEY</a> (this defect) &middot; each related ticket, linked the same way, with its role in parentheses]</p></td></tr>
+<tr data-optional="true"><td><p><strong>Customer</strong></p></td><td><p>[Customer (client:label), site, zone or team; the row is left out when no customer is involved]</p></td></tr>
+<tr><td><p><strong>Symptom</strong></p></td><td><p>[What the user saw, in their words]</p></td></tr>
+<tr><td><p><strong>Priority</strong></p></td><td><p>[P1 (Sev2), and any commercial context]</p></td></tr>
+<tr><td><p><strong>Affected services</strong></p></td><td><ul><li><p>[<code>repo</code> &mdash; files, functions or stacks]</p></li></ul></td></tr>
+<tr><td><p><strong>Supporting evidence</strong></p></td><td><p>[Databases, logs and queries, each with the date measured; a link to the ticket comment carrying the evidence]</p></td></tr>
+</tbody></table>
+<ac:structured-macro ac:name="info" ac:schema-version="1"><ac:rich-text-body>
+<h2>Executive summary</h2>
+<p>[How the thing works.]</p>
+<p>[What broke in it, and why it stayed hidden.]</p>
+<p>[Where it stands today, with today's counts.]</p>
+</ac:rich-text-body></ac:structured-macro>
+<h2>Leadup</h2>
+<ul><li><strong>[Date]</strong> &mdash; [<code>sha</code> or PR, and what it changed]</li></ul>
+<h2>What went wrong</h2>
+<ol><li><strong>[The defect, in one sentence.]</strong> [Its consequence, with <code>file:line</code>.]</li></ol>
+<h2>What was the impact</h2>
+<ul><li><strong>Reported:</strong> [who reported what, and when]</li><li><strong>Measured:</strong> [counts, each with source and date]</li><li><strong>Exposed:</strong> [who could be affected until the fix]</li><li><strong>Internal cost:</strong> [escalations and manual fixes]</li></ul>
+<h2>Detection</h2>
+<p>[Who noticed and how. What would have shown it sooner.]</p>
+<h2>Response</h2>
+<ul><li><strong>[Date]</strong> &mdash; [who did what]</li></ul>
+<p>[The main delay, named plainly.]</p>
+<h2>Recovery</h2>
+<p>[The contract the fix enforces.]</p>
+<ul><li>[Each PR with its merge and deploy time, or "Nothing has shipped".]</li><li>[State measured today.]</li><li>[Not recovered: what stays broken or lost.]</li></ul>
+<h2>Timeline</h2>
+<table><tbody>
+<tr><th>UTC</th><th>Event</th></tr>
+<tr><td>[YYYY-MM-DD HH:MM]</td><td>[Event]</td></tr>
+</tbody></table>
+<h2>Five whys</h2>
+<p><strong>Chain 1 &mdash; [what this chain explains].</strong></p>
+<ol><li>[Why &hellip;? Because &hellip;]</li></ol>
+<h2>Blameless cause</h2>
+<p>[The structural gap every defect shares, and what now closes it.]</p>
+<h2>Backlog check</h2>
+<ul><li>[Whether any ticket covered this, with the search that shows it.]</li><li>[Earlier follow-ups: <code>file:line</code> on the default branch today.]</li></ul>
+<h2>Related incidents</h2>
+<p>[Earlier incidents with the same cause, by current key, or "None recorded".]</p>
+<h2>Lessons learned</h2>
+<ul><li>[One transferable lesson per line.]</li><li>Went well: [what worked].</li></ul>
+<h2>Follow-up tasks</h2>
+<table><tbody>
+<tr><th>#</th><th>Task</th><th>Owner</th><th>State</th></tr>
+<tr><td>1</td><td>[Task]</td><td>[Name, or "To be decided"]</td><td><strong>[Open in KEY, or To be filed]</strong></td></tr>
+</tbody></table>

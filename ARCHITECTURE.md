@@ -75,7 +75,8 @@ Skills call scripts, and scripts call scripts, each by name through
 provides. Its contract is the claim it proves. For example, `pr_env` takes a
 PR reference, prints the environment's URL, and exits 0 only once the PR's
 head commit is proven deployed there. How it gets there is the project's
-business. A project without the verb stops at that step. When two projects
+business. `scripts/project_verbs.txt` lists every verb a global part calls,
+with its contract. A project without the verb stops at that step. When two projects
 implement a verb the same way, the implementation moves to the global layer.
 
 ### Where prose goes
@@ -167,8 +168,8 @@ token reads it through `project_file.sh` and `secret_file.sh`:
 
 The skills a person asks for by name: `review:pr`, `review:bot`,
 `request:review`, `timelog`, `draft`, `voice`, `audit`, `benchmark`,
-`normative`, `gist`, `inventory`, `recap`, `journal`, `notes` and
-`standup`. Most are methods over the verbs above. `skill_triggers.json` holds the cases that say
+`normative`, `gist`, `inventory`, `recap`, `journal`, `notes`,
+`standup`, `postmortem` and `slack:reply`. Most are methods over the verbs above. `skill_triggers.json` holds the cases that say
 when each should fire, and `scripts/skill_trigger_test.py` runs them.
 
 ### Publishing
@@ -203,6 +204,8 @@ therefore public, and names no employer.
 Search first with `script_find.py`. A new script is one verb, with its
 header, its exit codes and its `--self-test`. A verb that holds a project's
 specifics lives in that project; one with none lives in the global layer. A
+project verb that a global part calls is listed with its contract in
+`scripts/project_verbs.txt`, in the same commit as its first caller. A
 project verb moves to the global layer when a second project implements it
 the same way.
 

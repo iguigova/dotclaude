@@ -167,8 +167,8 @@ token reads it through `project_file.sh` and `secret_file.sh`:
 
 The skills a person asks for by name: `review:pr`, `review:bot`,
 `request:review`, `timelog`, `draft`, `voice`, `audit`, `benchmark`,
-`normative`, `gist`, `inventory`, `recap`, `journal` and `notes`. Most are
-methods over the verbs above. `skill_triggers.json` holds the cases that say
+`normative`, `gist`, `inventory`, `recap`, `journal`, `notes` and
+`standup`. Most are methods over the verbs above. `skill_triggers.json` holds the cases that say
 when each should fire, and `scripts/skill_trigger_test.py` runs them.
 
 ### Publishing

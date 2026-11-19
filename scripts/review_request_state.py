@@ -45,7 +45,8 @@ KEY prints one JSON object:
 
 ``send`` reads the state again and posts FILE with slack_post.py only when
 ``next`` is still the one the approved text was written for (``--expect``),
-as a new message for ``post`` or in the thread for ``reply``. It then
+as a new message for ``post`` or in the thread for ``reply``, a reply
+also sent to the channel so the request shows there too. It then
 records the thread on the ticket when the ticket has no record yet, and
 prints {"permalink", "thread"}.
 
@@ -234,7 +235,7 @@ class World:
     def post(self, ch, path, thread_ts):
         cmd = [self.here / 'slack_post.py', 'post', ch, path]
         if thread_ts:
-            cmd += ['--thread', thread_ts]
+            cmd += ['--thread', thread_ts, '--broadcast']
         out = self.run(*cmd)
         if out.returncode:
             raise RuntimeError(out.stderr.strip() or out.stdout.strip() or 'slack_post.py failed')
@@ -562,8 +563,8 @@ def state_tests(t):
     d = fake_dir(json.dumps(pr(1)) + '\n' + json.dumps(pr(2)) + '\n', recorded='x/2.0')
     sent = send('A-1', 'f.md', 'reply', World(FakeSlack(['x/2.0'], msgs), d))
     t.check((log(d, 'post.log'), sent['thread'], len(log(d, 'jira.log')))
-            == (['post C1 f.md --thread 2.0'], 'x/2.0', 1),
-            'a reply goes in the recorded thread, and a recorded thread is not recorded again')
+            == (['post C1 f.md --thread 2.0 --broadcast'], 'x/2.0', 1),
+            'a reply goes in the recorded thread and to the channel, and a recorded thread is not recorded again')
     d = fake_dir(json.dumps(pr(1)) + '\n' + json.dumps(pr(2)) + '\n')
     send('A-1', 'f.md', 'reply', World(FakeSlack(['x/2.0'], msgs), d))
     t.check(log(d, 'jira.log')[-1] == f'set A-1 {GLOBAL_ID} link/2.0 Review thread in Slack',

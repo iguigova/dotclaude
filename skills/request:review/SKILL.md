@@ -47,7 +47,7 @@ Show the final text and ask in the question dialog whether to post it. Once it i
 "$(~/.claude/scripts/project_file.sh --script review_request_state.py)" send <KEY> <file> --expect <next from step 1>
 ```
 
-It posts only while `next` is unchanged, in the thread for a reply, and records a new thread on the ticket. Exit 4 means the state moved: show what it printed and redraft. Give the user the permalink it prints.
+It posts only while `next` is unchanged, in the thread for a reply, also sent to the channel, and records a new thread on the ticket. Exit 4 means the state moved: show what it printed and redraft. Give the user the permalink it prints.
 
 ## 4. Record it
 

@@ -13,7 +13,7 @@ Always open with **Tasks** — call `TaskList` and print every task with its id 
 Next, **Notes** — the queue notes this session opened or closed, read from the entries stamped with its id:
 
 ```bash
-~/.claude/scripts/journal_queue.sh --session "$CLAUDE_CODE_SESSION_ID" --show
+"$(~/.claude/scripts/project_file.sh --script journal_queue.sh)" --session "$CLAUDE_CODE_SESSION_ID" --show
 ```
 
 Print its output verbatim and outside a code block. If it prints nothing, say so in one line.

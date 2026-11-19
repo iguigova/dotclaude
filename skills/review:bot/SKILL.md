@@ -22,7 +22,7 @@ Each is fixed, declined with a reason, or shown to be already handled; each gets
 ## 1. Start, and fetch the bot's findings
 
 ```bash
-~/.claude/scripts/gh-pr-start.sh [<pr-ref>] --suffix BOT
+"$(~/.claude/scripts/project_file.sh --script gh-pr-start.sh)" [<pr-ref>] --suffix BOT
 ```
 
 Show what it prints; its `pr:` URL is `<pr-ref>` below.
@@ -30,7 +30,7 @@ Show what it prints; its `pr:` URL is `<pr-ref>` below.
 Under plan mode, pass `--no-name`; its header states when else.
 
 ```bash
-~/.claude/scripts/gh-pr-bot-fetch.sh <pr-ref> [bot-login-substr …]
+"$(~/.claude/scripts/project_file.sh --script gh-pr-bot-fetch.sh)" <pr-ref> [bot-login-substr …]
 ```
 
 Show what it prints. It writes `$D/bot.json` and `$D/score.json` beside `$D/pr.json`, `$D` being the directory `gh-pr-workdir.sh <pr-ref>` prints; `gh-pr-bot-comments.sh --help` and `gh-pr-bot-score.sh --help` state their JSON. Pass a login substring, such as `greptile`, only when the user names one bot. A non-zero exit means neither file was written: stop, and say why.
@@ -40,7 +40,7 @@ Show what it prints. It writes `$D/bot.json` and `$D/score.json` beside `$D/pr.j
 Read the gate before the threads, because a red one often *is* the ask. Each step recomputes `$D`:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 jq -c '.gate' "$D/pr.json"
 ```
 
@@ -55,7 +55,7 @@ For each failing check:
 - **Separate what this PR broke from what was already broken.** A cloud checker typically blames a PR only for issues it *introduces*, while running the same tool locally flags every file the diff touches. The two counts disagree, and the local one is the overcount. Settle it by measuring: fetch each flagged file at the merge base and run the same tool on it.
 
   ```bash
-  ~/.claude/scripts/gh-pr-file.sh --base <pr-ref> <path> [<path>...]
+  "$(~/.claude/scripts/project_file.sh --script gh-pr-file.sh)" --base <pr-ref> <path> [<path>...]
   ```
 
   It prints where each file landed, under `$D/base/`; run the tool on those. A file clean at the base and dirty now is yours. A file dirty at the base is pre-existing: leave it, and say in the reply that you did and why. A file the helper reports not found at the merge base is one the PR added, so everything in it is yours. Compare the two runs by exit status and error output, never by counting lines of stdout: a run that refused its arguments prints a usage error, which a count reads as zero issues.
@@ -67,7 +67,7 @@ For each failing check:
 The fix must land on the PR's head branch. Find where that branch is checked out:
 
 ```bash
-~/.claude/scripts/gh-pr-local-tree.sh <pr-ref>
+"$(~/.claude/scripts/project_file.sh --script gh-pr-local-tree.sh)" <pr-ref>
 ```
 
 It finds the clone whose `origin` is the PR's repo, under the project (`gh-pr-local-tree.sh --help` states where it looks), and checks that clone's branch. Every edit, test and commit for this PR happens in the directory it prints. Act on its exit:
@@ -129,7 +129,7 @@ The gate must pass (the project's gate prints `gate: PASS`), and each §2 failur
 Write each reply body to a file in the PR's working directory first — multi-line markdown survives the shell cleanly and the drafts stay keyed to the PR:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 
 # An inline thread: the replies endpoint guarantees correct nesting.
 gh api -X POST repos/<owner>/<repo>/pulls/<number>/comments/<thread-id>/replies \
@@ -166,8 +166,8 @@ Commit the fixes in ticket-first house style (`XYZ-1234: <summary>`), one messag
 Once the new head is on GitHub, fetch again everything §2 and §4 read, since the files §1 wrote describe the old code:
 
 ```bash
-~/.claude/scripts/gh-pr-bot-fetch.sh <pr-ref> --wait [bot-login-substr …] &&
-~/.claude/scripts/gh-pr-start.sh <pr-ref> --no-name
+"$(~/.claude/scripts/project_file.sh --script gh-pr-bot-fetch.sh)" <pr-ref> --wait [bot-login-substr …] &&
+"$(~/.claude/scripts/project_file.sh --script gh-pr-start.sh)" <pr-ref> --no-name
 ```
 
 Show what it prints, and act on it:
@@ -183,7 +183,7 @@ Stop looping after two rounds that fail to move the score, or when what remains 
 - Journal the run, its `--sha` the §8 commit:
 
 ```bash
-~/.claude/scripts/journal.sh -t "<TICKET> PR #<n> — address bot review (<repo>)" --via /review:bot \
+"$(~/.claude/scripts/project_file.sh --script journal.sh)" -t "<TICKET> PR #<n> — address bot review (<repo>)" --via /review:bot \
   -b "<per-finding: P<n> <file> — fixed/declined/already-addressed, one line>" \
   -b "<per-human-comment: <author> <file or PR> — outcome, one line>" \
   -b "<per-red-gate: <check> — cause and fix>" \
@@ -196,7 +196,7 @@ Stop looping after two rounds that fail to move the score, or when what remains 
 - Re-assert the session title, so the ticket is the last record written:
 
 ```bash
-~/.claude/scripts/gh-pr-name-session.sh <pr-ref> BOT
+"$(~/.claude/scripts/project_file.sh --script gh-pr-name-session.sh)" <pr-ref> BOT
 ```
 
 Show the line it prints.

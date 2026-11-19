@@ -20,9 +20,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   [[ "${1:-}" == "--self-test" ]] || {
     echo "atlassian-auth.sh: source this file; executed, it takes only --self-test" >&2; exit 2; }
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  mkdir -p "$fx/.claude/helpers" "$fx/home" "$fx/bin"
-  cp "$0" "$fx/.claude/helpers/atlassian-auth.sh"
-  cp "$(dirname "$0")/project_file.sh" "$(dirname "$0")/secret_file.sh" "$fx/.claude/helpers/"
+  mkdir -p "$fx/.claude/scripts" "$fx/home" "$fx/bin"
+  cp "$0" "$fx/.claude/scripts/atlassian-auth.sh"
+  cp "$(dirname "$0")/project_file.sh" "$(dirname "$0")/secret_file.sh" "$fx/.claude/scripts/"
   mkdir -p "$fx/.secrets"; : > "$fx/.claude/session_history.md"
   printf 'https://example.invalid\n' > "$fx/.claude/atlassian_site"
   printf 'me@example.invalid\n' > "$fx/.secrets/jira-email"
@@ -32,9 +32,9 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   # shellcheck disable=SC2016  # expanded by the inner shell, after the source
   probe='source "$1" || exit $?; printf "%s|%s|%s\n" "$ATLASSIAN_SITE" "$JIRA_USER" "$JIRA_TOKEN"; atlassian_curl "$ATLASSIAN_SITE/x" | paste -sd" "'
   mkdir -p "$fx/.claude/sub/dir"
-  got=$(cd "$fx/.claude/sub/dir" && HOME="$fx/home" PATH="$fx/bin:$PATH" bash -c "$probe" _ "$fx/.claude/helpers/atlassian-auth.sh")
+  got=$(cd "$fx/.claude/sub/dir" && HOME="$fx/home" PATH="$fx/bin:$PATH" bash -c "$probe" _ "$fx/.claude/scripts/atlassian-auth.sh")
   rm "$fx/.claude/atlassian_site"
-  site_rc=0; (cd "$fx" && HOME="$fx/home" bash -c "$probe" _ "$fx/.claude/helpers/atlassian-auth.sh") \
+  site_rc=0; (cd "$fx" && HOME="$fx/home" bash -c "$probe" _ "$fx/.claude/scripts/atlassian-auth.sh") \
     >/dev/null 2>"$fx/err" || site_rc=$?
   want='https://example.invalid|me@example.invalid|tok
 -s -u me@example.invalid:tok -H Accept: application/json https://example.invalid/x'

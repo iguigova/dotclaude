@@ -81,7 +81,7 @@ Sections, tables, code blocks, headings unrelated to the change stay byte-for-by
 
 **Always** fetch fresh, never relying on an earlier read in the session.
 
-- Confluence → `~/.claude/scripts/confluence-page.sh <id-or-url> --to <scratchpad>`. The path it prints is the body every later step edits and writes back.
+- Confluence → `"$(~/.claude/scripts/project_file.sh --script confluence-page.sh)" <id-or-url> --to <scratchpad>`. The path it prints is the body every later step edits and writes back.
 - File → read it with the Read tool.
 
 ### 3. Identify everything affected
@@ -100,11 +100,11 @@ Edit *all* of these in one pass.
 
 Use targeted `Edit` calls, one per logical change.
 
-Then run `~/.claude/scripts/normative_lint.py <path>` and judge each hit: rewrite it, or name the benign case it is. Re-read the result end-to-end (or grep for the removed concept) to confirm no orphan references survived.
+Then run `"$(~/.claude/scripts/project_file.sh --script normative_lint.py)" <path>` and judge each hit: rewrite it, or name the benign case it is. Re-read the result end-to-end (or grep for the removed concept) to confirm no orphan references survived.
 
 ### 5. Write back
 
-- Confluence → `~/.claude/scripts/confluence-safe-update.sh --from <path>`, the path step 2 printed.
+- Confluence → `"$(~/.claude/scripts/project_file.sh --script confluence-safe-update.sh)" --from <path>`, the path step 2 printed.
 
 ### 6. Report
 

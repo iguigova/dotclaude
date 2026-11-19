@@ -88,6 +88,7 @@ import concurrent.futures
 import contextlib
 import csv
 import dataclasses
+import functools
 import io
 import json
 import os
@@ -173,9 +174,16 @@ def added_lines(diff: str) -> dict[str, set[int]]:
 
 
 def changes(repo: Path, base: str) -> list[Change]:
-    found = added_lines(git(repo, "diff", "-U0", "--no-color", "--no-renames", base))
-    for path in git(repo, "ls-files", "--others", "--exclude-standard").splitlines():
-        found[path] = set(range(1, line_count(repo / path) + 1))
+    """The lines each file adds or changes since base, untracked files
+    included. The worktree is staged into a scratch index, never the repo's
+    own, so a move is seen as one whether or not git tracks its new path, and
+    counts only the lines it edited: moving code is not writing it."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
+        run = functools.partial(subprocess.run, cwd=repo, env=env, capture_output=True, text=True, check=True)
+        run(["git", "read-tree", base])
+        run(["git", "add", "-A", "."])
+        found = added_lines(run(["git", "diff", "--cached", "-U0", "--no-color", "--find-renames", base]).stdout)
     return [Change(p, frozenset(s)) for p, s in sorted(found.items()) if (repo / p).is_file()]
 
 
@@ -1107,6 +1115,30 @@ def self_test_edges(t: Tap) -> None:
     t.check(not passes(["sh", "-c", "exit 0"], Path("."), 10, tap=True), "a self-test that prints no plan has not passed")
 
 
+def self_test_moves(t: Tap) -> None:
+    with tempfile.TemporaryDirectory() as tmp:
+        repo = self_test_repo(Path(tmp))
+        (repo / "a.sh").write_text("".join(f"echo {i}\n" for i in range(20)))
+        git(repo, "add", "-A")
+        git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "a")
+        (repo / "a.sh").rename(repo / "b.sh")
+        t.check(changes(repo, "HEAD") == [], "a file moved unedited, untracked at its new path, is no changed code")
+        t.check(git(repo, "status", "--porcelain") == " D a.sh\n?? b.sh\n", "and the repo's own index is left as it was",
+                git(repo, "status", "--porcelain"))
+        git(repo, "add", "-A")
+        t.check(changes(repo, "HEAD") == [], "a file moved unedited and staged is no changed code")
+        try:
+            changes(repo, "no-such-base")
+            refused = False
+        except subprocess.CalledProcessError:
+            refused = True
+        t.check(refused, "a base git cannot read is an error, never an empty change")
+        (repo / "b.sh").write_text((repo / "b.sh").read_text().replace("echo 3\n", "echo three\n"))
+        git(repo, "add", "-A")
+        got = changes(repo, "HEAD")
+        t.check(got == [Change("b.sh", frozenset({4}))], "a moved file counts only the line the move edited", str(got))
+
+
 def self_test_reports(t: Tap) -> None:
     rows = '4,12,19,2,4,"f","a.js","f","f ( x , y )",1,4\n1,10,10,1,1,"g","a.js","g","g ( )",5,5\n'
     t.check(over_limit(rows) == ["a.js:1 f (CCN 12)"],
@@ -1576,6 +1608,7 @@ def self_test() -> int:
     self_test_mutants(t)
     self_test_masks(t)
     self_test_edges(t)
+    self_test_moves(t)
     self_test_reports(t)
     self_test_gate(t)
     self_test_refusals(t)

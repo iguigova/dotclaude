@@ -17,7 +17,7 @@ This is a change-oriented review. Focus on the diff, not the entire file. Do not
 **Where the writes are.** §1–§5 read GitHub and write scratch into the PR's private working directory, with one exception: §1 names the session, which appends a title record to this session's transcript. §6 (post) and §7 (worklog, journal, title) are the only other steps that change anything outside the directory. Under plan mode, a read-only invocation, or any instruction to make no changes, pass `--no-name` and stop at §6 with the review delivered in chat. That is a complete deliverable, and §7 bills it once the session can write again.
 
 ```bash
-~/.claude/scripts/gh-pr-start.sh [<pr-ref>]
+"$(~/.claude/scripts/project_file.sh --script gh-pr-start.sh)" [<pr-ref>]
 ```
 
 Show what it prints; its `pr:` URL is `<pr-ref>` below.
@@ -29,9 +29,9 @@ Each later block recomputes `D` with `gh-pr-workdir.sh`. `"$D/pr.json"` is the f
 Two mechanical questions, answered before reading a single line of diff, because either can change what the review is for:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 jq -c '.gate' "$D/pr.json"
-~/.claude/scripts/gh-pr-prior-review.sh < "$D/pr.json" > "$D/prior.json"
+"$(~/.claude/scripts/project_file.sh --script gh-pr-prior-review.sh)" < "$D/pr.json" > "$D/prior.json"
 jq -c '{prior, delta_range, blocking_others,
         findings: [.findings[] | {id, path, line, replies: (.replies | length)}],
         others_threads: [.others_threads[] | {id, author, path, line, replies: (.replies | length)}]}' "$D/prior.json"
@@ -58,8 +58,8 @@ jq -c '{prior, delta_range, blocking_others,
 The selector reads the step-1 fetch and prints the guideline files that apply:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
-~/.claude/scripts/gh-pr-guidelines.sh < "$D/pr.json"
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script gh-pr-guidelines.sh)" < "$D/pr.json"
 ```
 
 `Read` each path it prints **silently** — do not output their contents. Apply them during review.
@@ -71,9 +71,9 @@ A guideline states a general rule; the repo states what it actually uses. Where 
 Build the diff index once — it is the source of truth for every line number you cite and for the import check below (and it's what the post step validates against). Pass the head SHA through from the fetch, so §6 can tell whether the PR moved under the review:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 jq -r '.diff' "$D/pr.json" > "$D/pr.diff"   # reuse the step-1 fetch, no re-download
-~/.claude/scripts/gh-pr-diff-index.sh \
+"$(~/.claude/scripts/project_file.sh --script gh-pr-diff-index.sh)" \
   --diff-file "$D/pr.diff" \
   --head-sha "$(jq -r '.head_sha' "$D/pr.json")" > "$D/pr-index.json"
 ```
@@ -93,8 +93,8 @@ lines, complexity, nesting, exits and parameters at both commits. `--help` state
 every field and every rule:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
-~/.claude/scripts/gh-pr-structure.sh <pr-ref> \
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script gh-pr-structure.sh)" <pr-ref> \
   --index-file "$D/pr-index.json" > "$D/structure.json"
 jq -r '.files[] | "\(.path) \(.lines_base)->\(.lines_head) cross=\(.crosses_threshold)",
        (.parse_errors // [] | .[] | "  parse error at \(.commit) lines \(.lines) in \(.function // "no function")"),
@@ -114,11 +114,11 @@ function can hide a function the helper missed: read those lines by eye.
 
   ```bash
   # a path you can already name
-  ~/.claude/scripts/gh-pr-file.sh <pr-ref> <path> [<path>...]
+  "$(~/.claude/scripts/project_file.sh --script gh-pr-file.sh)" <pr-ref> <path> [<path>...]
 
   # finding which paths to name
-  ~/.claude/scripts/gh-pr-grep.sh <pr-ref> --list [<glob>]
-  ~/.claude/scripts/gh-pr-grep.sh <pr-ref> <ere-pattern> [<glob>]
+  "$(~/.claude/scripts/project_file.sh --script gh-pr-grep.sh)" <pr-ref> --list [<glob>]
+  "$(~/.claude/scripts/project_file.sh --script gh-pr-grep.sh)" <pr-ref> <ere-pattern> [<glob>]
   ```
 
   Both are pinned to the PR's head, and refuse when the author has pushed since `$D/pr.json` was fetched: the diff and the files would describe two commits, so re-run §1. This applies to everything you cite: the changed file, its callers, the model it constructs, the config it reads, the sibling that already solved the same problem.
@@ -171,7 +171,7 @@ Evaluate the changed code against these, roughly in order of impact — correctn
 The SDLC reviews a change twice, the Reviewer then Security, and a blocking flaw from either goes back to the author. This section is the second pass. It reads the diff against two sources the team owns, fetched at run time:
 
 ```bash
-~/.claude/scripts/gh-pr-security.sh <pr-ref>
+"$(~/.claude/scripts/project_file.sh --script gh-pr-security.sh)" <pr-ref>
 ```
 
 - **`classes:`** — `Read` it, map the diff to every class it touches, and run each touched class's *Check in the diff* list in full. Name the classes in scope in the report. `classes: none` means the project keeps no list: review security from the persona and the guidelines alone, and say so in the report.
@@ -224,14 +224,14 @@ Extracting shared code keeps its own bar of three (`coding_guidelines.md` → **
 Sample how the **rest of the repo** handles the same concerns the PR touches, and flag deviations that introduce inconsistency without clear justification. `gh-pr-grep.sh` (above) is how you sample:
 
 ```bash
-~/.claude/scripts/gh-pr-grep.sh <pr-ref> --list          # what is there
-~/.claude/scripts/gh-pr-grep.sh <pr-ref> '<ere>'         # who already does this
+"$(~/.claude/scripts/project_file.sh --script gh-pr-grep.sh)" <pr-ref> --list          # what is there
+"$(~/.claude/scripts/project_file.sh --script gh-pr-grep.sh)" <pr-ref> '<ere>'         # who already does this
 ```
 
 A search that returns nothing is evidence only once you have seen the listing — an empty result over a candidate set you never inspected is indistinguishable from searching the wrong place.
 
 Check for:
-- **Naming conventions** — do new files, components, functions, variables, and routes follow the naming patterns already established in sibling files? When the diff names an AWS resource or account (CDK, SAM, Terraform, a workflow) and `~/.claude/scripts/project_file.sh naming_convention` prints a path, fetch the page that file names with `~/.claude/scripts/confluence-page.sh <url> > "$D/naming.json"` and check each new name against its `.body.storage.value`, citing the rule it breaks. While its `.title` says `[Proposal]`, a mismatch is a Nit.
+- **Naming conventions** — do new files, components, functions, variables, and routes follow the naming patterns already established in sibling files? When the diff names an AWS resource or account (CDK, SAM, Terraform, a workflow) and `~/.claude/scripts/project_file.sh naming_convention` prints a path, fetch the page that file names with `"$(~/.claude/scripts/project_file.sh --script confluence-page.sh)" <url> > "$D/naming.json"` and check each new name against its `.body.storage.value`, citing the rule it breaks. While its `.title` says `[Proposal]`, a mismatch is a Nit.
 - **File / folder structure** — is the new code placed where similar code lives? Are new directories justified or should the code land in an existing one?
 - **API & BFF route patterns** — do new API routes follow the same middleware, error handling, auth, and response shape as neighbouring routes?
 - **State management & data fetching** — does the PR use the same hooks, query patterns, or state patterns (e.g., react-query, formik, custom hooks) as the rest of the codebase, or does it introduce a one-off approach?
@@ -247,7 +247,7 @@ When flagging, reference the existing pattern you compared against (file + line 
 There's no import-linter/ruff/ESLint boundary config in these repos, so check this by hand. The diff index already extracted the imports the diff **adds** (Python `import`/`from`, TS/JS `import … from`/`require()`), each with its file and `new_line`:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 jq '.files[] | {path, imports: [.imports[] | select(.in_docstring | not)]}
     | select(.imports | length > 0)' "$D/pr-index.json"
 ```
@@ -322,8 +322,8 @@ Posting is **never automatic** — a PR review is public and addressed to a coll
 3. On confirmation, write the **summary body** to `"$D/review-body.md"` and the **selected inline findings** to `"$D/review-findings.json"` as a JSON array `[{path, line, side, body}]`, `line` and `side` as §4 states, `side` defaulting to `RIGHT`. A reply to another reviewer's thread is `{in_reply_to, body}`, where `in_reply_to` is the thread's `id` from `others_threads`. Both follow **Posted text** below. Then post **one atomic review**:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
-~/.claude/scripts/gh-pr-review-post.sh <pr-ref> \
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script gh-pr-review-post.sh)" <pr-ref> \
   --event COMMENT \
   --body-file "$D/review-body.md" \
   --index-file "$D/pr-index.json" \
@@ -382,7 +382,7 @@ The worklog items, in the markup `jira-worklog.sh --help` states. Omit the remai
 Journal, bill, then mark the entry billed — in **one** block:
 
 ```bash
-D=$(~/.claude/scripts/gh-pr-workdir.sh <pr-ref>)
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 TICKET=$(jq -r '.ticket' "$D/pr.json")
 
 cat > "$D/worklog.md" <<'EOF'
@@ -392,12 +392,12 @@ Must fix: <the headline must-fix finding, one clause>.
 Review posted: [Org/repo#123 review](<url printed by gh-pr-review-post.sh>)
 EOF
 
-ENTRY=$(~/.claude/scripts/journal.sh -t "PR Review: <repo>#<NN> (<TICKET> <title>)" --via /review:pr \
+ENTRY=$("$(~/.claude/scripts/project_file.sh --script journal.sh)" -t "PR Review: <repo>#<NN> (<TICKET> <title>)" --via /review:pr \
   -b "<verdict + key findings>" -b "Posted: <url>" \
   | sed -nE 's/^journaled → ## [0-9: -]+ \[([a-z0-9]+)\].*/\1/p')
 
-if [ -n "$TICKET" ] && WORKLOG=$(~/.claude/scripts/jira-worklog.sh --quiet "$TICKET" 15m < "$D/worklog.md"); then
-  ~/.claude/scripts/journal.sh --bill "$ENTRY: $TICKET worklog $WORKLOG"
+if [ -n "$TICKET" ] && WORKLOG=$("$(~/.claude/scripts/project_file.sh --script jira-worklog.sh)" --quiet "$TICKET" 15m < "$D/worklog.md"); then
+  "$(~/.claude/scripts/project_file.sh --script journal.sh)" --bill "$ENTRY: $TICKET worklog $WORKLOG"
 fi
 ```
 
@@ -406,7 +406,7 @@ fi
 Then re-assert the session title:
 
 ```bash
-~/.claude/scripts/gh-pr-name-session.sh <pr-ref>
+"$(~/.claude/scripts/project_file.sh --script gh-pr-name-session.sh)" <pr-ref>
 ```
 
 Show the line it prints.

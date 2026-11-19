@@ -60,7 +60,7 @@ EXTS='sh|py|md|json|yaml|yml'
 NL_PROJECT=""   # the run's project; --project names it, else the first file's
 NL_TMP=""       # scratch for the HEAD copy --gate reads
 # Where a bare basename lives, in this tree and in a nested one alike.
-NL_SUBDIRS='scripts helpers .claude/scripts .claude/helpers'
+NL_SUBDIRS='scripts .claude/scripts'
 # Harness commands own no file. Verified present in the installed binary.
 BUILTINS=' compact clear help config model memory init mcp hooks permissions login bug rename '
 

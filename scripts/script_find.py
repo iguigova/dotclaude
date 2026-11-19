@@ -4,9 +4,9 @@
 A script states what it does in its header: the module docstring of a .py,
 the leading comment block of a .sh. That header is the only description a
 script has, so it is what this searches -- the header and the file name of
-every script under scripts/ and helpers/ of the global tree (~/.claude) and
-of the project the working directory is in: the nearest directory at or
-above it whose .claude/ holds scripts/ or helpers/, so a product repo's own
+every script under scripts/ of the global tree (~/.claude) and of the
+project the working directory is in: the nearest directory at or above it
+whose .claude/ holds scripts/, so a product repo's own
 .claude/ of settings and agents does not hide the project around it. The census reads the same
 headers through skill_inventory.py, so the two never describe a script two
 ways.
@@ -75,12 +75,11 @@ COMMON = frozenset({"this", "that", "with", "from", "into", "what", "when",
 
 
 def project_of(start: Path) -> Path | None:
-    """The nearest directory at or above start whose .claude/ holds scripts/
-    or helpers/, other than the home directory, whose .claude/ is the global
-    tree. A .claude/ with neither is a repo's own settings, not a project."""
+    """The nearest directory at or above start whose .claude/ holds scripts/,
+    other than the home directory, whose .claude/ is the global tree. A
+    .claude/ without one is a repo's own settings, not a project."""
     for d in (start, *start.parents):
-        if d != Path.home() and any((d / ".claude" / s).is_dir()
-                                    for s in ("scripts", "helpers")):
+        if d != Path.home() and (d / ".claude/scripts").is_dir():
             return d
     return None
 
@@ -236,7 +235,7 @@ def self_test_fixture(root: Path) -> tuple[list[dict], Path]:
     si.write(home / "scripts/camera_report.py",
              '"""Per-camera LPR\nreport. More.\n\nReads plates."""\n')
     si.write(home / "scripts/broken.py", '"""unterminated\n')
-    si.write(project / ".claude/helpers/lambda-tail.sh",
+    si.write(project / ".claude/scripts/lambda-tail.sh",
              "#!/usr/bin/env bash\n# Tail a Lambda's log stream. Newest\n"
              "# stream first.\nset -e\n")
     si.write(project / ".claude/scripts/plates.sh",

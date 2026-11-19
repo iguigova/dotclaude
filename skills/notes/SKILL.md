@@ -31,9 +31,9 @@ SCOPE=(--opened-by "$SESSION")   # /notes <TICKET>      → SCOPE=(--ticket "<TI
 # permission rule is matched against the text of the command, so a path the text
 # does not contain matches no rule, and the read is left to the auto-mode
 # classifier.
-~/.claude/scripts/journal_queue.sh "${SCOPE[@]}" --show || exit 1
-open=$(~/.claude/scripts/journal_queue.sh --ids) || exit 1
-mine=$(~/.claude/scripts/journal_queue.sh "${SCOPE[@]}" --ids) || exit 1
+"$(~/.claude/scripts/project_file.sh --script journal_queue.sh)" "${SCOPE[@]}" --show || exit 1
+open=$("$(~/.claude/scripts/project_file.sh --script journal_queue.sh)" --ids) || exit 1
+mine=$("$(~/.claude/scripts/project_file.sh --script journal_queue.sh)" "${SCOPE[@]}" --ids) || exit 1
 open=($open) mine=($mine)
 printf 'left out: %s of %s open\n' "$((${#open[@]} - ${#mine[@]}))" "${#open[@]}"
 ```
@@ -96,8 +96,8 @@ Nothing is written until its gate passes.
 
 | placement | gate | enforced by |
 |---|---|---|
-| `memory` | a `verify:` exists and passes now | `~/.claude/scripts/memory_fact.sh` |
-| `skill` `command` `rules` | no name is newly unresolved | `~/.claude/scripts/name_lint.sh --gate <file>` |
+| `memory` | a `verify:` exists and passes now | `memory_fact.sh` |
+| `skill` `command` `rules` | no name is newly unresolved | `"$(~/.claude/scripts/project_file.sh --script name_lint.sh)" --gate <file>` |
 | `script` | its `--self-test` passes | `selftest.sh` in that tree |
 | `settings` | the tool it names exists | the harness |
 | `ticket` | the key exists | the project's ticket helper |
@@ -120,7 +120,7 @@ open the second with `journal.sh -n`.
 **2. Find what already covers it**, before writing anything:
 
 ```bash
-~/.claude/scripts/memory_reconcile.sh --text "<the note>"
+"$(~/.claude/scripts/project_file.sh --script memory_reconcile.sh)" --text "<the note>"
 ```
 
 Judge the hits: new, update, contradiction, or redundant. A contradiction updates
@@ -137,7 +137,7 @@ what it contradicts — never file a second copy beside it. Redundant closes as
   refuses a claim it cannot confirm:
 
   ```bash
-  ~/.claude/scripts/memory_fact.sh write <name> "<pointer hook>" <<'FACT'
+  "$(~/.claude/scripts/project_file.sh --script memory_fact.sh)" write <name> "<pointer hook>" <<'FACT'
   …the whole fact file…
   FACT
   ```
@@ -178,9 +178,9 @@ the ticket the work is for, which is what billing reads:
   `chore: notes`.
 
 ```bash
-~/.claude/scripts/journal.sh -t "chore: notes" -b "<what was placed>" --via /notes \
+"$(~/.claude/scripts/project_file.sh --script journal.sh)" -t "chore: notes" -b "<what was placed>" --via /notes \
   --placed "<id>: <placement> — <reason>" … --sha <sha>
-~/.claude/scripts/journal.sh -t "<note's TICKET> notes" -b "<what was filed or done>" \
+"$(~/.claude/scripts/project_file.sh --script journal.sh)" -t "<note's TICKET> notes" -b "<what was filed or done>" \
   --via /notes --placed "<id>: ticket:<KEY> — <reason>" …
 ```
 
@@ -205,5 +205,5 @@ inside the command, done or not wanted. That decision is the user's close.
 - Reading a note never closes it.
 - One note, one place. If it belongs in two, it is two notes.
 - Every run ends with journal entries naming each note and where it went, and
-  commits its own paths with `~/.claude/scripts/tooling_commit.sh`, attended or
+  commits its own paths with `tooling_commit.sh`, attended or
   not — nothing commits for it. A run that changed nothing says so.

@@ -6,7 +6,7 @@ is skipped), in one of six kinds:
 
   skill     skills/<name>/SKILL.md, global and project
   command   commands/<name>.md, global and project
-  script    scripts/ and helpers/, .sh and .py
+  script    scripts/, .sh and .py
   rules     CLAUDE.md, the credo, the *_guidelines.md documents, a
             tooling README
   settings  settings.json and settings.local.json
@@ -246,7 +246,10 @@ FM_LINE = re.compile(r"^([A-Za-z_-]+):\s*(.*)$")
 TYPED = re.compile(r"<command-name>/([\w:-]+)</command-name>")
 # A name stops at a colon, so `tool.py:417` -- a line cited in prose -- names
 # tool.py; a name followed by a glob character is a pattern, not a script.
-SCRIPT_REF = re.compile(r"(\S*?)\.claude/(scripts|helpers)/([\w.-]+)(?![\w.*?\[-])")
+SCRIPT_REF = re.compile(r"(\S*?)\.claude/(scripts)/([\w.-]+)(?![\w.*?\[-])")
+# A script called by name resolves as project_file.sh --script does: the
+# project's .claude/scripts/<name>, else the global one.
+SCRIPT_BY_NAME = re.compile(r"project_file\.sh --script ([\w.-]+)")
 NUMERIC = re.compile(r"^[-\d.,]+$")
 COMMENT = re.compile(r"^#(?!!)\s?(.*)$")
 BASH_FENCE = re.compile(r"```bash\n(.*?)```", re.S)
@@ -312,7 +315,7 @@ def files_in(base: Path, scope: str, kind: str,
 
 
 def scripts_in(base: Path, scope: str) -> list[dict]:
-    found = files_in(base, scope, "script", ("scripts/*", "helpers/*"))
+    found = files_in(base, scope, "script", ("scripts/*",))
     return [i for i in found if Path(i["path"]).suffix in SCRIPT_SUFFIX]
 
 
@@ -935,9 +938,11 @@ def scripts_named(it: dict, home: Path, project: Path) -> list[dict]:
     tested. A path under a `<placeholder>` prefix, such as
     `<project>/.claude/scripts/x.sh`, names no file of this project."""
     text = Path(it["path"]).read_text(encoding="utf-8", errors="replace")
-    refs = dict.fromkeys(r for r in SCRIPT_REF.findall(text) if "<" not in r[0])
+    refs = [r for r in SCRIPT_REF.findall(text) if "<" not in r[0]]
+    refs += [("" if (project / ".claude/scripts" / n).is_file() else "~/",
+              "scripts", n) for n in SCRIPT_BY_NAME.findall(text)]
     facts = {}
-    for ref in refs:
+    for ref in dict.fromkeys(refs):
         fact = script_fact(ref, home, project)
         facts[fact["script"]] = fact
     return list(facts.values())
@@ -1850,12 +1855,15 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
     write(home / "settings.json", "{}\n")
     write(project / ".claude/skills/alpha/SKILL.md",
           "---\ndescription: Alpha.\n---\nRun .claude/scripts/probe.sh,"
-          " ~/.claude/scripts/gated.sh, ~/.claude/scripts/tool.py"
+          " ~/.claude/scripts/gated.sh"
           " and .claude/scripts/gone.sh\n"
           # A cited line names the script; a glob names no script at all.
-          "See .claude/scripts/probe.sh:12 and .claude/helpers/jira-*.sh\n"
+          "See .claude/scripts/probe.sh:12 and .claude/scripts/jira-*.sh\n"
           # A <placeholder> prefix names a script some other project may keep.
-          "Gate with <project>/.claude/scripts/ci_gate.sh where it has one\n")
+          "Gate with <project>/.claude/scripts/ci_gate.sh where it has one\n"
+          # By name, a script resolves in the project first, then globally.
+          "Call project_file.sh --script tool.py and"
+          " project_file.sh --script probe.sh\n")
     write(project / ".claude/skills/alpha/scripts/local.sh", "echo\n")
     # A data file the script names beside it is the script's bundled file.
     write(project / ".claude/scripts/probe.sh", "echo no flag < probe.list\n")
@@ -2156,8 +2164,8 @@ EXPECTED = {
     "emit.piped": 141,
     "alpha.scripts": [("probe.sh", True, False),
                       ("gated.sh", True, True),
-                      ("tool.py", True, False),
-                      ("gone.sh", False, False)],
+                      ("gone.sh", False, False),
+                      ("tool.py", True, False)],
     "alpha.bundled": ["scripts/local.sh"],
     "probe.bundled": (["probe.list"], 1),
     "probe.bundle_edit": True,

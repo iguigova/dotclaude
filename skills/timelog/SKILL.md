@@ -19,7 +19,7 @@ set -o pipefail
 TICKET=""   # /timelog XYZ-1234 → TICKET="XYZ-1234"
 SESSION="${CLAUDE_CODE_SESSION_ID:?/timelog: no session id; use --all}"
             # /timelog XYZ-1234 or /timelog --all → SESSION=""
-~/.claude/scripts/journal_scan.sh ${TICKET:+"$TICKET"} | jq --arg session "$SESSION" '
+"$(~/.claude/scripts/project_file.sh --script journal_scan.sh)" ${TICKET:+"$TICKET"} | jq --arg session "$SESSION" '
   def open: map(select(.billed == null and .id != null));
   def mine: map(select($session == "" or .session == $session));
   def others: [.tickets[][], .no_ticket[]] | open
@@ -55,14 +55,14 @@ Entries in `.no_ticket` are never billed on their own — §4 names how many, so
 
 For each ticket, silently (no questions):
 
-- **State:** `~/.claude/scripts/jira-issue.sh <TICKET>` returns a **flat** JSON object (keys at top level — use `.summary`, not `.fields.summary`). Read `summary, status, timeOriginalEstimate, timeRemainingEstimate, timeSpent`.
+- **State:** `"$(~/.claude/scripts/project_file.sh --script jira-issue.sh)" <TICKET>` returns a **flat** JSON object (keys at top level — use `.summary`, not `.fields.summary`). Read `summary, status, timeOriginalEstimate, timeRemainingEstimate, timeSpent`.
 - **Effort** — focused engineering effort the entries represent, NOT wall-clock. Round to 15 min; min `15m`. Calibration:
   - small bug/config: `15m`–`30m` · new function + tests: `45m`–`1h 30m` · new module/feature + tests: `2h`–`4h` · deep debugging / protocol work: `3h`–`6h`
   - Write the time in the format `jira-worklog.sh --help` states.
 - **Remaining:** don't work it out. Once the effort is settled, `jira-remaining.sh` decides it:
 
   ```bash
-  ~/.claude/scripts/jira-remaining.sh XYZ-1273 "2h"
+  "$(~/.claude/scripts/project_file.sh --script jira-remaining.sh)" XYZ-1273 "2h"
   ```
 
   **stdout** is the argument §5 passes, and empty means omit it. **stderr** is one line saying what was decided and why — show that line in §4 verbatim, so the user approves the number that will actually be posted.
@@ -97,8 +97,8 @@ Proceed only on explicit approval. `go`/`yes`/`ship it` = log as-is. Anything el
 ## 5. Log — loop the helper, one call per ticket
 
 ```bash
-REMAINING=$(~/.claude/scripts/jira-remaining.sh XYZ-1273 "2h")
-if WORKLOG=$(~/.claude/scripts/jira-worklog.sh --quiet XYZ-1273 "2h" ${REMAINING:+"$REMAINING"} <<'EOF'
+REMAINING=$("$(~/.claude/scripts/project_file.sh --script jira-remaining.sh)" XYZ-1273 "2h")
+if WORKLOG=$("$(~/.claude/scripts/project_file.sh --script jira-worklog.sh)" --quiet XYZ-1273 "2h" ${REMAINING:+"$REMAINING"} <<'EOF'
 Topic — concise outcome. See [PR #31](https://github.com/AcmeLabs/events-service/pull/31).
 EOF
 ); then echo "XYZ-1273 worklog $WORKLOG"; else echo "XYZ-1273 failed — its entries stay unmarked"; fi
@@ -118,7 +118,7 @@ Every entry §1 returned whose outcome is settled gets a mark, in one call per r
 - **not settled — no mark** — the entries of a ticket whose POST failed (§5), and any entry whose worklog id came back empty (below). Nothing was paid, so nothing is recorded.
 
 ```bash
-~/.claude/scripts/journal.sh \
+"$(~/.claude/scripts/project_file.sh --script journal.sh)" \
   --bill "<entry-id>: XYZ-1273 worklog 41233" --bill "<entry-id>: XYZ-1273 worklog 41233" \
   --bill "<entry-id>: XYZ-1267 worklog 41234" \
   --bill "<entry-id>: skipped — chore work, not billed"

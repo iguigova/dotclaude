@@ -1,6 +1,6 @@
 ---
 name: gist
-description: Distil a source — an article, a post, a report, a pasted text, the session's own findings — into a one-page 16:9 executive-summary PDF, rendered by `~/.claude/scripts/gist.py`. Use when asked for a gist, a one-page summary or an executive summary as a PDF. Triggered by `/gist` or the bare word "gist".
+description: Distil a source — an article, a post, a report, a pasted text, the session's own findings — into a one-page 16:9 executive-summary PDF, rendered by `gist.py`. Use when asked for a gist, a one-page summary or an executive summary as a PDF. Triggered by `/gist` or the bare word "gist".
 argument-hint: "[URL, file, or nothing for the pasted text or the session's findings]"
 ---
 
@@ -39,7 +39,7 @@ Write `<scratchpad>/<slug>.json` in the shape `gist.py --help` states.
 ## Render and look
 
 ```bash
-~/.claude/scripts/gist.py <scratchpad>/<slug>.json <scratchpad>/<slug>_gist.pdf
+"$(~/.claude/scripts/project_file.sh --script gist.py)" <scratchpad>/<slug>.json <scratchpad>/<slug>_gist.pdf
 pdftoppm -png -r 110 -singlefile <scratchpad>/<slug>_gist.pdf <scratchpad>/<slug>_gist
 ```
 

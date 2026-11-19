@@ -11,7 +11,7 @@ Every message after the first goes in the ticket's one review thread: a new PR, 
 ## 1. Read where the request stands
 
 ```bash
-~/.claude/scripts/review_request_state.py <KEY> > <scratchpad>/review-state.json
+"$(~/.claude/scripts/project_file.sh --script review_request_state.py)" <KEY> > <scratchpad>/review-state.json
 ```
 
 `--help` states what it reads and each field. Show the PRs as a table: repo and number, title, review decision, checks, announced. Then act on `next`:
@@ -20,13 +20,13 @@ Every message after the first goes in the ticket's one review thread: a new PR, 
 - **`reply`**: a thread exists. Write a reply (§2) for the PRs in `new` and `rereview`.
 - **`none`**: nothing to ask for. Say why (every PR announced and nobody behind, approved, or waiting) and stop.
 
-Each permalink in `earlier` is a duplicate thread from before the ticket recorded one: name each and ask whether to delete it (`~/.claude/scripts/slack_post.py delete <channel> <ts>`).
+Each permalink in `earlier` is a duplicate thread from before the ticket recorded one: name each and ask whether to delete it (`"$(~/.claude/scripts/project_file.sh --script slack_post.py)" delete <channel> <ts>`).
 
 Each PR in `waiting` is named, with its `why`. Read a failing check's log before saying what failed. Ask whether to wait, fix it, or leave it out. Wait on a pending check with `gh pr checks <url> --watch` in the background; never poll it. A run that exits 2 read nothing whole: say which read failed and stop.
 
 ## 2. Write the message
 
-The `draft` skill's rules apply. Before a reply, read the thread with `~/.claude/scripts/slack_thread.py <thread.permalink> --out <dir>`, so the reply answers what was said there.
+The `draft` skill's rules apply. Before a reply, read the thread with `"$(~/.claude/scripts/project_file.sh --script slack_thread.py)" <thread.permalink> --out <dir>`, so the reply answers what was said there.
 
 A **new post**:
 
@@ -44,7 +44,7 @@ A **reply** in the thread:
 Show the final text and ask in the question dialog whether to post it. Once it is approved:
 
 ```bash
-~/.claude/scripts/review_request_state.py send <KEY> <file> --expect <next from step 1>
+"$(~/.claude/scripts/project_file.sh --script review_request_state.py)" send <KEY> <file> --expect <next from step 1>
 ```
 
 It posts only while `next` is unchanged, in the thread for a reply, and records a new thread on the ticket. Exit 4 means the state moved: show what it printed and redraft. Give the user the permalink it prints.
@@ -54,6 +54,6 @@ It posts only while `next` is unchanged, in the thread for a reply, and records 
 Journal the message under the ticket, with its permalink and each PR's state when it was posted:
 
 ```bash
-~/.claude/scripts/journal.sh -t "<KEY> review request" \
+"$(~/.claude/scripts/project_file.sh --script journal.sh)" -t "<KEY> review request" \
   -b "Review requested in <channel>: <permalink>" -b "<repo>#<n> <review decision>, checks <pass>/<fail>/<pending>" …
 ```

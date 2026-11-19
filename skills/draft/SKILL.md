@@ -111,11 +111,11 @@ sections below it, or in the opening when there are none.
 
 Each medium has a writer, and the writer owns the markup. Write what
 its `--help` says it takes, and never call the medium's API by hand.
-Slack's writer is `~/.claude/scripts/slack_post.py`. A ticket or wiki
+Slack's writer is `slack_post.py`. A ticket or wiki
 writer is the project's own helper.
 
 A reply or an edit to a Slack post starts by reading its thread with
-`~/.claude/scripts/slack_thread.py`. It writes every message under its
+`slack_thread.py`. It writes every message under its
 author's name, the files attached, the channel id and thread ts the
 writer needs, and the tag of each person a post may address.
 

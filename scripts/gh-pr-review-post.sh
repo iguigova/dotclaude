@@ -60,7 +60,9 @@ another reviewer's thread carries only the id and the body:
     { "in_reply_to": 4095195953, "body": "..." }
 
 On success prints the posted review's html_url, then each reply's html_url.
-Exits non-zero on any failure, including a reply that did not post.
+Exits non-zero on any failure, including a reply that did not post. A post
+from a Claude session that has not loaded the draft skill is refused by
+draft_gate.py before anything is read or sent; --dry-run is never refused.
 """
 from __future__ import annotations
 
@@ -278,8 +280,40 @@ def _self_test() -> int:
          "COMMENT on your own PR carries no note", "COMMENT on your own PR carried a note")
     want(event_for("APPROVE", None, "me") == ("APPROVE", None),
          "an unknown author keeps the event", "an unknown author downgraded the event")
+    _self_test_gate(want)
 
     return t.end()
+
+
+def _self_test_gate(want) -> None:
+    import tempfile
+    gate = tempfile.mkdtemp()
+    with open(os.path.join(gate, "drafted.json"), "w", encoding="utf-8") as fh:
+        fh.write('["draft"]')
+    refusal = ("draft_gate: load the draft skill with the Skill tool and check "
+               "this text against it before sending; nothing was sent.\n")
+
+    def run(session: str, *extra: str) -> "tuple[int, str]":
+        env = {**os.environ, "CLAUDE_CODE_SESSION_ID": session, "DRAFT_GATE_DIR": gate}
+        done = subprocess.run([sys.executable, __file__, "not a ref", "--event", "COMMENT",
+                               "--body-file", "/dev/null", *extra],
+                              env=env, capture_output=True, text=True)
+        return done.returncode, done.stderr
+    want(run("st") == (1, refusal),
+         "a post from a session without draft is refused before the ref is read",
+         "a post from a session without draft was not refused")
+    allowed = run("drafted")[1]
+    want(bool(allowed) and "draft_gate:" not in allowed,
+         "a session that loaded draft goes on to read the ref", "a session that loaded draft was refused")
+    want("draft_gate:" not in run("st", "--dry-run")[1],
+         "a dry run is never refused", "a dry run was refused")
+    os.remove(os.path.join(gate, "drafted.json"))
+    os.rmdir(gate)
+
+
+def drafted() -> bool:
+    """True when draft_gate.py lets this session send text to people."""
+    return subprocess.run([os.path.join(HERE, "draft_gate.py"), "check", "draft"]).returncode == 0
 
 
 def main() -> None:
@@ -298,6 +332,8 @@ def main() -> None:
     ap.add_argument("--drop-invalid", action="store_true")
     ap.add_argument("--allow-shared-anchor", action="store_true")
     args = ap.parse_args()
+    if not args.dry_run and not drafted():
+        raise SystemExit(1)
 
     try:
         _, _, number, slug = parse_slug(args.ref)

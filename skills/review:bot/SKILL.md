@@ -115,14 +115,14 @@ Two judgements worth making explicitly:
 
 ## 6. Verify
 
-Run the repo's gate, plus the tool behind every check that was red in §2 that the gate does not run. The gate is `<project>/.claude/scripts/ci_gate.sh <repo>` where the project keeps one; elsewhere it is the commands the repo's CI workflow runs.
+Run the repo's gate, plus the tool behind every check that was red in §2 that the gate does not run.
 
 ```bash
-<project>/.claude/scripts/ci_gate.sh <repo>     # or the CI workflow's commands
+"$(~/.claude/scripts/project_file.sh --script ci_gate.sh)" <repo>
 <the failing check's own tool>
 ```
 
-The gate must pass (the project's gate prints `gate: PASS`), and each §2 failure must be resolved locally **before** you post a reply claiming a fix.
+The gate must pass, and each §2 failure must be resolved locally **before** you post a reply claiming a fix.
 
 ## 7. Post a reply per finding (auto-post)
 

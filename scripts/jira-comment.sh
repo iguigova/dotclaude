@@ -28,7 +28,9 @@
 # jira-wiki-check.sh refuses a body whose {{…}} span holds an unescaped { } [ ] or --.
 #
 # Prints the comment JSON (its id is .id). Exit 0 on HTTP 200/201; non-zero
-# otherwise, with the HTTP status and response on stderr.
+# otherwise, with the HTTP status and response on stderr. Before sending,
+# draft_gate.py refuses (exit 1) when this Claude session has not loaded
+# the draft skill; --dry-run is never refused.
 
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
@@ -84,6 +86,10 @@ if [[ "$SELF_TEST" -eq 1 ]]; then
     "$self" --dry-run XYZ-0 < <(printf '{{{"a":1}}}')
   tap_fails "a third positional argument is refused" \
     "$self" --dry-run XYZ-0 /dev/stdin extra < <(printf 'x')
+  gate_dir=$(mktemp -d) || exit 2; trap 'rm -rf "$gate_dir"' EXIT
+  st=0; err=$(printf 'x' | CLAUDE_CODE_SESSION_ID=st DRAFT_GATE_DIR="$gate_dir" "$self" XYZ-0 2>&1 >/dev/null) || st=$?
+  tap_is "a session that has not loaded draft is refused before anything is sent" \
+    "$st $err" "1 draft_gate: load the draft skill with the Skill tool and check this text against it before sending; nothing was sent."
   tap_end
 fi
 
@@ -130,6 +136,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   jq '.' <<<"$PAYLOAD"
   exit 0
 fi
+
+"$(dirname "$0")/draft_gate.py" check draft || exit 1
 
 HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091

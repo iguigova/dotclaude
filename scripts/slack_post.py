@@ -47,6 +47,9 @@ line that starts with a typed ``•`` or ``–``, which would post as a
 character. So is a bare ``@name`` outside code: Slack posts it as text and
 tags nobody. A tag is ``<@U…>``, the form ``slack_thread.py`` lists for each
 person in its People block; a literal ``@`` goes in backticks.
+A ``post`` or ``edit`` from a Claude session that has not loaded the
+draft skill is refused by ``draft_gate.py`` and exits 1; ``--dry-run``
+and ``delete`` are never refused.
 
 It writes with the project's ``.secrets/slack-token-write`` (chat:write
 only) and reads back with ``.secrets/slack-token``;
@@ -366,6 +369,12 @@ def confirm(channel, ts, markdown):
     return 0
 
 
+def drafted():
+    """True when draft_gate.py lets this session send text to people."""
+    gate = Path(__file__).resolve().with_name('draft_gate.py')
+    return subprocess.run([str(gate), 'check', 'draft']).returncode == 0
+
+
 def send(method, payload, dry_run):
     if dry_run:
         print(json.dumps(payload, indent=2, ensure_ascii=False))
@@ -593,7 +602,35 @@ def self_test(tmp):
     check('a message not found is no reply', None, reply_parent(None, '1.2'))
     check("an error keeps Slack's code", 'thread_not_found',
           error_code({'ok': False, 'error': 'thread_not_found'}))
+    self_test_gate(tmp)
     return SELF_TEST.end()
+
+
+def self_test_gate(tmp):
+    note = Path(tmp) / 'note.md'
+    note.write_text('hello\n')
+    gate = Path(tmp) / 'gate'
+    gate.mkdir()
+    (gate / 'drafted.json').write_text('["draft"]')
+    refusal = ('draft_gate: load the draft skill with the Skill tool and check '
+               'this text against it before sending; nothing was sent.\n')
+
+    def run(session, *args):
+        env = {**os.environ, 'CLAUDE_CODE_SESSION_ID': session,
+               'DRAFT_GATE_DIR': str(gate),
+               'SLACK_WRITE_TOKEN': '/nonexistent', 'SLACK_READ_TOKEN': '/nonexistent'}
+        done = subprocess.run([sys.executable, __file__, *args], env=env,
+                              capture_output=True, text=True)
+        return done.returncode, done.stderr
+    check('a post from a session without draft is refused before sending',
+          (1, refusal), run('st', 'post', 'C1', str(note)))
+    check('an edit from a session without draft is refused before sending',
+          (1, refusal), run('st', 'edit', 'C1', '1.2', str(note)))
+    allowed = run('drafted', 'post', 'C1', str(note))[1]
+    check('a session that loaded draft goes on to send', (True, False),
+          (bool(allowed), 'draft_gate:' in allowed))
+    check('a dry run is never refused', 0,
+          run('st', 'post', 'C1', str(note), '--dry-run')[0])
 
 
 def main():
@@ -624,6 +661,9 @@ def main():
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             return self_test(tmp)
+    sends_text = args.command in ('post', 'edit') and not args.dry_run
+    if sends_text and not drafted():
+        return 1
     try:
         if args.command == 'post':
             return post(args.channel, args.file, args.thread,

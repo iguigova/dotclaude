@@ -141,7 +141,8 @@ Otherwise:
    the draft was written (a message, an answer, a status change) voids
    the approval. Do not post. Show what arrived and how it changes the
    draft.
-3. Post it through the medium's writer.
+3. Post it through the medium's writer. Each writer refuses to send
+   until this skill is loaded in the session (`draft_gate.py`).
 4. Read the posted message back and confirm it rendered as intended,
    unless the writer does this itself.
 

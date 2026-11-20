@@ -104,7 +104,7 @@ Then run `"$(~/.claude/scripts/project_file.sh --script normative_lint.py)" <pat
 
 ### 5. Write back
 
-- Confluence → `"$(~/.claude/scripts/project_file.sh --script confluence-safe-update.sh)" --from <path>`, the path step 2 printed.
+- Confluence → `"$(~/.claude/scripts/project_file.sh --script confluence-safe-update.sh)" --from <path>`, the path step 2 printed. It refuses to send until this skill or `draft` is loaded in the session (`draft_gate.py`).
 
 ### 6. Report
 

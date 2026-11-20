@@ -102,7 +102,7 @@ and hooks in `settings.json` run those scripts:
 - `scripts/guideline_gate.py`: no code is edited before its guidelines are read.
 - `scripts/ask_gate.py`: a question to the user goes through the question dialog.
 - `scripts/block_gate.py`: once a call is blocked, nothing else runs until the user answers.
-- `scripts/draft_gate.py`: no PR review is posted before the `draft` skill is loaded.
+- `scripts/draft_gate.py`: no text is sent to people before the `draft` skill is loaded (`normative` also opens a Confluence page write). Each writer calls its `check` before it sends, so a script that calls a writer is held too.
 
 ### The gate loop
 
@@ -161,7 +161,7 @@ token reads it through `project_file.sh` and `secret_file.sh`:
 
 - Jira: `jira-*.sh`
 - Confluence: `confluence-*.sh`, with `atlassian-auth.sh`
-- GitHub pull requests: `gh-pr-*.sh`, `gh_pr_ref.py`, `gh-ticket-prs.sh`
+- GitHub pull requests: `gh-pr-*.sh`, `gh_pr_ref.py`, `gh-ticket-prs.sh`, `ticket_prs.py`
 - Slack: `slack_post.py`, `slack_thread.py`
 - Browser logins: `playwright_login.sh`
 
@@ -170,7 +170,7 @@ token reads it through `project_file.sh` and `secret_file.sh`:
 The skills a person asks for by name: `review:pr`, `review:bot`,
 `request:review`, `timelog`, `draft`, `voice`, `audit`, `benchmark`,
 `normative`, `gist`, `inventory`, `recap`, `journal`, `notes`,
-`standup`, `postmortem` and `slack:reply`. Most are methods over the verbs above. `skill_triggers.json` holds the cases that say
+`standup`, `postmortem`, `slack:reply`, `ticket` and `qa`. Most are methods over the verbs above. `skill_triggers.json` holds the cases that say
 when each should fire, and `scripts/skill_trigger_test.py` runs them.
 
 ### Publishing

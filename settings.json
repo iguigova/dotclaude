@@ -67,15 +67,6 @@
             "command": "$HOME/.claude/scripts/guideline_gate.py edit"
           }
         ]
-      },
-      {
-        "matcher": "Bash",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "$HOME/.claude/scripts/draft_gate.py post"
-          }
-        ]
       }
     ],
     "PostToolUse": [

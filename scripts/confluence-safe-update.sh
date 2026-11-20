@@ -19,13 +19,16 @@
 # version, so the file can be edited and written again without a refetch.
 #
 # A body that is not well-formed is refused before anything is sent, by the
-# check `confluence-create.sh` and `confluence-comment.sh` run.
+# check `confluence-create.sh` and `confluence-comment.sh` run. So is a write
+# from a Claude session that has loaded neither the draft nor the normative
+# skill: draft_gate.py refuses it.
 #
 # Mismatch is caught twice on purpose: against the fetched version, which names
 # both numbers and costs nothing, and by the server, which is the only check that
 # closes the race.
 #
-# Exits: 0 update applied · 1 fetch or request failed · 2 usage, or a file
+# Exits: 0 update applied · 1 fetch or request failed, or draft_gate.py
+#        refused · 2 usage, or a file
 #        `--to` did not write · 4 the page moved on (local check or 409)
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
@@ -112,7 +115,7 @@ csu_self_test() {
   run=$(mktemp -d); trap 'rm -f "$body"; rm -rf "$run"' RETURN
   mkdir "$run/h" "$run/bin" "$run/page"
   cp "$0" "$run/h/confluence-safe-update.sh"
-  cp "$(dirname "$0")/storage-well-formed.sh" "$run/h/"
+  cp "$(dirname "$0")/storage-well-formed.sh" "$(dirname "$0")/draft_gate.py" "$(dirname "$0")/tap.py" "$run/h/"
   cat > "$run/h/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid JIRA_USER=u JIRA_TOKEN=t
 atlassian_curl() { printf '{"version":{"number":%s},"space":{"key":"SP"},"title":"T"}' "$STUB_AT"; }
@@ -127,10 +130,11 @@ STUB
   chmod +x "$run/bin/curl"
   self="$run/h/confluence-safe-update.sh" sent="$run/sent"
   printf '<p>new</p>' > "$run/page/42.storage.html"
-  live() {  # AT CODE → "exit/version file/what was sent"
+  live() {  # AT CODE [SESSION] → "exit/version file/what was sent"
     rm -f "$sent"; printf '7\n' > "$run/page/42.version"
     local st=0
     STUB_AT="$1" STUB_CODE="$2" STUB_SENT="$sent" PATH="$run/bin:$PATH" \
+      CLAUDE_CODE_SESSION_ID="${3:-}" DRAFT_GATE_DIR="$run/gate" \
       bash "$self" --from "$run/page/42.storage.html" >/dev/null 2>&1 || st=$?
     printf '%s/%s/%s' "$st" "$(cat "$run/page/42.version")" \
       "$( [[ -f "$sent" ]] && jq -c '[.version.number, .body.storage.value]' "$sent")"
@@ -139,6 +143,7 @@ STUB
     "$(live 7 200)" '0/8/[8,"<p>new</p>"]'
   tap_is "a 409 keeps the fetched version" "$(live 7 409)" '4/7/[8,"<p>new</p>"]'
   tap_is "a page that moved on sends nothing" "$(live 8 200)" '4/7/'
+  tap_is "a session that has loaded neither draft nor normative sends nothing" "$(live 7 200 st)" '1/7/'
   printf '<p>new' > "$run/page/42.storage.html"
   tap_is "a malformed body sends nothing" "$(live 7 200)" '2/7/'
 }
@@ -159,6 +164,7 @@ done
 read -r PAGE_ID FETCHED_VER <<<"$(csu_source "$FROM")" && [[ -n "${PAGE_ID:-}" ]] || exit 2
 "$(dirname "${BASH_SOURCE[0]}")/storage-well-formed.sh" "$FROM" || {
   echo "confluence-safe-update: $FROM is not well-formed storage; nothing was sent" >&2; exit 2; }
+"$(dirname "${BASH_SOURCE[0]}")/draft_gate.py" check draft normative || exit 1
 
 HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091

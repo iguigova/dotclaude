@@ -16,13 +16,15 @@
 # answer, with the status and response on stderr.
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
-HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+PF="$HOME/.claude/scripts/project_file.sh"
 KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "${HELPER_DIR}/jira-remote-link.sh" "$fx/jira-remote-link.sh"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$fx/.claude/scripts"
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport: one stored link per run, in $RL_STORE; never opens a socket.
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
@@ -45,7 +47,7 @@ atlassian_curl() {
 STUB
   export RL_STORE="$fx/store.json" RL_LOG="$fx/log" RL_STATUS=201
   : > "$RL_STORE"
-  rl() { "$fx/jira-remote-link.sh" "$@"; }
+  rl() { (cd "$fx" && "$self" "$@"); }
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
@@ -87,7 +89,8 @@ KEY="$1" GID="$2"
 ENDPOINT="/rest/api/2/issue/${KEY}/remotelink"
 
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 RESP_FILE=$(mktemp)
 trap 'rm -f "$RESP_FILE"' EXIT
 

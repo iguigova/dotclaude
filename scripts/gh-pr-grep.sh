@@ -47,7 +47,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
+
 MAX_FILES_DEFAULT=120
 
 # Derive `*.ext` globs from a list of repo paths. This is what makes a bare
@@ -203,7 +204,23 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_run "the tree's truncated flag is checked" grep -q 'truncated' "${BASH_SOURCE[0]}"
   tap_run "the raw media type is requested, as base64 caps at 1MB" \
     grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}"
-  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_run "gh_pr_ref.py's self-test passes" "$("$PF" --script gh_pr_ref.py)" --self-test
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses lists nothing, exit 2" "$(stubbed o/r#1 --list)" "2 gh_pr_ref.py o/r#1"
+  stub gh_pr_ref.py 0 '{"owner":"o","repo":"r","number":1,"slug":"o/r"}'; mkdir "$sfx/w"; stub gh-pr-workdir.sh 0 "$sfx/w"; stub gh-pr-head-dir.sh 1
+  tap_is "a head directory that cannot be had lists nothing, exit 2" "$(stubbed o/r#1 --list)" \
+    "2 gh_pr_ref.py o/r#1|gh-pr-workdir.sh o/r#1|gh-pr-head-dir.sh o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -221,13 +238,13 @@ MODE="$1"; shift
 GLOB="${1:-}"
 MAX_FILES="${GH_PR_GREP_MAX:-$MAX_FILES_DEFAULT}"
 
-REFJSON=$("$HERE/gh_pr_ref.py" "$REF") || exit 2
+REFJSON=$("$("$PF" --script gh_pr_ref.py)" "$REF") || exit 2
 RSLUG=$(jq -er .slug <<<"$REFJSON")
-WORKDIR=$("$HERE/gh-pr-workdir.sh" "$REF")
+WORKDIR=$("$("$PF" --script gh-pr-workdir.sh)" "$REF")
 
 # The head directory's owner resolves head_sha and drops files fetched at an
 # older commit, so a cached blob never mixes two trees.
-HEADOUT=$("$HERE/gh-pr-head-dir.sh" "$REF") || exit 2
+HEADOUT=$("$("$PF" --script gh-pr-head-dir.sh)" "$REF") || exit 2
 IFS=$'\t' read -r HEAD_SHA HEADDIR <<<"$HEADOUT"
 
 # Written beside the cache and moved in only on success: gh prints an error

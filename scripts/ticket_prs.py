@@ -33,17 +33,17 @@ ticket often touches the code the ticket is about without touching any file
 its PRs change. Last, every commit, in the same orgs, whose message names
 the key.
 
-gh-ticket-prs.sh answers another question: which open PRs are ready to
-ask a review for, as JSON for request:review. This is the whole record, for
-a person picking the ticket up.
+--open prints only the URLs of the open PRs that name the key, oldest
+first, one a line: the list gh-ticket-prs.sh judges for review readiness.
 
   ticket_prs.py ABC-123 > evidence/prs.md
   ticket_prs.py ABC-123 --since 2026-09-25 \\
       --path acme/api:app/workers/move_worker.rb
+  ticket_prs.py ABC-123 --open
   ticket_prs.py --self-test         # offline, no network
 
-Exit 0 the report printed; 1 the project names no github_orgs; 2 usage.
-A failed GitHub call ends the run with gh's own error.
+Exit 0 printed; 1 the project names no github_orgs; 2 usage; 75 a GitHub
+call failed, with gh's own error on stderr.
 """
 import os
 import argparse
@@ -53,8 +53,9 @@ import subprocess
 import sys
 import tempfile
 
+from resolve import value
+
 BADGE = re.compile(r'<img alt="(P\d)"')
-RESOLVERS = os.path.expanduser('~/.claude/scripts')
 TAG = re.compile(r'<[^>]+>')
 
 
@@ -237,12 +238,21 @@ def report_paths(key, specs, since):
     return out
 
 
-def pr_hits(key, owners):
-    """The PRs naming the key, by repository and number."""
-    found = gh('search', 'prs', key, *owners, '--limit', '100', '--json',
-               'repository,number,title,body,url') or []
+def pr_hits(key, owners, *only):
+    """The PRs naming the key, by repository and number; ``only`` narrows
+    the search, as ``--state open`` does."""
+    found = gh('search', 'prs', key, *owners, *only, '--limit', '100', '--json',
+               'repository,number,title,body,url,createdAt') or []
     hits = [h for h in found if names_key(f"{h['title']}\n{h['body']}", key)]
     return sorted(hits, key=lambda h: (h['repository']['nameWithOwner'], h['number']))
+
+
+def open_prs(key):
+    """The URLs of the open PRs naming the key, oldest first."""
+    hits = pr_hits(key, owner_args(), '--state', 'open')
+    for hit in sorted(hits, key=lambda h: h['createdAt']):
+        print(hit['url'])
+    return 0
 
 
 def report_prs(key, owners):
@@ -264,7 +274,7 @@ def report_landed(key, owners):
 
 
 def report(key, paths, since):
-    owners = [a for o in github_orgs() for a in ('--owner', o)]
+    owners = owner_args()
     out = [f'# {key} on GitHub', ''] + report_prs(key, owners)
     if paths:
         out += report_paths(key, paths, since)
@@ -275,11 +285,12 @@ def report(key, paths, since):
 def github_orgs():
     """The GitHub owners to search: the project's github_orgs value, one per
     line; its refusal ends the run, exit 1, naming the value."""
-    result = subprocess.run([os.path.join(RESOLVERS, 'project_file.sh'), '--value', 'github_orgs'],
-                            capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.exit(result.stderr.strip())
-    return tuple(line.strip() for line in result.stdout.splitlines())
+    return tuple(line.strip() for line in value('github_orgs').splitlines())
+
+
+def owner_args():
+    """gh's ``--owner`` argument for each of the project's owners."""
+    return [a for o in github_orgs() for a in ('--owner', o)]
 
 
 def self_test():
@@ -388,7 +399,8 @@ def self_test_answers(pr_state):
                                       'createdAt': '2026-10-03T00:00:00Z', 'body': 'Looks off'}]},
               'reviews': {'nodes': []}}
     hit = lambda n, title, body: {'repository': {'nameWithOwner': 'acme/api'}, 'number': n,
-                                  'title': title, 'body': body, 'url': f'u/{n}'}
+                                  'title': title, 'body': body, 'url': f'u/{n}',
+                                  'createdAt': f'2026-10-{20 - n:02}T00:00:00Z'}
     commit = lambda sha, msg: {'sha': sha * 40, 'repository': {'fullName': 'acme/api'},
                                'commit': {'message': msg, 'committer': {'date': '2026-10-02T00:00:00Z'}}}
     return {
@@ -408,6 +420,7 @@ def self_test_report(t):
     a project naming none stops, exit 1."""
     root = self_test_project()
     self_test_open(t, root)
+    self_test_open_only(t, root)
     self_test_quiet(t, root)
     self_test_gh(t, root)
     self_test_cli(t, root)
@@ -422,8 +435,8 @@ def self_test_project():
     return root
 
 
-def self_test_run(root, state, paths, override=None):
-    """report() for ABC-1 in the project over a fake gh: its exit, what it
+def self_test_run(root, state, paths, override=None, only_open=False):
+    """run() for ABC-1 in the project over a fake gh: its exit, what it
     printed, and each call gh got."""
     import contextlib
     import io
@@ -437,7 +450,7 @@ def self_test_run(root, state, paths, override=None):
         os.chdir(os.path.join(root, 'p'))
         globals()['gh'] = fake
         with contextlib.redirect_stdout(out):
-            code = report('ABC-1', paths, '2026-09-01')
+            code = run(argparse.Namespace(key='ABC-1', path=paths, since='2026-09-01', open=only_open))
     finally:
         globals()['gh'] = real
         os.chdir(here)
@@ -449,7 +462,7 @@ def self_test_open(t, root):
     lines = text.splitlines()
     t.check(code == 0 and lines[0] == '# ABC-1 on GitHub', 'a report opens with the key', text[:80])
     t.check(calls[0] == ('search', 'prs', 'ABC-1', '--owner', 'acme', '--owner', 'beta',
-                         '--limit', '100', '--json', 'repository,number,title,body,url'),
+                         '--limit', '100', '--json', 'repository,number,title,body,url,createdAt'),
             'every owner the project names is searched', str(calls[0]))
     t.check('## [acme/api#7](u/7) — ABC-1: fix' in lines and not any('#8' in l for l in lines),
             'a PR naming a longer key is left out', text)
@@ -472,6 +485,18 @@ def self_test_open(t, root):
             'the PR\'s files are read since its merge base', str(calls))
 
 
+def self_test_open_only(t, root):
+    newer = {'repository': {'nameWithOwner': 'acme/web'}, 'number': 2, 'title': 'ABC-1 web',
+             'body': '', 'url': 'u/web2', 'createdAt': '2026-10-30T00:00:00Z'}
+    hits = self_test_answers('OPEN')[('search', 'prs')] + [newer]
+    code, text, calls = self_test_run(root, 'OPEN', [], {('search', 'prs'): hits}, only_open=True)
+    t.check(code == 0 and text == 'u/7\nu/web2\n',
+            '--open prints the open PRs naming the key, oldest first, and no report', text)
+    t.check(calls == [('search', 'prs', 'ABC-1', '--owner', 'acme', '--owner', 'beta', '--state', 'open',
+                       '--limit', '100', '--json', 'repository,number,title,body,url,createdAt')],
+            '--open searches only open PRs, once', str(calls))
+
+
 def self_test_quiet(t, root):
     _, text, _ = self_test_run(root, 'MERGED', [])
     t.check('behind' not in text and '- merged, `f` → `main`, by jp' in text.splitlines(),
@@ -483,14 +508,25 @@ def self_test_quiet(t, root):
 
 
 def self_test_cli(t, root):
+    failing = os.path.join(root, 'failing')
+    os.makedirs(failing)
+    with open(os.path.join(failing, 'gh'), 'w') as f:
+        f.write('#!/usr/bin/env bash\necho "HTTP 502" >&2\nexit 1\n')
+    os.chmod(os.path.join(failing, 'gh'), 0o755)
+
     def run(folder, *args):
+        env = {**os.environ, 'PATH': f"{failing}:{os.environ['PATH']}"}
         return subprocess.run([sys.executable, os.path.abspath(__file__), *args],
-                              cwd=os.path.join(root, folder), capture_output=True, text=True)
+                              cwd=os.path.join(root, folder), capture_output=True, text=True, env=env)
     with_none = run('bare', 'ABC-1')
     t.check(with_none.returncode == 1 and 'github_orgs' in with_none.stderr,
             'a project naming no owners stops, exit 1, naming the value',
             f'{with_none.returncode} {with_none.stderr}')
-    for args, label in ((['--path', 'acme/api:a.rb', 'ABC-1'], '--path without --since'),
+    unread = run('p', 'ABC-1', '--open')
+    t.check(unread.returncode == 75 and 'ticket_prs: HTTP 502' in unread.stderr,
+            'a failed GitHub call exits 75 with gh\'s own error', f'{unread.returncode} {unread.stderr}')
+    for args, label in ((['--open', '--path', 'acme/api:a.rb', '--since', '2026-01-01', 'ABC-1'], '--open with --path'),
+                        (['--path', 'acme/api:a.rb', 'ABC-1'], '--path without --since'),
                         (['--since', '2026-01-01', '--path', 'a.rb', 'ABC-1'], '--path without a repository'),
                         (['--since', '2026-01-01', '--path', 'acme:a.rb', 'ABC-1'], '--path without an owner'),
                         ([], 'no key')):
@@ -519,7 +555,7 @@ def self_test_gh(t, root):
         os.environ['PATH'] = path
 
 
-def main():
+def parse():
     parser = argparse.ArgumentParser(
         description=__doc__,
         formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -529,17 +565,36 @@ def main():
                         help='a file the mechanism runs through; repeatable')
     parser.add_argument('--since', metavar='YYYY-MM-DD',
                         help='with --path: the ticket\'s created date')
+    parser.add_argument('--open', action='store_true',
+                        help='only the URLs of the open PRs naming the key')
     parser.add_argument('--self-test', action='store_true')
     args = parser.parse_args()
     if args.self_test:
-        return self_test()
+        return args
     if not args.key:
         parser.error('an issue key is required')
+    if args.open and args.path:
+        parser.error('--open takes no --path')
     if args.path and not args.since:
         parser.error('--path needs --since')
     if any(':' not in p or '/' not in p.split(':')[0] for p in args.path):
         parser.error('--path takes ORG/REPO:PATH')
-    return report(args.key, args.path, args.since)
+    return args
+
+
+def run(args):
+    return open_prs(args.key) if args.open else report(args.key, args.path, args.since)
+
+
+def main():
+    args = parse()
+    if args.self_test:
+        return self_test()
+    try:
+        return run(args)
+    except subprocess.CalledProcessError as failed:
+        sys.stderr.write(f'ticket_prs: {failed.stderr.decode().strip()}\n')
+        return 75
 
 
 if __name__ == '__main__':

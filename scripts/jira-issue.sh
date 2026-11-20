@@ -50,6 +50,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 KEY_PATTERN='^[A-Z][A-Z0-9]*-[0-9]+$'
 FIELDS="summary,status,assignee,timetracking,description,issuelinks"
 COMMENT_PAGE=100
@@ -193,9 +195,9 @@ fi
 
 ISSUE="$1"
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 BASE="${ATLASSIAN_SITE}/rest/api/2"
 
 ISSUE_JSON=$(read_or_fail "${BASE}/issue/${ISSUE}?fields=${FIELDS}")

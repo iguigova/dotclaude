@@ -39,7 +39,6 @@ naming it.
 """
 import contextlib
 import argparse
-import functools
 import io
 import json
 import os
@@ -52,8 +51,9 @@ import urllib.request
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+from resolve import project_path, script, secret_path, value
+
 SLACK_API = 'https://slack.com/api'
-RESOLVERS = Path.home() / '.claude' / 'scripts'
 TIMEOUT = 30
 SNIPPET = 500
 
@@ -67,33 +67,12 @@ BOOKKEEPING = re.compile(
 
 # ── The project ──────────────────────────────────────────────────
 
-def resolved(command):
-    """What a resolver prints; its refusal ends the run, exit 1, naming
-    what the project lacks."""
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.exit(result.stderr.strip()
-                 or f'standup: {" ".join(command)} exited {result.returncode}')
-    return result.stdout.strip()
-
-
-@functools.cache
-def value(name):
-    return resolved([str(RESOLVERS / 'project_file.sh'), '--value', name])
-
-
-@functools.cache
-def script(name):
-    return resolved([str(RESOLVERS / 'project_file.sh'), '--script', name])
-
-
 def history_file():
-    return Path(resolved([str(RESOLVERS / 'project_file.sh'),
-                          'session_history.md']))
+    return Path(project_path('session_history.md'))
 
 
 def token_file():
-    return Path(resolved([str(RESOLVERS / 'secret_file.sh'), 'slack-token']))
+    return Path(secret_path('slack-token'))
 
 
 def channel():
@@ -393,10 +372,6 @@ def self_test_calls(t, root):
         return t.check(got == want, name, f'got {got!r}', f'want {want!r}')
     note = root / 'note.md'
     note.write_text('- done\n')
-    check('a resolver refusal ends the run with its message', 'no', exits(resolved, ['sh', '-c', 'echo no >&2; exit 1']))
-    check('a silent refusal names the command and its status', 'standup: sh -c exit 3 exited 3',
-          exits(resolved, ['sh', '-c', 'exit 3']))
-    check('a resolver answer is returned', 'yes', resolved(['echo', 'yes']))
     check('Slack ok: false is an error', 'SlackError',
           raises(answer, 'data:application/json,{"ok":false,"error":"x"}', 'm'))
     check('Slack ok: true is the body', {'ok': True}, answer('data:application/json,{"ok":true}', 'm'))

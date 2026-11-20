@@ -20,13 +20,13 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
 
 workdir() {
   local ref="$1" refjson owner repo number base dir
   # `|| return 1` rather than set -e: set -e is suppressed inside an `if`
   # condition, and this function is called from one in the self-test.
-  refjson=$("$HERE/gh_pr_ref.py" "$ref") || return 1
+  refjson=$("$("$PF" --script gh_pr_ref.py)" "$ref") || return 1
   owner=$(jq -er .owner <<<"$refjson") || return 1
   repo=$(jq -er .repo <<<"$refjson") || return 1
   number=$(jq -er .number <<<"$refjson") || return 1

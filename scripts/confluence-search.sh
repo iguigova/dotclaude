@@ -22,13 +22,16 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 # The paging is the contract, so the test runs this script against a stubbed
 # atlassian_curl: three results over two pages, a limit that stops inside the
 # second page, and a query the stub answers with 400.
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "$0" "$fx/confluence-search.sh"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  mkdir -p "$fx/.claude/scripts"
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
   local out="" url="" a
@@ -50,14 +53,14 @@ atlassian_curl() {
   printf '%s' "$r" > "$out"; echo 200
 }
 STUB
-  self="$fx/confluence-search.sh"
+  cd "$fx" || exit 2
   all=$("$self" 'type = page' | jq -c 'map([.id, .type, .title, .space, .url])')
   capped=$("$self" --limit 2 'type = page' | jq -c 'map(.id)')
   if "$self" 'bad query' >/dev/null 2>"$fx/err"; then bad=accepted; else bad=$(cat "$fx/err"); fi
   want_all='[["1","page","a\tb","PA","https://example.invalid/wiki/p/1"],["2","blogpost","b","W2","https://example.invalid/wiki/p/2"],["3","page","c","PA","https://example.invalid/wiki/p/3"]]'
   want_capped='["1","2"]'
   # shellcheck source=tap.sh
-  . "$(dirname "$0")/tap.sh"
+  . "$(dirname "$self")/tap.sh"
   tap_is "the cursor is followed across pages" "$all" "$want_all"
   tap_is "--limit stops early" "$capped" "$want_capped"
   tap_like "a 400 exits 1 with Confluence's message" "$bad" "*Could not parse cql*"
@@ -78,9 +81,9 @@ if [[ $# -ne 1 || -z "$1" ]]; then
 fi
 CQL="$1"
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 RESP=$(mktemp); MATCHES=$(mktemp)
 trap 'rm -f "$RESP" "$MATCHES"' EXIT

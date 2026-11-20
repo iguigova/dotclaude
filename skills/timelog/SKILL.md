@@ -49,7 +49,7 @@ The scope is set on §1's own lines, and it is also what the run marks:
 - `/timelog XYZ-1234` — pass the key as `TICKET` and set `SESSION=""`. That ticket's entries from every session come back, and `.no_ticket` is empty: naming the ticket is the scope.
 - `/timelog --all` — set `SESSION=""`. Every session's entries come back.
 
-Entries in `.no_ticket` are never billed on their own — §4 names how many, so writing that work off is a decision rather than a default, and §6 marks each with the reason its heading gives. Most are `chore:` or `docs:`: `journal.sh` heads work on the tooling that way even when a ticket's session surfaced it, so the reason is `chore work, not billed` (or `docs work`), never `no ticket`. Any other heading without a key, such as a review of a PR that names no ticket, is marked for what it is: `PR review, the PR names no ticket`. To bill some of it instead, name the key as an edit in §4; `the project's `jira-create.sh` helper` raises a ticket that does not exist yet.
+Entries in `.no_ticket` are never billed on their own — §4 names how many, so writing that work off is a decision rather than a default, and §6 marks each with the reason its heading gives. Most are `chore:` or `docs:`: `journal.sh` heads work on the tooling that way even when a ticket's session surfaced it, so the reason is `chore work, not billed` (or `docs work`), never `no ticket`. Any other heading without a key, such as a review of a PR that names no ticket, is marked for what it is: `PR review, the PR names no ticket`. To bill some of it instead, name the key as an edit in §4; `jira-create.sh` raises a ticket that does not exist yet.
 
 ## 3. Per ticket — fetch state, estimate, describe
 

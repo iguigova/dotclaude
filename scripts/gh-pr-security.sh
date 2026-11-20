@@ -30,7 +30,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
+
 PERSONA_PATH=.claude/agents/security.md
 
 # gh-pr-file.sh exits 1 for a path absent at head and 2 for a failed fetch.
@@ -57,6 +58,24 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_run "the classes fetch pins ?ref=" \
     grep -q 'contents/\$CLASSES_PATH?ref=\$MSHA' "${BASH_SOURCE[0]}"
   tap_run "the raw media type is requested" grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}"
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses reads nothing, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
+  stub gh_pr_ref.py 0 '{"owner":"o","repo":"r","number":1,"slug":"o/r"}'; stub gh-pr-workdir.sh 1
+  tap_is "a work directory that cannot be had reads nothing, exit 1" "$(stubbed o/r#1)" \
+    "1 gh_pr_ref.py o/r#1|gh-pr-workdir.sh o/r#1"
+  stub gh-pr-workdir.sh 0 "$sfx/w"; stub gh-pr-file.sh 1; stubbed o/r#1 >/dev/null
+  tap_like "a persona the head lacks is reported as none" "$(cat "$sfx/out")" "*persona: none — o/r has no *"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -66,12 +85,12 @@ if [[ $# -ne 1 ]]; then
 fi
 REF="$1"
 
-REFJSON=$("$HERE/gh_pr_ref.py" "$REF") || exit 1
+REFJSON=$("$("$PF" --script gh_pr_ref.py)" "$REF") || exit 1
 RSLUG="$(jq -er .owner <<<"$REFJSON")/$(jq -er .repo <<<"$REFJSON")"
-D=$("$HERE/gh-pr-workdir.sh" "$REF") || exit 1
+D=$("$("$PF" --script gh-pr-workdir.sh)" "$REF") || exit 1
 
 mkdir -p "$D/security"
-if ! SRC_FILE=$("$HERE/project_file.sh" security_classes 2>/dev/null); then
+if ! SRC_FILE=$("$PF" security_classes 2>/dev/null); then
   echo "classes: none — the project names no .claude/security_classes"
 else
 SRC=$(tr -d '\n' < "$SRC_FILE"); MARKETPLACE=${SRC%%:*}; CLASSES_PATH=${SRC#*:}
@@ -87,7 +106,7 @@ echo "classes: $dest @${MSHA:0:12}"
 fi
 
 rc=0
-out=$("$HERE/gh-pr-file.sh" "$REF" "$PERSONA_PATH" 2>/dev/null) || rc=$?
+out=$("$("$PF" --script gh-pr-file.sh)" "$REF" "$PERSONA_PATH" 2>/dev/null) || rc=$?
 persona_line "$rc" "$out" "$RSLUG" || {
   echo "persona: unread — the fetch of $PERSONA_PATH at head failed; re-run, or review without it and say so" >&2
   exit 2

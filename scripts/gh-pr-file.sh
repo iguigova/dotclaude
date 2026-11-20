@@ -33,7 +33,7 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
 
 # A path is the repo-relative one the diff names. Anything that could escape the
 # working directory is refused rather than normalised: the caller has made a
@@ -82,8 +82,24 @@ if [[ "${1:-}" == "--self-test" ]]; then
     grep -q 'vnd.github.raw' "${BASH_SOURCE[0]}"
   # --base is only a merge-base fetch if the directory owner is told so.
   tap_run "--base is passed to gh-pr-head-dir.sh" \
-    grep -qF "gh-pr-head-dir.sh\" \"\${AT[@]}\"" "${BASH_SOURCE[0]}"
-  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+    grep -qF -e "--script gh-pr-head-dir.sh)\" \"\${AT[@]}\"" "${BASH_SOURCE[0]}"
+  tap_run "gh_pr_ref.py's self-test passes" "$("$PF" --script gh_pr_ref.py)" --self-test
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses fetches nothing, exit 1" "$(stubbed o/r#1 a.txt)" "1 gh_pr_ref.py o/r#1"
+  stub gh_pr_ref.py 0 '{"owner":"o","repo":"r","number":1,"slug":"o/r"}'; stub gh-pr-head-dir.sh 1
+  tap_is "a head directory that cannot be had fetches nothing, exit 1" "$(stubbed o/r#1 a.txt)" \
+    "1 gh_pr_ref.py o/r#1|gh-pr-head-dir.sh o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -96,14 +112,14 @@ fi
 
 REF="$1"; shift
 
-REFJSON=$("$HERE/gh_pr_ref.py" "$REF") || exit 1
+REFJSON=$("$("$PF" --script gh_pr_ref.py)" "$REF") || exit 1
 OWNER=$(jq -er .owner <<<"$REFJSON")
 REPO=$(jq -er .repo <<<"$REFJSON")
 RSLUG="${OWNER}/${REPO}"
 
 # The directory's owner resolves the commit and drops files fetched at another
 # one, so a file written here survives gh-pr-grep.sh's next call.
-DIROUT=$("$HERE/gh-pr-head-dir.sh" "${AT[@]}" "$REF") || exit 1
+DIROUT=$("$("$PF" --script gh-pr-head-dir.sh)" "${AT[@]}" "$REF") || exit 1
 IFS=$'\t' read -r SHA DIR <<<"$DIROUT"
 
 rc=0

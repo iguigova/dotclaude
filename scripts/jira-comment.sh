@@ -35,6 +35,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 DRY_RUN=0
 EDIT_ID=""
 REPLY_ID=""
@@ -119,7 +121,7 @@ fi
 
 [[ -n "$(jq -r '.body | gsub("\\s"; "")' <<<"$PAYLOAD")" ]] \
   || { echo "Refusing to write an empty comment to ${ISSUE}" >&2; exit 1; }
-jq -r '.body' <<<"$PAYLOAD" | "$(dirname "$0")/jira-wiki-check.sh"
+jq -r '.body' <<<"$PAYLOAD" | "$("$PF" --script jira-wiki-check.sh)"
 
 if [[ -n "$EDIT_ID" ]]; then
   METHOD=PUT ENDPOINT=/rest/api/2/issue/${ISSUE}/comment/${EDIT_ID}
@@ -137,11 +139,11 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-"$(dirname "$0")/draft_gate.py" check draft || exit 1
+"$("$PF" --script draft_gate.py)" check draft || exit 1
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 # A reply to a reply belongs under the top comment of its thread.
 if [[ -n "$REPLY_ID" ]]; then

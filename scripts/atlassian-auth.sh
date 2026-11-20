@@ -2,8 +2,8 @@
 # Source this to get ATLASSIAN_SITE, JIRA_USER, JIRA_TOKEN, and the atlassian_curl
 # helper.
 #
-# Source path:
-#   source ~/.claude/scripts/atlassian-auth.sh
+# Source it by name, so a project's own copy wins:
+#   source "$(~/.claude/scripts/project_file.sh --script atlassian-auth.sh)"
 #
 # Then call:
 #   atlassian_curl "${ATLASSIAN_SITE}/rest/api/3/issue/XYZ-1234"
@@ -22,7 +22,8 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   mkdir -p "$fx/.claude/scripts" "$fx/home" "$fx/bin"
   cp "$0" "$fx/.claude/scripts/atlassian-auth.sh"
-  cp "$(dirname "$0")/project_file.sh" "$(dirname "$0")/secret_file.sh" "$fx/.claude/scripts/"
+  mkdir -p "$fx/home/.claude/scripts"
+  cp "$(dirname "$0")/project_file.sh" "$(dirname "$0")/secret_file.sh" "$fx/home/.claude/scripts/"
   mkdir -p "$fx/.secrets"; : > "$fx/.claude/session_history.md"
   printf 'https://example.invalid\n' > "$fx/.claude/atlassian_site"
   printf 'me@example.invalid\n' > "$fx/.secrets/jira-email"
@@ -49,12 +50,19 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   tap_is "a missing site fails the source" "$site_rc" 1
   tap_run "and says where it looked" \
     grep -q 'no .claude/atlassian_site at or above' "$fx/err"
+  printf 'https://example.invalid\n' > "$fx/.claude/atlassian_site"
+  for secret in jira-token jira-email; do
+    rm "$fx/.secrets/$secret"
+    rc=0; (cd "$fx" && HOME="$fx/home" bash -c "$probe" _ "$fx/.claude/scripts/atlassian-auth.sh") \
+      >/dev/null 2>&1 || rc=$?
+    tap_is "a missing $secret fails the source" "$rc" 1
+  done
   tap_end
 fi
 
 # The site is the one line in the project's .claude/atlassian_site, so each project
 # names its own site.
-ATLASSIAN_SITE_FILE=$("$(dirname "${BASH_SOURCE[0]}")/project_file.sh" atlassian_site) || return 1
+ATLASSIAN_SITE_FILE=$("$HOME/.claude/scripts/project_file.sh" atlassian_site) || return 1
 [[ -s "$ATLASSIAN_SITE_FILE" ]] || {
   echo "atlassian-auth.sh: no site in $ATLASSIAN_SITE_FILE" >&2; return 1; }
 ATLASSIAN_SITE=$(tr -d '\n' < "$ATLASSIAN_SITE_FILE")
@@ -62,8 +70,8 @@ export ATLASSIAN_SITE
 
 # The credential is the project's .secrets/jira-email and .secrets/jira-token
 # (secret_file.sh), and nowhere else; a missing one fails here, naming it.
-_email=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-email) || return 1
-_token=$("$(dirname "${BASH_SOURCE[0]}")/secret_file.sh" jira-token) || return 1
+_email=$("$HOME/.claude/scripts/secret_file.sh" jira-email) || return 1
+_token=$("$HOME/.claude/scripts/secret_file.sh" jira-token) || return 1
 JIRA_USER=$(tr -d '\n' < "$_email")
 JIRA_TOKEN=$(tr -d '\n' < "$_token")
 unset _email _token

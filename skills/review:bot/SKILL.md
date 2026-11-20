@@ -115,10 +115,10 @@ Two judgements worth making explicitly:
 
 ## 6. Verify
 
-Run the repo's gate, plus the tool behind every check that was red in §2 that the gate does not run.
+Run the repo's gate, plus the tool behind every check that was red in §2 that the gate does not run. The gate is the project's `ci_gate.sh` when it has one; otherwise it is the commands the repo's CI workflow runs.
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script ci_gate.sh)" <repo>
+"$(~/.claude/scripts/project_file.sh --script ci_gate.sh)" <repo>     # or the CI workflow's commands
 <the failing check's own tool>
 ```
 

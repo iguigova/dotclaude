@@ -3,10 +3,8 @@
 # ready to ask for a review: draft or not, the review decision, mergeability
 # and its checks counted as pass, fail and pending.
 #
-# A PR belongs to the ticket when its title or body names the key, in any of
-# the GitHub owners the project lists in .claude/github_orgs (project_file.sh),
-# one owner per line. The key must stand alone, so ABC-113 never matches
-# ABC-1130.
+# The PRs are those ticket_prs.py --open lists: the open PRs naming the key in
+# the GitHub owners the project's github_orgs value names.
 #
 # A check that gates a later step than review, such as a label QA adds once
 # it has tested the PR, cannot pass before the review is asked for. The
@@ -33,12 +31,13 @@
 # seen it. Reviews are read over GraphQL, the one API that marks a bot.
 #
 # Exit 0: listed, possibly nothing. Exit 1: no key, or the project names no
-# .claude/github_orgs. Exit 2: a GitHub read failed, so the list is not whole.
+# github_orgs. Exit 2: a GitHub read failed, so the list is not whole.
 
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
 
 # One statusCheckRollup entry is a check run (name, status, conclusion) or a
 # commit status (context, state). Each counts as exactly one of pass, fail or
@@ -81,10 +80,6 @@ REVIEWS_QUERY='query($o: String!, $r: String!, $n: Int!) { repository(owner: $o,
 REVIEWS_SHAPE='.data.repository.pullRequest
   | {author, head: .headRefOid, latestReviews: .latestReviews.nodes,
      commits: [.commits.nodes[].commit | {committedDate, checkSuites: [.checkSuites.nodes[].createdAt]}]}'
-
-# Whether a title or body names the key as a whole token.
-# shellcheck disable=SC2016
-NAMES_KEY='(.title + "\n" + (.body // "")) | test("(^|[^A-Za-z0-9-])" + $k + "([^0-9]|$)")'
 
 if [[ "${1:-}" == "--self-test" ]]; then
   # shellcheck source=tap.sh
@@ -130,25 +125,18 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_is "a PR with no commit has no push time" \
     "$(revs '{"author":{"login":"me"},"head":"h","commits":[],"latestReviews":[]}')" \
     '{"pushed":null,"reviewers":[]}'
-  names() { jq -r --arg k ABC-113 "$NAMES_KEY" <<<"$1"; }
-  tap_is "a key in the title names the ticket" "$(names '{"title":"ABC-113: fix"}')" true
-  tap_is "a key in the body names the ticket" "$(names '{"title":"fix","body":"Jira: ABC-113."}')" true
-  tap_is "a longer key does not name the ticket" "$(names '{"title":"ABC-1130: fix"}')" false
-  tap_is "a key inside another key does not name the ticket" "$(names '{"title":"XABC-113: fix"}')" false
-
   # The whole script, against a fake gh and a project whose github_orgs holds
-  # a comment, a blank line and two owners. The fake logs each search's owner.
+  # a comment, a blank line and two owners. The fake logs each search.
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   mkdir -p "$T/bin" "$T/p/.claude"
   printf '# owners\n\nacme\nbeta\n' > "$T/p/.claude/github_orgs"
   cat > "$T/bin/gh" <<'FAKE'
 #!/usr/bin/env bash
 if [[ "$1 $2" == "search prs" ]]; then
-  echo "$5" >> "$FAKE_LOG"
-  [[ "$5" == "$FAKE_FAIL_ORG" ]] && exit 1
-  [[ "$5" == acme ]] && echo '[{"url":"https://github.com/acme/api/pull/7","title":"ABC-1: fix","body":"","createdAt":"2026-01-01"},
-                              {"url":"https://github.com/acme/api/pull/8","title":"ABC-10: other","body":"","createdAt":"2026-01-02"}]' \
-                     || echo '[]'
+  echo "$*" >> "$FAKE_LOG"
+  [[ -n "$FAKE_FAIL_SEARCH" ]] && exit 1
+  echo '[{"repository":{"nameWithOwner":"acme/api"},"number":7,"url":"https://github.com/acme/api/pull/7","title":"ABC-1: fix","body":"","createdAt":"2026-01-01"},
+         {"repository":{"nameWithOwner":"acme/api"},"number":8,"url":"https://github.com/acme/api/pull/8","title":"ABC-10: other","body":"","createdAt":"2026-01-02"}]'
   exit 0
 fi
 if [[ "$1 $2" == "api graphql" ]]; then
@@ -166,17 +154,20 @@ FAKE
   : > "$T/log"; out=$(run env; echo "exit $?")
   tap_is "with no later_checks every check counts toward ready" "${out//$'\n'/ }" \
     '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":1,"pending":0},"later":{},"ready":false,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
-  tap_is "every owner is searched, and comments and blank lines are not" "$(paste -sd' ' "$T/log")" "acme beta"
+  tap_like "every owner is searched for open PRs, and comments and blank lines are not" "$(cat "$T/log")" \
+    "search prs ABC-1 --owner acme --owner beta --state open *"
   printf '# gates QA\n\nUAT Passed\n' > "$T/p/.claude/later_checks"
   out=$(run env; echo "exit $?")
   tap_is "a check later_checks names is reported apart, and the PR is ready" "${out//$'\n'/ }" \
     '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":0,"pending":0},"later":{"UAT Passed":"fail"},"ready":true,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
-  rc=0; run env FAKE_FAIL_ORG=beta >/dev/null || rc=$?
+  rc=0; run env FAKE_FAIL_SEARCH=1 >/dev/null || rc=$?
   tap_is "a failed search exits 2" "$rc" 2
   rc=0; run env FAKE_FAIL_URL=https://github.com/acme/api/pull/7 >/dev/null || rc=$?
   tap_is "a PR that cannot be read exits 2" "$rc" 2
   rc=0; run env FAKE_FAIL_REVIEWS=1 >/dev/null || rc=$?
   tap_is "a PR whose reviews cannot be read exits 2" "$rc" 2
+  ARGS=(ABC-2); out=$(run env; echo "exit $?")
+  tap_is "a key no open PR names lists nothing" "$out" "exit 0"
   ARGS=(); rc=0; run env >/dev/null || rc=$?; tap_is "no key exits 1" "$rc" 1
   ARGS=(ABC-1 ABC-2); rc=0; run env >/dev/null || rc=$?; tap_is "two keys exit 1" "$rc" 1
   ARGS=(abc-1); rc=0; run env >/dev/null || rc=$?; tap_is "a lower-case key exits 1" "$rc" 1
@@ -191,25 +182,21 @@ if [[ $# -ne 1 || ! "$1" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
 fi
 KEY="$1"
 
-if ! ORGS_FILE=$("$HERE/project_file.sh" github_orgs 2>/dev/null); then
-  echo "gh-ticket-prs: the project names no .claude/github_orgs (one GitHub owner per line)" >&2
-  exit 1
-fi
-
 # The project's later checks as a JSON array; comments and blank lines are not names.
 later='[]'
-if LATER_FILE=$("$HERE/project_file.sh" later_checks 2>/dev/null); then
+if LATER_FILE=$("$PF" later_checks 2>/dev/null); then
   later=$(jq -Rnc '[inputs | select(length > 0 and (startswith("#") | not))]' "$LATER_FILE")
 fi
 
+TICKET_PRS=$("$PF" --script ticket_prs.py) || exit 1
+st=0; found=$("$TICKET_PRS" "$KEY" --open) || st=$?
+case "$st" in
+  0) ;;
+  1) exit 1 ;;
+  *) echo "gh-ticket-prs: the search for $KEY's PRs failed" >&2; exit 2 ;;
+esac
 urls=()
-while read -r org; do
-  [[ -z "$org" || "$org" == \#* ]] && continue
-  found=$(gh search prs "$KEY" --owner "$org" --state open --limit 100 \
-            --json url,title,body,createdAt) || { echo "gh-ticket-prs: search failed in $org" >&2; exit 2; }
-  while read -r u; do [[ -n "$u" ]] && urls+=("$u"); done < <(
-    jq -r --arg k "$KEY" "sort_by(.createdAt)[] | select($NAMES_KEY) | .url" <<<"$found")
-done < "$ORGS_FILE"
+[[ -z "$found" ]] || mapfile -t urls <<<"$found"
 
 for url in "${urls[@]}"; do
   pr=$(gh pr view "$url" --json url,number,title,isDraft,reviewDecision,mergeable,statusCheckRollup) \

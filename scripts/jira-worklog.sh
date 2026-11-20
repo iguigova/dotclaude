@@ -42,6 +42,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 # --quiet must be consumed as a flag, not mistaken for the issue key. With it
 # consumed, `--quiet AAA` leaves one positional and exits 1; unconsumed it would
 # leave two and reach the network, so the exit code distinguishes the two.
@@ -132,9 +134,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 URL="${ATLASSIAN_SITE}/rest/api/3/issue/${ISSUE}/worklog"
 METHOD=POST

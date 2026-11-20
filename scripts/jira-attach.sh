@@ -20,6 +20,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 DRY_RUN=0
 if [[ "${1:-}" == "--self-test" ]]; then
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
@@ -58,9 +60,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
 fi
 [[ "${1:-}" == "--dry-run" ]] && { DRY_RUN=1; shift; }
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # JIRA_AUTH_LIB stands in for the auth library in the self-test only.
-AUTH_LIB="${JIRA_AUTH_LIB:-${HELPER_DIR}/atlassian-auth.sh}"
+AUTH_LIB="${JIRA_AUTH_LIB:-$("$PF" --script atlassian-auth.sh)}"
 case "${1:-}" in
   --list)
     [[ "${2:-}" =~ ^[A-Z][A-Z0-9]+-[0-9]+$ ]] || { echo "Not an issue key: ${2:-}" >&2; exit 1; }

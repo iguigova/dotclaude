@@ -34,9 +34,10 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
 
 well_formed() {
-  "$(dirname "${BASH_SOURCE[0]}")/storage-well-formed.sh" "$1"
+  "$("$PF" --script storage-well-formed.sh)" "$1"
 }
 
 page_id_of() {
@@ -148,9 +149,9 @@ well_formed "$BODY_FILE" || exit 1
 
 PARENT_ID=$(page_id_of "$PARENT")
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 BASE="${ATLASSIAN_SITE}/wiki"
 
 SPACE_KEY=$(atlassian_curl "${BASE}/rest/api/content/${PARENT_ID}?expand=space" \

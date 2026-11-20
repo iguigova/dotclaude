@@ -33,14 +33,16 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
+
 KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 ENDPOINT=/rest/api/2/issueLink
 
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "${HELPER_DIR}/jira-link.sh" "$fx/jira-link.sh"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$fx/.claude/scripts"
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport. Answers the link-type read from a fixture, records what
 # would be POSTed, and never opens a socket.
 ATLASSIAN_SITE=https://example.invalid
@@ -63,7 +65,7 @@ atlassian_curl() {
 }
 STUB
   export JL_POSTED="$fx/posted.json" JL_STATUS=201
-  jl() { "$fx/jira-link.sh" "$@"; }
+  jl() { (cd "$fx" && "$self" "$@"); }
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   sides() { jq -r '[.inwardIssue.key, .outwardIssue.key, .type.name] | join(" ")'; }
@@ -123,7 +125,8 @@ PHRASE="${*:2:$#-2}"
 [[ "$FROM" != "$TO" ]] || usage "An issue cannot be linked to itself: $FROM"
 
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 TYPES=$(atlassian_curl -f "${ATLASSIAN_SITE}/rest/api/2/issueLinkType") \
   || { echo "Cannot read the link types" >&2; exit 1; }

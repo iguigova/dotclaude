@@ -22,13 +22,15 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
+
 KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "${HELPER_DIR}/jira-assign.sh" "$fx/jira-assign.sh"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$fx/.claude/scripts"
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport. Answers /myself and the assignee reads from fixtures,
 # records what would be PUT, and never opens a socket.
 ATLASSIAN_SITE=https://example.invalid
@@ -45,9 +47,9 @@ atlassian_curl() {
 }
 STUB
   export JA_PUT="$fx/put.json" JA_STATUS=204
-  ja() { "$fx/jira-assign.sh" "$@"; }
+  ja() { (cd "$fx" && "$self" "$@"); }
   # shellcheck source=tap.sh
-  . "$HELPER_DIR/tap.sh"
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   out=$(ja --dry-run ABC-1 me)
   tap_is "a dry run names the v2 assignee endpoint" \
@@ -95,7 +97,8 @@ KEY="${1:-}" WHO="${2:-}"
 [[ -n "$WHO" ]] || usage "Name the assignee: me or an account id."
 
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 ENDPOINT="/rest/api/2/issue/${KEY}/assignee"
 
 if [[ "$IF_UNASSIGNED" -eq 1 ]]; then

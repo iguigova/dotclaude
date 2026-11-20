@@ -41,6 +41,7 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
 
 # ---------------------------------------------------------------- decide
 
@@ -51,10 +52,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 # size cap, as a long description or comment thread would pass the kernel's for
 # an environment string.
 decide() {  # ISSUE_JSON EFFORT HOURS_PER_DAY DAYS_PER_WEEK
-  "$(dirname "${BASH_SOURCE[0]}")/jira_remaining_decide.py" "$2" "$3" "$4" <<<"$1"
+  "$("$PF" --script jira_remaining_decide.py)" "$2" "$3" "$4" <<<"$1"
 }
-
-HELPER_SELF="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
 
 # ---------------------------------------------------------------- self-test
 
@@ -79,14 +78,15 @@ self_test() {
   # becomes part of a worklog request.
   local fx self
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
-  cp "$HELPER_SELF" "$(dirname "$HELPER_SELF")/jira_remaining_decide.py" "$fx/"
-  self="$fx/jira-remaining.sh"
-  printf '#!/usr/bin/env bash\ncat "$JR_ISSUE"\n' > "$fx/jira-issue.sh"
-  chmod +x "$fx/jira-issue.sh"
-  printf 'ATLASSIAN_SITE=https://example.invalid\natlassian_curl() { cat "$JR_CONFIG"; }\n' > "$fx/atlassian-auth.sh"
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$fx/.claude/scripts"
+  printf '#!/usr/bin/env bash\ncat "$JR_ISSUE"\n' > "$fx/.claude/scripts/jira-issue.sh"
+  chmod +x "$fx/.claude/scripts/jira-issue.sh"
+  printf 'ATLASSIAN_SITE=https://example.invalid\natlassian_curl() { cat "$JR_CONFIG"; }\n' > "$fx/.claude/scripts/atlassian-auth.sh"
   export JR_ISSUE="$fx/issue.json" JR_CONFIG="$fx/config.json"
   printf '%s' "$live" > "$JR_ISSUE"
   printf '{"timeTrackingConfiguration":{"workingHoursPerDay":8,"workingDaysPerWeek":5}}' > "$JR_CONFIG"
+  cd "$fx" || return 1
 
   tap_is "the argument alone goes to stdout" "$("$self" ABC-1 2h 2>/dev/null)" '2h'
   tap_like "the reasoning goes to stderr" "$("$self" ABC-1 2h 2>&1 >/dev/null)" \
@@ -110,12 +110,12 @@ self_test() {
 
 [[ $# -eq 2 ]] || { echo "Usage: $0 <issue-key> <effort>" >&2 ; exit 1 ; }
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 BASE="${ATLASSIAN_SITE}/rest/api/3"
 
-ISSUE_JSON=$("${HELPER_DIR}/jira-issue.sh" "$1")
+ISSUE_JSON=$("$("$PF" --script jira-issue.sh)" "$1")
 CONFIG=$(atlassian_curl "${BASE}/configuration")
 HPD=$(jq -er '.timeTrackingConfiguration.workingHoursPerDay' <<<"$CONFIG") || {
   echo "jira-remaining.sh: no workingHoursPerDay at ${BASE}/configuration; refusing to assume one" >&2

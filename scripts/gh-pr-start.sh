@@ -30,7 +30,7 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
 
 start() {  # [<pr-ref>] [--suffix PR|BOT] [--no-name]
   local ref="" suffix=PR name=1
@@ -50,7 +50,7 @@ review() {  # REF SUFFIX NAME — REF empty for the session title's PR
   local source="the argument" url dir
   [[ -n "$1" ]] || source="the session title"
   url=$(pr_url "$1") || return
-  dir=$("$HERE/gh-pr-workdir.sh" "$url") || return 1
+  dir=$("$("$PF" --script gh-pr-workdir.sh)" "$url") || return 1
   printf 'pr:    %s (from %s)\ndir:   %s\n' "$url" "$source" "$dir"
   fetch_pr "$url" "$dir" || return 1
   (($3)) || { echo "title: not written (--no-name)"; return 0; }
@@ -61,18 +61,18 @@ review() {  # REF SUFFIX NAME — REF empty for the session title's PR
 pr_url() {
   local ref=$1 refjson
   if [[ -z "$ref" ]]; then
-    ref=$("$HERE/gh_pr_ref.py" --from-session) || {
+    ref=$("$("$PF" --script gh_pr_ref.py)" --from-session) || {
       echo "gh-pr-start.sh: no PR given and the session title names none -- ask the user which PR" >&2
       return 2; }
   fi
-  refjson=$("$HERE/gh_pr_ref.py" "$ref") || return 1
+  refjson=$("$("$PF" --script gh_pr_ref.py)" "$ref") || return 1
   printf 'https://github.com/%s\n' "$(jq -r '"\(.owner)/\(.repo)/pull/\(.number)"' <<<"$refjson")"
 }
 
 # fetch_pr URL DIR — DIR/pr.json, written whole or not at all, and its line.
 fetch_pr() {
   local url=$1 dir=$2 fetch tmp head ticket
-  fetch="${GH_PR_START_FETCH:-$HERE/gh-pr-fetch.sh}"
+  fetch="${GH_PR_START_FETCH:-$("$PF" --script gh-pr-fetch.sh)}"
   tmp=$(mktemp "$dir/pr.json.XXXXXX")
   if ! "$fetch" "$url" > "$tmp"; then
     rm -f "$tmp"; echo "gh-pr-start.sh: fetch failed for $url" >&2; return 1
@@ -86,7 +86,7 @@ fetch_pr() {
 # name_session URL SUFFIX — the title record; exit 4 when it is not written.
 name_session() {
   local out
-  if ! out=$("$HERE/gh-pr-name-session.sh" "$1" "$2" 2>&1); then
+  if ! out=$("$("$PF" --script gh-pr-name-session.sh)" "$1" "$2" 2>&1); then
     printf 'title: not written -- %s -- the review can go on\n' "$out"; return 4
   fi
   printf '%s\n' "$out"
@@ -157,6 +157,19 @@ if [[ "${1:-}" == "--self-test" ]]; then
   : > "$tmp/not-a-dir"
   GH_PR_WORKDIR_BASE="$tmp/not-a-dir" run "$url"
   tap_is "a working directory that cannot be made exits 1" "$code" 1
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses makes no directory, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 

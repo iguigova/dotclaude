@@ -1,10 +1,12 @@
 # project_verbs.txt — the verbs a project provides to the global workflows, one
 # per line: its name, a tab, its contract. A global skill or script calls one by
 # name through project_file.sh --script, and a project without it stops at that
-# step, naming it. The project's script states the rest in its own --help.
+# step, naming it. This line is the one statement of the contract: the project's
+# script carries it word for word in its --help, which gate_verb_contracts
+# checks, and states there how the project meets it.
 # name_lint.sh resolves a name listed here, since only projects hold the file.
-prod_sql.sh	SQL from a file, or - for stdin, run read-only against the project's production databases, every scope by default; rows on stdout. --help states the scopes and what the database holds that its models do not say. Exit 0 every scope answered, 2 usage, 75 a call failed.
+prod_sql.sh	SQL from a file, or - for stdin, run read-only against the project's production databases, every scope by default; rows on stdout. Exit 0 every scope answered, 2 usage, 75 a call failed.
 ci_gate.sh	The pre-commit gate for one product repository, the current directory by default: the lint and tests its CI runs, every changed source file fully covered, and change_gate.py over the changed code. Exit 0 every step passed, 1 a step failed (each prints FAIL), 2 usage or not a git repository, 3 the project has no profile for this repository.
-deploy_status.py	<owner/repo> [--contains <sha>]: which commit of the repository is live in production, and since when; with --contains, whether that commit is in it. --help names where each platform records a deploy. Exit 0 a deploy found and the commit in it, 1 the commit is missing, 2 usage or no deploy recorded, 75 a call failed.
+deploy_status.py	<owner/repo> [--contains <sha>]: which commit of the repository is live in production, and since when; with --contains, whether that commit is in it. Exit 0 a deploy found and the commit in it, 1 the commit is missing, 2 usage or no deploy recorded, 75 a call failed.
 jira_dor.py	The project's Definition of Ready. <KEY> checks a ticket, --payload <file|-> [--type-name <name>] checks what jira-create.sh is about to post, --skeleton [<KEY>] prints the description in the house shape. One line per item, <verdict> <item> — <evidence>, the verdict pass, FAIL, judge or n/a. Exit 0 no item failed, 1 an item failed, 2 the check could not run.
-pr_env.sh	<owner/repo>#<N> or a PR URL, then the repository's own options: brings up that PR's test environment and prints its URLs. --help names each repository's environment, its options, what it costs, and how to run code and read data there. Exit 0 only once the environment runs the PR's head commit, 1 it does not or the repository has none, 2 usage.
+pr_env.sh	<owner/repo>#<N> or a PR URL, then the repository's own options: brings up that PR's test environment and prints its URLs. Exit 0 only once the environment runs the PR's head commit, 1 it does not or the repository has none, 2 usage.

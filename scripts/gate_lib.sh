@@ -23,6 +23,8 @@
 #                                    complexity, and every mutant on a changed line killed
 #   gate_layer_names <.claude dir>   no skill name in both layers, and every script
 #                                    overriding a global one passes its --self-test
+#   gate_verb_contracts <.claude dir> every verb project_verbs.txt lists that the
+#                                    project holds states that contract in its --help
 #   gate_end                         the verdict line, then exit
 #
 # Usage:
@@ -253,6 +255,22 @@ gate_layer_names() {  # <project .claude dir>
   [ "$clash" -eq 0 ] || fail=1
 }
 
+# gate_verb_contracts — project_verbs.txt is the one statement of each verb's
+# contract, and the project's --help carries it word for word, so the two
+# cannot drift. Whitespace is compared collapsed, so a header may wrap it.
+gate_verb_contracts() {  # <project .claude dir>
+  local dir=$1 name contract help n=0 bad=0
+  while IFS=$'\t' read -r name contract; do
+    [ -n "$contract" ] && [ -x "$dir/scripts/$name" ] || continue
+    n=$((n + 1))
+    help=$("$dir/scripts/$name" --help 2>&1 | tr -s '[:space:]' ' ')
+    case "$help" in *"$(printf '%s' "$contract" | tr -s '[:space:]' ' ')"*) continue ;; esac
+    echo "  FAIL $name --help does not state its contract in $GATE_SCRIPTS/project_verbs.txt"; bad=1
+  done < <(grep -v '^#' "$GATE_SCRIPTS/project_verbs.txt")
+  [ "$bad" -eq 0 ] && echo "  ok  every verb of the $n here states its contract from project_verbs.txt"
+  [ "$bad" -eq 0 ] || fail=1
+}
+
 gate_end() {
   echo
   [ "$fail" -eq 0 ] && echo "selftest: PASS" || echo "selftest: FAIL"
@@ -398,5 +416,16 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   rm p/scripts/testable.sh; cp h/.claude/scripts/fixed.sh p/scripts/
   tap_like "an override of a script whose self-test cannot run it fails" "$(layers)" \
     "  FAIL $fx/p/scripts/fixed.sh overrides *never reads UNDER_TEST*fail=1"
+  rm p/scripts/fixed.sh
+  verbs() { ( GATE_SCRIPTS="$fx/h/.claude/scripts"; run gate_verb_contracts "$fx/p" ); }
+  printf '# comment\tnot a verb\nvx.sh\tTakes a  thing,\tproves it. Exit 0 proven.\nabsent.sh\tNever here.\n' \
+    > h/.claude/scripts/project_verbs.txt
+  printf '#!/usr/bin/env bash\nprintf "vx.sh: the verb.\\n\\nTakes a\\n  thing, proves it.\\nExit 0 proven.\\n"\n' > p/scripts/vx.sh
+  chmod +x p/scripts/vx.sh
+  tap_is "a verb whose help states its contract, wrapped, passes; one the project lacks is not counted" "$(verbs)" \
+    $'  ok  every verb of the 1 here states its contract from project_verbs.txt\nfail=0'
+  printf '#!/usr/bin/env bash\necho "vx.sh: takes a thing. Exit 0 done."\n' > p/scripts/vx.sh
+  tap_is "a verb whose help has drifted from its contract fails, named" "$(verbs)" \
+    "  FAIL vx.sh --help does not state its contract in $fx/h/.claude/scripts/project_verbs.txt"$'\nfail=1'
   tap_end
 fi

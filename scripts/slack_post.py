@@ -65,6 +65,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from resolve import script, secret_path
 from tap import Tap
 
 SLACK_API = 'https://slack.com/api'
@@ -276,12 +277,7 @@ def token_file(env, name):
     ``.secrets/<name>`` (secret_file.sh)."""
     if os.environ.get(env):
         return Path(os.environ[env])
-    found = subprocess.run(
-        [str(Path(__file__).resolve().parent / 'secret_file.sh'), name],
-        capture_output=True, text=True)
-    if found.returncode:
-        sys.exit(found.stderr.strip())
-    return Path(found.stdout.strip())
+    return Path(secret_path(name))
 
 
 def read_token():
@@ -371,8 +367,7 @@ def confirm(channel, ts, markdown):
 
 def drafted():
     """True when draft_gate.py lets this session send text to people."""
-    gate = Path(__file__).resolve().with_name('draft_gate.py')
-    return subprocess.run([str(gate), 'check', 'draft']).returncode == 0
+    return subprocess.run([script('draft_gate.py'), 'check', 'draft']).returncode == 0
 
 
 def send(method, payload, dry_run):

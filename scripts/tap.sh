@@ -6,6 +6,9 @@
 #   not ok 2 - <name>     a case that does not, then its details as `# ` lines
 #   1..2                  the plan, printed last by tap_end
 #
+# tap_stub writes a fixture script that logs its calls, for a test of what a
+# script calls by name.
+#
 # selftest.sh refuses a self-test whose stdout is anything else, so whatever
 # the code under test prints goes to stderr. A case's name is unique in its
 # script, says what holds rather than what broke, and holds no `#`, which TAP
@@ -51,6 +54,16 @@ tap_like() {  # <name> <got> <pattern>
   # shellcheck disable=SC2053  # the pattern is a glob on purpose
   if [[ "$2" == $3 ]]; then tap_ok "$1"
   else tap_not_ok "$1" "got:  $2" "like: $3"; fi
+}
+
+# tap_stub — an executable at <file> that appends "<its name> <args>" to <log>,
+# prints <stdout> and exits <status>: a fixture project's
+# .claude/scripts/<name>, found by name by the script under test, or a command
+# put first on PATH.
+tap_stub() {  # <file> <log> [<status>] [<stdout>]
+  mkdir -p "$(dirname "$1")" || return 1
+  printf '#!/usr/bin/env bash\necho "%s $*" >> %q\nprintf %%s %q\nexit %s\n' \
+    "$(basename "$1")" "$2" "${4:-}" "${3:-0}" > "$1" && chmod +x "$1"
 }
 
 # tap_end — print the plan and exit: 0 when every case held, else 1.
@@ -108,6 +121,17 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   out=$(run 'tap_like glob "a b c" "*b*"; tap_like miss abc "*d*"; tap_end')
   tap_is "a glob that misses names the pattern" \
     "$out" $'ok 1 - glob\nnot ok 2 - miss\n# got:  abc\n# like: *d*\n1..2'
+
+  s=$(mktemp -d)
+  tap_stub "$s/p/.claude/scripts/a.sh" "$s/log" 3
+  st=0; "$s/p/.claude/scripts/a.sh" x "y z" || st=$?
+  tap_is "a stub logs its name and arguments, and exits as told" "$st $(cat "$s/log")" "3 a.sh x y z"
+  tap_stub "$s/bin/gh" "$s/log" "" $'a "b"\tc'
+  st=0; out=$("$s/bin/gh" pr view) || st=$?
+  tap_is "a stub exits 0 unless told, printing what it was given" "$st $(tail -1 "$s/log") $out" $'0 gh pr view a "b"\tc' 
+  : > "$s/file"
+  tap_fails "a stub whose folder cannot be made is refused" tap_stub "$s/file/x.sh" "$s/log"
+  rm -rf "$s"
 
   t=$(mktemp); trap 'rm -f "$t"' EXIT
   verdict() { printf '%s\n' "$1" > "$t"; tap_verify "$t"; }

@@ -27,6 +27,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 find_clone() {  # <root> <owner> <repo> -> the clone whose origin is owner/repo
@@ -101,6 +103,22 @@ if [[ "${1:-}" == "--self-test" ]]; then
 
   tap_run "review:bot locates the tree through gh-pr-local-tree.sh" \
     grep -q 'gh-pr-local-tree.sh' "$HERE/../skills/review:bot/SKILL.md"
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses is unresolved, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
+  stub gh_pr_ref.py 0 '{"owner":"o","repo":"r","number":1,"slug":"o/r"}'; tap_stub "$sfx/bin/gh" "$sfx/calls" 0 $'b\tabc'
+  : > "$sfx/.claude/session_history.md"
+  tap_like "with no root given, the project above \$PWD is searched" "$(stubbed o/r#1)" "4 *"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -109,12 +127,12 @@ if [[ $# -ne 1 ]]; then
   exit 1
 fi
 
-refjson=$("$HERE/gh_pr_ref.py" "$1") || exit 1
+refjson=$("$("$PF" --script gh_pr_ref.py)" "$1") || exit 1
 head=$(gh pr view "$(jq -er .number <<<"$refjson")" --repo "$(jq -er .slug <<<"$refjson")" \
   --json headRefName,headRefOid --jq '[.headRefName, .headRefOid] | @tsv') || exit 1
 IFS=$'\t' read -r branch sha <<<"$head"
 if [[ -n "${GH_PR_SRC_ROOT:-}" ]]; then root=$GH_PR_SRC_ROOT
-else hist=$("$HERE/project_file.sh" session_history.md) || exit 1; root=$(dirname "$(dirname "$hist")")
+else hist=$("$PF" session_history.md) || exit 1; root=$(dirname "$(dirname "$hist")")
 fi
 locate "$root" \
   "$(jq -er .owner <<<"$refjson")" "$(jq -er .repo <<<"$refjson")" "$branch" "$sha"

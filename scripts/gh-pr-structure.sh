@@ -106,9 +106,9 @@ import sys
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from resolve import script  # noqa: E402
 from tap import Tap  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 THRESHOLD = 1000
 PARSER_PIN = "tree-sitter-language-pack==1.22.1"
 UV_MARK = "GH_PR_STRUCTURE_UNDER_UV"
@@ -472,7 +472,7 @@ def measurable(entry: dict) -> bool:
 # I/O — the fetch helpers own the commit and the directory.
 
 def fetch_dir(ref: str, at: "list[str]") -> "tuple[str, str]":
-    res = subprocess.run([f"{HERE}/gh-pr-head-dir.sh", *at, ref],
+    res = subprocess.run([script("gh-pr-head-dir.sh"), *at, ref],
                          capture_output=True, text=True)
     if res.returncode != 0:
         die(res.stderr.strip() or "gh-pr-head-dir.sh failed")
@@ -484,7 +484,7 @@ def fetch(ref: str, at: "list[str]", paths: "list[str]") -> None:
     """Every path asked for exists at that commit, so any miss is fatal."""
     if not paths:
         return
-    res = subprocess.run([f"{HERE}/gh-pr-file.sh", *at, ref, *paths],
+    res = subprocess.run([script("gh-pr-file.sh"), *at, ref, *paths],
                          capture_output=True, text=True)
     if res.returncode != 0:
         die(res.stderr.strip() or "gh-pr-file.sh failed")

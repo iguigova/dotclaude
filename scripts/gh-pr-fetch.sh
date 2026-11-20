@@ -50,7 +50,7 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
 
 # The ticket-key rule, stated once: first XYZ-1234-shaped token in the PR title
 # or the head branch name, empty string when there is none.
@@ -139,7 +139,20 @@ if [[ "${1:-}" == "--self-test" ]]; then
     tap_run "$v is waited on by pid" grep -q "wait \"\$$v\"" "${BASH_SOURCE[0]}"
   done
   # The ref forms are gh_pr_ref.py's to define; this only checks delegation.
-  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_run "gh_pr_ref.py's self-test passes" "$("$PF" --script gh_pr_ref.py)" --self-test
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses stops the fetch before any read, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -148,7 +161,7 @@ if [[ $# -lt 1 ]]; then
   exit 1
 fi
 
-REFJSON=$("$HERE/gh_pr_ref.py" "$1") || exit 1
+REFJSON=$("$("$PF" --script gh_pr_ref.py)" "$1") || exit 1
 OWNER=$(jq -er .owner <<<"$REFJSON")
 REPO=$(jq -er .repo <<<"$REFJSON")
 NUMBER=$(jq -er .number <<<"$REFJSON")

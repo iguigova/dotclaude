@@ -33,7 +33,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HELPERS="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
+
 FIELDS=summary,status,assignee,updated
 MAX=50
 
@@ -96,7 +97,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 # shellcheck source=./atlassian-auth.sh
-. "$HELPERS/atlassian-auth.sh"
+. "$("$PF" --script atlassian-auth.sh)"
 BASE="${ATLASSIAN_SITE}/rest/api/3/search/jql"
 
 # js_page TOKEN — one page of raw JSON, or a non-zero exit with the body shown.

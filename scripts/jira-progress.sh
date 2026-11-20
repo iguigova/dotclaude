@@ -7,18 +7,20 @@
 # Each moment has one shape, so every ticket's history reads the same way:
 #
 #   started    Work started. <--note>
-#              Moves the ticket to In Progress and, when it has no
-#              assignee, assigns it to the token's account first.
+#              Moves the ticket to the in-progress status and, when it has
+#              no assignee, assigns it to the token's account first.
 #   blocked    Blocked: <--by>. Owner: <--owner>. Expected: <--until>.
-#              Moves the ticket to Blocked first.
-#   unblocked  Unblocked: <--note>. Moves the ticket to In Progress first.
+#              Moves the ticket to the blocked status first.
+#   unblocked  Unblocked: <--note>. Moves the ticket to the in-progress
+#              status first.
 #   review     In review: <--pr>, one per PR. <--note>
 #   input      Input needed from <--from>: <--question>
 #
 # The status moves before the comment posts, so a comment never claims a status
-# the ticket does not have; a refused move posts nothing. The statuses are the
-# workflow's In Progress and Blocked; a project whose workflow names them
-# otherwise overrides this script.
+# the ticket does not have; a refused move posts nothing. Each status is a
+# project value naming a status of its Jira workflow: jira_status_in_progress
+# and jira_status_blocked (project_file.sh --value). A moment whose value the
+# project lacks stops, exit 1, naming it, a dry run included.
 #
 # jira-assign.sh, jira-transition.sh and jira-comment.sh are resolved by name
 # (project_file.sh --script).
@@ -80,12 +82,19 @@ body() {  # <moment>
   esac
 }
 
-status_for() {  # <moment> -> the status it moves the ticket to, or nothing
+status_value() {  # <moment> -> the value naming the status it moves to, or nothing
   case "$1" in
-    started)   echo "In Progress" ;;
-    blocked)   echo Blocked ;;
-    unblocked) echo "In Progress" ;;
+    started|unblocked) echo jira_status_in_progress ;;
+    blocked)           echo jira_status_blocked ;;
   esac
+}
+
+# status_for — the status <moment> moves the ticket to, or nothing; a value
+# the project lacks returns 1, project_file.sh naming it.
+status_for() {  # <moment>
+  local value
+  value=$(status_value "$1")
+  [[ -z "$value" ]] || "$PF" --value "$value"
 }
 
 assigns() { [[ "$1" == started ]]; }  # <moment> -> whether it takes the ticket
@@ -104,28 +113,38 @@ self_test_runs() {
   printf '#!/usr/bin/env bash\necho "jira-comment.sh $* $(cat)" >> %q\necho %q\n' "$log" '{"id":"77"}' \
     > "$fx/p/.claude/scripts/jira-comment.sh"
   chmod +x "$fx/p/.claude/scripts/"*
+  mkdir -p "$fx/bare/.claude"; cp -r "$fx/p/.claude/scripts" "$fx/bare/.claude/"
+  echo Doing > "$fx/p/.claude/jira_status_in_progress"
+  echo "On Hold" > "$fx/p/.claude/jira_status_blocked"
   run() { (cd "$fx/$1" && "$me" "${@:2}") 2>&1; }  # <project> <args…>
   tap_is "started assigns, moves, then comments" "$(run p XYZ-1 started; cat "$log")" \
     "$(printf '%s\n' 'XYZ-1: started comment 77' 'jira-assign.sh --if-unassigned XYZ-1 me' \
-      'jira-transition.sh XYZ-1 In Progress' 'jira-comment.sh XYZ-1 Work started.')"
+      'jira-transition.sh XYZ-1 Doing' 'jira-comment.sh XYZ-1 Work started.')"
   : > "$log"
   tap_is "review neither assigns nor moves" "$(run p XYZ-1 review --pr u1; cat "$log")" \
     "$(printf '%s\n' 'XYZ-1: review comment 77' 'jira-comment.sh XYZ-1 In review:' '* u1')"
   : > "$log"
   tap_is "a refused move posts nothing, exit 1" "$(run p refuse unblocked --note n; echo "exit $?"; cat "$log")" \
-    "$(printf '%s\n' 'exit 1' 'jira-transition.sh refuse In Progress')"
+    "$(printf '%s\n' 'exit 1' 'jira-transition.sh refuse Doing')"
   : > "$log"
   tap_is "a refused assign moves nothing, exit 1" "$(run p refuse started; echo "exit $?"; cat "$log")" \
     "$(printf '%s\n' 'exit 1' 'jira-assign.sh --if-unassigned refuse me')"
   : > "$log"
   tap_is "a dry run says what it would do and calls nothing" \
     "$(run p --dry-run XYZ-1 blocked --by b --owner o --until 2026-01-02; cat "$log")" \
-    "$(printf '%s\n' 'would move XYZ-1 to: Blocked' 'would comment on XYZ-1:' 'Blocked: b. Owner: o. Expected: 2026-01-02.')"
+    "$(printf '%s\n' 'would move XYZ-1 to: On Hold' 'would comment on XYZ-1:' 'Blocked: b. Owner: o. Expected: 2026-01-02.')"
   tap_is "a dry run of started says it would assign" "$(run p --dry-run XYZ-1 started | head -1)" \
     "would assign XYZ-1 to the token's account, if unassigned"
   : > "$log"
   tap_is "input only comments" "$(run p XYZ-1 input --from a --question q; cat "$log")" \
     "$(printf '%s\n' 'XYZ-1: input comment 77' 'jira-comment.sh XYZ-1 Input needed from a: q')"
+  : > "$log"
+  tap_like "a project naming no in-progress status stops started before any call" \
+    "$(run bare XYZ-1 started; echo "exit $?"; cat "$log")" "*jira_status_in_progress*exit 1"
+  tap_like "and stops its dry run too" "$(run bare --dry-run XYZ-1 blocked --by b --owner o --until 2026-01-02; echo "exit $?")" \
+    "*jira_status_blocked*exit 1"
+  tap_is "a moment that moves nothing needs no status" "$(run bare XYZ-1 input --from a --question q | head -1)" \
+    "XYZ-1: input comment 77"
   tap_is "a missing moment is a usage error, naming the usage" "$(run p XYZ-1; echo "exit $?")" \
     "$(printf '%s\n' 'jira-progress: usage: jira-progress.sh [--dry-run] <KEY> <moment> [options]' 'exit 2')"
   tap_is "an unknown option is a usage error" "$(run p XYZ-1 started --bogus >/dev/null; echo $?)" 2
@@ -156,9 +175,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   t "an unknown moment is refused" \
     "jira-progress: unknown moment 'finished' (started, blocked, unblocked, review, input)" finished
   moves=""
-  for m in started blocked unblocked review input; do moves+="$m=$(status_for "$m");"; done
-  tap_is "started and unblocked move to In Progress, blocked to Blocked" "$moves" \
-    "started=In Progress;blocked=Blocked;unblocked=In Progress;review=;input=;"
+  for m in started blocked unblocked review input; do moves+="$m=$(status_value "$m");"; done
+  tap_is "started and unblocked name the in-progress status, blocked the blocked one" "$moves" \
+    "started=jira_status_in_progress;blocked=jira_status_blocked;unblocked=jira_status_in_progress;review=;input=;"
   takers=""
   for m in started blocked unblocked review input; do ! assigns "$m" || takers+="$m"; done
   tap_is "only started assigns" "$takers" started
@@ -186,7 +205,7 @@ done
 [[ -n "$KEY" && -n "$MOMENT" ]] || usage "usage: jira-progress.sh [--dry-run] <KEY> <moment> [options]"
 
 TEXT=$(body "$MOMENT") || exit 2
-STATUS=$(status_for "$MOMENT")
+STATUS=$(status_for "$MOMENT") || exit 1
 
 if [[ $DRYRUN == 1 ]]; then
   ! assigns "$MOMENT" || echo "would assign $KEY to the token's account, if unassigned"

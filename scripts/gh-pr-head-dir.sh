@@ -37,6 +37,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 pinned_head() {  # <pr.json head or ""> <live head> -> the live head, or refuse
@@ -111,6 +113,19 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # base commit keeps a merged PR's merge base where the PR started.
   tap_run "--base compares the recorded base commit, not the branch's name" \
     grep -qF 'compare/$base_oid...' "${BASH_SOURCE[0]}"
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses stops before any read, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -121,9 +136,9 @@ if [[ $# -ne 1 ]]; then
   exit 1
 fi
 
-refjson=$("$HERE/gh_pr_ref.py" "$1") || exit 1
+refjson=$("$("$PF" --script gh_pr_ref.py)" "$1") || exit 1
 slug=$(jq -er .slug <<<"$refjson")
-workdir=$("$HERE/gh-pr-workdir.sh" "$1")
+workdir=$("$("$PF" --script gh-pr-workdir.sh)" "$1")
 live=$(gh pr view "$(jq -er .number <<<"$refjson")" --repo "$slug" \
   --json headRefOid,baseRefOid --jq '[.headRefOid, .baseRefOid] | @tsv') || exit 1
 IFS=$'\t' read -r live_head base_oid <<<"$live"

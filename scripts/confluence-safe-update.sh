@@ -33,6 +33,7 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
 
 # The page id and the version recorded beside a fetched body, as "ID VERSION",
 # or a message on stderr and 2.
@@ -109,14 +110,12 @@ csu_self_test() {
   tap_is "the version is a number, not a string" "$(jq -r '.version.number | type' <<<"$payload")" \
     'number'
 
-  # The whole script, over a stubbed page read and a curl that records the PUT and
+  # The whole script, in a fixture project over a stubbed page read and a curl that records the PUT and
   # answers with $STUB_CODE: what is sent, and what the version file holds after.
   local run self sent
   run=$(mktemp -d); trap 'rm -f "$body"; rm -rf "$run"' RETURN
-  mkdir "$run/h" "$run/bin" "$run/page"
-  cp "$0" "$run/h/confluence-safe-update.sh"
-  cp "$(dirname "$0")/storage-well-formed.sh" "$(dirname "$0")/draft_gate.py" "$(dirname "$0")/tap.py" "$run/h/"
-  cat > "$run/h/atlassian-auth.sh" <<'STUB'
+  mkdir -p "$run/bin" "$run/page" "$run/.claude/scripts"
+  cat > "$run/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid JIRA_USER=u JIRA_TOKEN=t
 atlassian_curl() { printf '{"version":{"number":%s},"space":{"key":"SP"},"title":"T"}' "$STUB_AT"; }
 STUB
@@ -128,14 +127,14 @@ done
 echo '{}' > "$out"; printf '%s' "$STUB_CODE"
 STUB
   chmod +x "$run/bin/curl"
-  self="$run/h/confluence-safe-update.sh" sent="$run/sent"
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")" sent="$run/sent"
   printf '<p>new</p>' > "$run/page/42.storage.html"
   live() {  # AT CODE [SESSION] → "exit/version file/what was sent"
     rm -f "$sent"; printf '7\n' > "$run/page/42.version"
     local st=0
-    STUB_AT="$1" STUB_CODE="$2" STUB_SENT="$sent" PATH="$run/bin:$PATH" \
+    (cd "$run" && STUB_AT="$1" STUB_CODE="$2" STUB_SENT="$sent" PATH="$run/bin:$PATH" \
       CLAUDE_CODE_SESSION_ID="${3:-}" DRAFT_GATE_DIR="$run/gate" \
-      bash "$self" --from "$run/page/42.storage.html" >/dev/null 2>&1 || st=$?
+      bash "$self" --from "$run/page/42.storage.html") >/dev/null 2>&1 || st=$?
     printf '%s/%s/%s' "$st" "$(cat "$run/page/42.version")" \
       "$( [[ -f "$sent" ]] && jq -c '[.version.number, .body.storage.value]' "$sent")"
   }
@@ -162,13 +161,13 @@ while [[ $# -gt 0 ]]; do
 done
 [[ -n "$FROM" ]] || usage
 read -r PAGE_ID FETCHED_VER <<<"$(csu_source "$FROM")" && [[ -n "${PAGE_ID:-}" ]] || exit 2
-"$(dirname "${BASH_SOURCE[0]}")/storage-well-formed.sh" "$FROM" || {
+"$("$PF" --script storage-well-formed.sh)" "$FROM" || {
   echo "confluence-safe-update: $FROM is not well-formed storage; nothing was sent" >&2; exit 2; }
-"$(dirname "${BASH_SOURCE[0]}")/draft_gate.py" check draft normative || exit 1
+"$("$PF" --script draft_gate.py)" check draft normative || exit 1
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 BASE="${ATLASSIAN_SITE}/wiki/rest/api/content"
 
 CURRENT=$(atlassian_curl "${BASE}/${PAGE_ID}?expand=version,space")

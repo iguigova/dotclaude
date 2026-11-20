@@ -277,14 +277,14 @@ each() {  # <fn> <dir> <file…>
 # Good — the failure reaches the caller
 workdir() {  # <pr-ref>
   local refjson owner
-  refjson=$("$HERE/gh_pr_ref.py" "$1") || return 1
+  refjson=$("$("$PF" --script gh_pr_ref.py)" "$1") || return 1
   owner=$(jq -er .owner <<<"$refjson") || return 1
   ...
 }
 
 # Bad — $? is 0 whatever gh_pr_ref.py did
 workdir() {
-  local refjson=$("$HERE/gh_pr_ref.py" "$1") || return 1
+  local refjson=$("$("$PF" --script gh_pr_ref.py)" "$1") || return 1
 }
 ```
 

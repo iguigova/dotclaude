@@ -71,12 +71,16 @@ hold.
 ### Composition
 
 Skills call scripts, and scripts call scripts, each by name through
-`project_file.sh --script`. A step that differs between projects is a verb the project
+`project_file.sh --script`; a sourced library such as `atlassian-auth.sh` is
+found the same way, and a Python script resolves through `scripts/resolve.py`.
+The two resolvers are reached at `~/.claude/scripts`, and a self-test sources
+`tap.sh` or imports `tap.py` from beside itself. A step that differs between projects is a verb the project
 provides. Its contract is the claim it proves. For example, `pr_env` takes a
 PR reference, prints the environment's URL, and exits 0 only once the PR's
 head commit is proven deployed there. How it gets there is the project's
 business. `scripts/project_verbs.txt` lists every verb a global part calls,
-with its contract. A project without the verb stops at that step. When two projects
+with its contract, which the project's script carries word for word in its
+`--help`; `gate_verb_contracts` fails a copy that differs. A project without the verb stops at that step. When two projects
 implement a verb the same way, the implementation moves to the global layer.
 
 ### Where prose goes
@@ -87,6 +91,52 @@ implement a verb the same way, the implementation moves to the global layer.
 | A fact about one project | A memory fact in that project |
 | A policy that holds every turn | `CLAUDE.md` |
 | The method | The skill |
+
+## Context and containers
+
+The diagrams follow the C4 model (https://c4model.com). The system is both
+layers. `/inventory` is the code-level view, generated from the tree.
+
+```mermaid
+flowchart TB
+  dev["<b>Developer</b><br>[Person]<br>Asks for work and answers its prompts"]
+  visitor["<b>Visitor</b><br>[Person]<br>Reads the public copy"]
+  cc["<b>Claude Code</b><br>[Software System]<br>The assistant in the terminal"]
+  sys["<b>The tooling</b><br>[Software System]<br>~/.claude and each project's .claude:<br>rules, gates, skills, tested scripts, records"]
+  timer["<b>systemd user timer</b><br>[Software System]<br>Fires at 04:30, catches up missed nights"]
+  work["<b>Jira, Confluence, Slack</b><br>[Software System]<br>Tickets, pages, posts"]
+  gh["<b>GitHub</b><br>[Software System]<br>Pull requests, the public dotclaude repo and its Pages site"]
+  dev -- "types requests, approves steps" --> cc
+  cc -- "loads rules, fires hooks, runs skills and scripts" --> sys
+  timer -- "runs the nightly memory check" --> sys
+  sys -- "one script per action" --> work
+  sys -- "reads and comments on PRs; pushes the export" --> gh
+  visitor -- "reads over HTTPS" --> gh
+```
+
+```mermaid
+flowchart TB
+  cc["<b>Claude Code</b><br>[Software System]"]
+  timer["<b>systemd user timer</b><br>[Software System]"]
+  ext["<b>Jira, Confluence, Slack, GitHub</b><br>[Software System]"]
+  subgraph sys [The tooling]
+    rules["<b>Rules</b><br>[Markdown]<br>CLAUDE.md, credo.md, *_guidelines.md"]
+    hooks["<b>Hooks</b><br>[JSON]<br>settings.json"]
+    skills["<b>Skills</b><br>[Markdown]<br>skills/: the methods"]
+    scripts["<b>Scripts</b><br>[Bash, Python]<br>scripts/: one verb each, self-tested"]
+    project["<b>Project layer</b><br>[Files]<br>&lt;project&gt;/.claude: values, verbs, skills;<br>&lt;project&gt;/.secrets"]
+    records["<b>Records</b><br>[Markdown]<br>session history, notes, memory facts"]
+  end
+  cc -- "loads every turn" --> rules
+  cc -- "fires on session and tool events" --> hooks
+  cc -- "loads when asked" --> skills
+  hooks -- "run the gates and the session-end scripts" --> scripts
+  skills -- "call by name through project_file.sh --script" --> scripts
+  scripts -- "read values, secrets and project verbs" --> project
+  scripts -- "write and recheck" --> records
+  timer -- "memory_check.sh --all" --> scripts
+  scripts -- "one verb per action" --> ext
+```
 
 ## The map
 
@@ -114,6 +164,19 @@ mutation check. `scripts/gate_lib.sh` holds the checks every tooling repo
 shares. `scripts/tooling_commit.sh` commits named paths only when that gate
 is green; `journal.sh` commits the session history through it.
 
+A change is kept in this order:
+
+```mermaid
+flowchart TB
+  edit["Edit"] -- "1. PreToolUse" --> gg["guideline_gate.py<br>refuses until the guidelines are read"]
+  gg -- "2. tooling_commit.sh -m … -- paths" --> st["selftest.sh<br>self-tests, shellcheck, lints"]
+  st -- "3" --> cg["change_gate.py<br>complexity cap, mutation check"]
+  cg -- "4. green" --> commit["commit of the named paths"]
+  commit -- "5" --> j["journal.sh<br>entry committed through tooling_commit.sh"]
+  j -- "6. SessionEnd" --> ex["session_end_export.sh → dotclaude_export.sh<br>allowlist copy, denylist refusal, selftest, commit"]
+  ex -- "7. push" --> gh["GitHub: public dotclaude"]
+```
+
 ### Records: history, notes and memory
 
 What a session did and learned outlives it.
@@ -135,6 +198,23 @@ What a session did and learned outlives it.
   about a file in a repository. A project's facts live in
   `<project>/.claude-project-data/memory/`, versioned with the project.
 
+```mermaid
+flowchart TB
+  hist[("session_history.md<br>entries and notes")]
+  mem[("memory/<br>one fact per file")]
+  journal["journal.sh"] -- "appends entries; -n opens a note" --> hist
+  queue["journal_queue.sh"] -- "reads the open notes" --> hist
+  notes["/notes"] -- "lists through" --> queue
+  notes -- "places a note as a fact" --> fact["memory_fact.sh"]
+  start["session_start_notes.sh<br>SessionStart"] -- "reports the queue" --> queue
+  endn["session_end_notes.sh<br>SessionEnd"] -- "detaches when a note is open" --> run["session_end_run.sh"]
+  run -- "places unattended" --> notes
+  run --> report["session_end_report.sh"] --> sel[(".claude/session_end.last")]
+  fact -- "writes when verify passes" --> mem
+  check["memory_check.sh --all<br>04:30 timer"] -- "reruns verify, deletes a contradicted fact" --> mem
+  check --> mcl[(".claude/memory_check.last")]
+```
+
 ### Projects and accounts
 
 - `scripts/project_init.sh` makes a git repository a project: its `.claude/`,
@@ -143,7 +223,7 @@ What a session did and learned outlives it.
   `<project>/.claude-project-data/`, where Claude Code then keeps the
   project's sessions and memory. A second run has nothing to do.
 - `scripts/project_file.sh` and `scripts/secret_file.sh` resolve a project's
-  values, scripts and secrets.
+  values, scripts and secrets; `scripts/resolve.py` reads them for Python.
 - `scripts/claude_account.sh` runs a project under the account its
   `.claude/config_dir` names. That account's directory links every shared
   entry back to `~/.claude`, so one copy of the tooling serves every account.

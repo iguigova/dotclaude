@@ -57,7 +57,8 @@ import urllib.parse
 import urllib.request
 from datetime import datetime, timezone
 
-RESOLVERS = os.path.expanduser('~/.claude/scripts')
+from resolve import script, secret_path, value
+
 PAGE_SIZE = 100
 TIMEOUT = 30
 HISTORY_FIELDS = ('status', 'assignee', 'priority', 'summary',
@@ -68,29 +69,9 @@ SLACK_LINK = re.compile(
     r'(?:\?[^\s|\]\)]*)?')
 
 
-def resolved(command):
-    """What a resolver prints; its refusal ends the run, exit 1, naming
-    what the project lacks."""
-    result = subprocess.run(command, capture_output=True, text=True)
-    if result.returncode != 0:
-        sys.exit(result.stderr.strip()
-                 or f'postmortem_evidence: {" ".join(command)} exited {result.returncode}')
-    return result.stdout.strip()
-
-
-@functools.cache
-def value(name):
-    return resolved([os.path.join(RESOLVERS, 'project_file.sh'), '--value', name])
-
-
-@functools.cache
-def script(name):
-    return resolved([os.path.join(RESOLVERS, 'project_file.sh'), '--script', name])
-
-
 @functools.cache
 def secret(name):
-    with open(resolved([os.path.join(RESOLVERS, 'secret_file.sh'), name])) as handle:
+    with open(secret_path(name)) as handle:
         return handle.read().strip()
 
 
@@ -532,9 +513,6 @@ def self_test_calls(t, root):
             sys.argv = argv
         check('the default folder is postmortem-<KEY>, with the linked issues',
               os.path.exists(os.path.join('postmortem-XYZ-1', 'XYZ-2.md')), True)
-        check('a silent resolver refusal names the command and its status',
-              self_test_exit(resolved, ['sh', '-c', 'exit 3']),
-              'postmortem_evidence: sh -c exit 3 exited 3')
         check('a link with no issue on either side renders, not fails',
               link_lines([{'type': {'inward': 'is hit by', 'outward': 'hits'}}]),
               ['- is hit by None [None] None'])

@@ -38,6 +38,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 DRY_RUN=0
 SELF_TEST=0
 SUMMARY=""
@@ -123,7 +125,7 @@ else
   fi
   [[ "$(echo "$PAYLOAD" | jq -r '.fields.description | length')" -gt 0 ]] \
     || { echo "Refusing to write an empty description to ${ISSUE}" >&2; exit 1; }
-  jq -r '.fields.description' <<<"$PAYLOAD" | "$(dirname "$0")/jira-wiki-check.sh"
+  jq -r '.fields.description' <<<"$PAYLOAD" | "$("$PF" --script jira-wiki-check.sh)"
   if [[ -n "$SUMMARY" ]]; then
     PAYLOAD=$(echo "$PAYLOAD" | jq --arg s "$SUMMARY" '.fields.summary = $s')
   fi
@@ -144,11 +146,11 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-"$(dirname "$0")/draft_gate.py" check draft || exit 1
+"$("$PF" --script draft_gate.py)" check draft || exit 1
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 RESP_FILE=$(mktemp)
 trap 'rm -f "$RESP_FILE"' EXIT

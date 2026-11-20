@@ -22,6 +22,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 PAGE_URL_ID='/pages/([0-9]+)'
 NUMERIC_ID='^[0-9]+$'
 
@@ -32,25 +34,26 @@ page_id() {
   fi
 }
 
-# The whole script runs against a stubbed atlassian-auth.sh copied beside it,
+# The whole script runs in a fixture project whose atlassian-auth.sh is a stub,
 # so the request it sends is the one asserted.
 self_test() {
   local src out
   src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "$0")"
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
-  cp "$src" "$tmp/confluence-attach.sh"
+  mkdir -p "$tmp/.claude/scripts"
   printf 'x' > "$tmp/a.png"; printf 'y' > "$tmp/b.png"
-  cat > "$tmp/atlassian-auth.sh" <<'STUB'
+  cat > "$tmp/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
   local o="" a
-  printf '%s\n' "$*" >> "$(dirname "${BASH_SOURCE[0]}")/calls"
+  printf '%s\n' "$*" >> "$PWD/calls"
   while [[ $# -gt 0 ]]; do a="$1"; shift; [[ "$a" == -o ]] && { o="$1"; shift; }; done
   printf '{"results":[{"id":"att1","title":"a.png","version":{"number":1}},{"id":"att2","title":"b.png","version":{"number":3}}]}' > "$o"
   printf 200
 }
 STUB
-  out=$("$tmp/confluence-attach.sh" \
+  cd "$tmp" || exit 2
+  out=$("$src" \
     "https://example.invalid/wiki/spaces/PA/pages/42/Title" "$tmp/a.png" "$tmp/b.png")
   # shellcheck source=tap.sh
   . "$(dirname "$src")/tap.sh"
@@ -64,9 +67,9 @@ STUB
   tap_is "each attachment prints as <id> <name> v<n>" \
     "$out" $'att1 a.png v1\natt2 b.png v3'
   tap_fails "a missing file is refused" \
-    "$tmp/confluence-attach.sh" --dry-run 42 "$tmp/a.png" "$tmp/missing.png"
+    "$src" --dry-run 42 "$tmp/a.png" "$tmp/missing.png"
   tap_fails "a non-page reference is refused" \
-    "$tmp/confluence-attach.sh" --dry-run not-a-page "$tmp/a.png"
+    "$src" --dry-run not-a-page "$tmp/a.png"
 }
 
 DRY_RUN=0
@@ -94,9 +97,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 # Confluence pairs each file with its own minorEdit field, and refuses an
 # upload whose two counts differ.

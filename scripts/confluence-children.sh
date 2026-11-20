@@ -18,26 +18,28 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 # The walk is the contract, so the test runs this script against a stubbed
 # atlassian_curl: a two-level tree whose bodies are each over 128 KiB, the
 # kernel's cap on one argument, so a body passed to jq as an argument fails it.
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "$0" "$fx/confluence-children.sh"
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  mkdir -p "$fx/.claude/scripts"
   head -c 200000 /dev/zero | tr '\0' x > "$fx/body"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
-  local dir; dir="$(dirname "${BASH_SOURCE[0]}")"
   case "$1" in
     */1/child/page*) echo '{"results":[{"id":"2","title":"a"},{"id":"3","title":"b\tc"}]}' ;;
     */2/child/page*) echo '{"results":[{"id":"4","title":"d"}]}' ;;
     */child/page*)   echo '{"results":[]}' ;;
-    *expand=body.storage) jq -Rs '{body: {storage: {value: .}}}' < "$dir/body" ;;
+    *expand=body.storage) jq -Rs '{body: {storage: {value: .}}}' < "$PWD/body" ;;
   esac
 }
 STUB
-  self="$fx/confluence-children.sh"
+  cd "$fx" || exit 2
   flat=$("$self" 1 | jq -c 'map([.id, .parent_id])')
   tree=$("$self" 1 --recurse | jq -c 'map([.id, .parent_id])')
   bodies=$("$self" 1 --recurse --with-body \
@@ -46,7 +48,7 @@ STUB
   want_tree='[["2","1"],["3","1"],["4","2"]]'
   want_bodies='[["2","a",200000],["3","b\tc",200000],["4","d",200000]]'
   # shellcheck source=tap.sh
-  . "$(dirname "$0")/tap.sh"
+  . "$(dirname "$self")/tap.sh"
   tap_is "one level lists each child beside its parent" "$flat" "$want_flat"
   tap_is "--recurse lists the children's children" "$tree" "$want_tree"
   tap_is "each body over 128 KiB is inlined, and a tab in a title is kept" \
@@ -78,9 +80,9 @@ else
   exit 1
 fi
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 BASE="${ATLASSIAN_SITE}/wiki/rest/api/content"
 

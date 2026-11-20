@@ -26,13 +26,13 @@ import datetime
 import json
 import os
 import re
-import subprocess
 import sys
 import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
 
+from resolve import secret_path
 from tap import Tap
 
 SLACK_API = 'https://slack.com/api'
@@ -104,12 +104,7 @@ def token_file(env, name):
     ``.secrets/<name>`` (secret_file.sh)."""
     if os.environ.get(env):
         return Path(os.environ[env])
-    found = subprocess.run(
-        [str(Path(__file__).resolve().parent / 'secret_file.sh'), name],
-        capture_output=True, text=True)
-    if found.returncode:
-        sys.exit(found.stderr.strip())
-    return Path(found.stdout.strip())
+    return Path(secret_path(name))
 
 
 def token():

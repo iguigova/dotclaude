@@ -57,9 +57,9 @@ import textwrap
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gh_pr_ref import RefError, parse_ref  # noqa: E402
+from resolve import script  # noqa: E402
 from tap import Tap  # noqa: E402
 
-HERE = os.path.dirname(os.path.abspath(__file__))
 
 # "Confidence Score: 4/5", wherever it sits in the HTML the bot posts.
 SCORE_RE = re.compile(r"Confidence\s+Score:\s*(\d+)\s*/\s*(\d+)", re.I)
@@ -271,7 +271,7 @@ def main(argv: "list[str]") -> int:
         die(str(e))
 
     res = subprocess.run(
-        [os.path.join(HERE, "gh-pr-bot-comments.sh"), ref, *bots],
+        [script("gh-pr-bot-comments.sh"), ref, *bots],
         capture_output=True,
         text=True,
     )

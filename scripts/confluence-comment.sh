@@ -25,6 +25,8 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 PAGE_URL_ID='/pages/([0-9]+)'
 NUMERIC_ID='^[0-9]+$'
 
@@ -38,7 +40,7 @@ page_id() {
 # A rejected comment surfaces only as a generic 400; checking first names
 # the fault.
 well_formed() {
-  "$(dirname "${BASH_SOURCE[0]}")/storage-well-formed.sh" 2>/dev/null
+  "$("$PF" --script storage-well-formed.sh)" 2>/dev/null
 }
 
 payload() {
@@ -114,9 +116,9 @@ if [[ -n "$EDIT" ]]; then
     edit_payload "$BODY" 0
     exit 0
   fi
-  HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
   # shellcheck disable=SC1091
-  source "${HELPER_DIR}/atlassian-auth.sh"
+  # shellcheck source=atlassian-auth.sh
+  source "$("$PF" --script atlassian-auth.sh)"
   BASE="${ATLASSIAN_SITE}/wiki"
   VERSION="$(atlassian_curl "$BASE/rest/api/content/$EDIT?expand=version" \
     | jq -er '.version.number')" \
@@ -154,9 +156,9 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   exit 0
 fi
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 BASE="${ATLASSIAN_SITE}/wiki"
 
 RESPONSE="$(mktemp)"

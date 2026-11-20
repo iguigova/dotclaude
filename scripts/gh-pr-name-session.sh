@@ -31,8 +31,9 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-RENAME="$HOME/.claude/scripts/session_rename.sh"
+PF="$HOME/.claude/scripts/project_file.sh"
+
+RENAME=$("$PF" --script session_rename.sh) || exit 1
 
 # <ticket> <owner> <repo> <number> <suffix> -> the title. A ticket that is empty, or the literal
 # "null" a `jq -r` prints for a missing key, takes the fallback: "null PR" is a
@@ -66,7 +67,20 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "" "Acme" "billing-service" "194" "BOT" "the BOT suffix is kept with no ticket"
   tap_run "the ticket read uses '// empty'" grep -q '\.ticket // empty' "${BASH_SOURCE[0]}"
   tap_run "the rename script is executable" test -x "$RENAME"
-  tap_run "gh_pr_ref.py's self-test passes" "$HERE/gh_pr_ref.py" --self-test
+  tap_run "gh_pr_ref.py's self-test passes" "$("$PF" --script gh_pr_ref.py)" --self-test
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh_pr_ref.py 1
+  tap_is "a ref gh_pr_ref.py refuses names nothing, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 
@@ -77,11 +91,11 @@ fi
 
 REF="$1"
 SUFFIX="${2:-PR}"
-REFJSON=$("$HERE/gh_pr_ref.py" "$REF") || exit 1
+REFJSON=$("$("$PF" --script gh_pr_ref.py)" "$REF") || exit 1
 OWNER=$(jq -er .owner <<<"$REFJSON")
 REPO=$(jq -er .repo <<<"$REFJSON")
 NUMBER=$(jq -er .number <<<"$REFJSON")
-WORKDIR=$("$HERE/gh-pr-workdir.sh" "$REF")
+WORKDIR=$("$("$PF" --script gh-pr-workdir.sh)" "$REF")
 
 # `// empty` rather than `// ""`: a missing key must arrive as an empty string,
 # not the text "null", or the session is named "null PR".

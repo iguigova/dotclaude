@@ -24,19 +24,22 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+PF="$HOME/.claude/scripts/project_file.sh"
+
 # The id taken from a reference and the URL asked are the contract, so the test
-# runs a copy of this script beside a stubbed atlassian_curl that prints its URL.
+# runs this script in a fixture project whose atlassian_curl prints its URL.
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "$0" "$fx/confluence-page.sh"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  mkdir -p "$fx/.claude/scripts"
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
   if [[ -n "${STUB_PAGE:-}" ]]; then printf '%s\n' "$*" > "$STUB_LOG"; cat "$STUB_PAGE"
   else printf '%s\n' "$*"; fi
 }
 STUB
-  self="$fx/confluence-page.sh"
+  cd "$fx" || exit 2
   base=https://example.invalid/wiki/rest/api/content
   by_id=$(bash "$self" 2415788040)
   by_url=$(bash "$self" "https://x.atlassian.net/wiki/spaces/X/pages/2415788040/Foo")
@@ -58,7 +61,7 @@ STUB
   unset STUB_PAGE
   want_body=' < p > a & a m p ; b < / p > \n < p > c < / p >'
   # shellcheck source=tap.sh
-  . "$(dirname "$0")/tap.sh"
+  . "$(dirname "$self")/tap.sh"
   tap_is "an id asks for the page with its default expansion" \
     "$by_id" "$base/2415788040?expand=body.storage,version,space,ancestors"
   tap_is "a page URL asks for the same page as its id" "$by_url" "$by_id"
@@ -105,9 +108,9 @@ else
   exit 1
 fi
 
-HELPER_DIR="$(cd "$(dirname "$0")" && pwd)"
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 
 if [[ -z "$TO" ]]; then
   atlassian_curl "${ATLASSIAN_SITE}/wiki/rest/api/content/${PAGE_ID}?expand=${EXPAND:-body.storage,version,space,ancestors}"

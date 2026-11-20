@@ -74,9 +74,8 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gh_pr_ref import RefError, parse_slug  # noqa: E402
+from resolve import script  # noqa: E402
 from tap import Tap  # noqa: E402
-
-HERE = os.path.dirname(os.path.abspath(__file__))
 
 
 def die(msg: str) -> "None":
@@ -313,7 +312,7 @@ def _self_test_gate(want) -> None:
 
 def drafted() -> bool:
     """True when draft_gate.py lets this session send text to people."""
-    return subprocess.run([os.path.join(HERE, "draft_gate.py"), "check", "draft"]).returncode == 0
+    return subprocess.run([script("draft_gate.py"), "check", "draft"]).returncode == 0
 
 
 def main() -> None:
@@ -364,7 +363,7 @@ def main() -> None:
                 f"Re-run gh-pr-diff-index.sh and re-check the findings.")
         commit_id = indexed or current
     else:
-        index = json.loads(run([os.path.join(HERE, "gh-pr-diff-index.sh"),
+        index = json.loads(run([script("gh-pr-diff-index.sh"),
                                 args.ref])) if findings else {"files": []}
         commit_id = index.get("head_sha")
 

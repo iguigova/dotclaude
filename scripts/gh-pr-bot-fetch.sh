@@ -33,7 +33,7 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
 
 fetch() {  # <pr-ref> [--wait] [bot-login-substr ...]
   local ref="" wait=0 bots=() dir tb ts rc
@@ -45,7 +45,7 @@ fetch() {  # <pr-ref> [--wait] [bot-login-substr ...]
     esac
   done
   [[ -n "$ref" ]] || { echo "Usage: gh-pr-bot-fetch.sh <pr-ref> [--wait] [bot-login-substr ...]" >&2; return 1; }
-  dir=$("$HERE/gh-pr-workdir.sh" "$ref") || return 1
+  dir=$("$("$PF" --script gh-pr-workdir.sh)" "$ref") || return 1
   tb=$(mktemp "$dir/bot.json.XXXXXX")
   ts=$(mktemp "$dir/score.json.XXXXXX")
   fetch_both "$ref" "$wait" "$tb" "$ts" "${bots[@]}" || { rc=$?; rm -f "$tb" "$ts"; return "$rc"; }
@@ -59,13 +59,13 @@ fetch() {  # <pr-ref> [--wait] [bot-login-substr ...]
 fetch_both() {  # REF WAIT BOT_TMP SCORE_TMP [BOTS…]
   local ref=$1 wait=$2 tb=$3 ts=$4; shift 4
   await_score "$ref" "$wait" "$ts" "$@" || return
-  fetched "$tb" "${GH_PR_BOT_COMMENTS:-$HERE/gh-pr-bot-comments.sh}" "$ref" "$@" \
+  fetched "$tb" "${GH_PR_BOT_COMMENTS:-$("$PF" --script gh-pr-bot-comments.sh)}" "$ref" "$@" \
     || { echo "gh-pr-bot-fetch.sh: comment fetch failed for $ref" >&2; return 1; }
 }
 
 await_score() {  # REF WAIT SCORE_TMP [BOTS…]
   local ref=$1 wait=$2 ts=$3 score interval deadline; shift 3
-  score="${GH_PR_BOT_SCORE:-$HERE/gh-pr-bot-score.sh}"
+  score="${GH_PR_BOT_SCORE:-$("$PF" --script gh-pr-bot-score.sh)}"
   interval="${GH_PR_BOT_FETCH_INTERVAL:-20}"
   deadline=$((SECONDS + ${GH_PR_BOT_FETCH_WAIT:-100}))
   while :; do
@@ -188,6 +188,19 @@ EOF
   tap_is "no ref exits 1" "$code" 1
   run "$ref" --bogus
   tap_is "an unknown option exits 1" "$code" 1
+  # The script in a fixture project whose scripts it calls by name are stubs,
+  # beside a gh that logs: where it stops, and what it called before.
+  sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
+    local st=0
+    (cd "$sfx" && PATH="$sfx/bin:$PATH" "$me" "$@") > "$sfx/out" 2>/dev/null || st=$?
+    echo "$st $(paste -sd'|' "$sfx/calls")"; : > "$sfx/calls"
+  }
+  stub() { tap_stub "$sfx/.claude/scripts/$1" "$sfx/calls" "${@:2}"; }  # <name> [<status>] [<stdout>]
+  stub gh-pr-workdir.sh 1
+  tap_is "a work directory that cannot be had fetches nothing, exit 1" "$(stubbed o/r#1)" "1 gh-pr-workdir.sh o/r#1"
+  rm -rf "$sfx"
   tap_end
 fi
 

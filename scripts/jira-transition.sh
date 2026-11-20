@@ -30,13 +30,15 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
-HELPER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PF="$HOME/.claude/scripts/project_file.sh"
+
 KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
-  cp "${HELPER_DIR}/jira-transition.sh" "$fx/jira-transition.sh"
-  cat > "$fx/atlassian-auth.sh" <<'STUB'
+  self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  mkdir -p "$fx/.claude/scripts"
+  cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport. Answers the issue and transition reads from fixtures,
 # records what would be POSTed, and never opens a socket.
 ATLASSIAN_SITE=https://example.invalid
@@ -56,7 +58,7 @@ atlassian_curl() {
 }
 STUB
   export JT_POSTED="$fx/posted.json" JT_STATUS=204
-  jt() { "$fx/jira-transition.sh" "$@"; }
+  jt() { (cd "$fx" && "$self" "$@"); }
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
@@ -99,7 +101,8 @@ WANT="$*"
 [[ "$LIST" -eq 1 || -n "$WANT" ]] || usage "Name the status to move $KEY to."
 
 # shellcheck disable=SC1091
-source "${HELPER_DIR}/atlassian-auth.sh"
+# shellcheck source=atlassian-auth.sh
+source "$("$PF" --script atlassian-auth.sh)"
 ENDPOINT="/rest/api/2/issue/${KEY}/transitions"
 
 OFFERED=$(atlassian_curl -f "${ATLASSIAN_SITE}${ENDPOINT}") \

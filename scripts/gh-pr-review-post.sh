@@ -190,25 +190,6 @@ def split_findings(findings: "list[dict]", ok: "set[tuple[str, int, str]]"
     return comments, invalid
 
 
-# /review:pr budgets an inline comment at 60 words: defect, consequence, fix.
-# Reported, never enforced — a finding that genuinely needs more should not be
-# blocked from posting by its prose length, but an author reading six 170-word
-# comments is reading an essay, and nothing else in the pipeline would say so.
-INLINE_WORD_BUDGET = 60
-
-
-def over_budget(comments: "list[dict]") -> "list[tuple[str, int]]":
-    """(anchor, word count) for each inline comment or reply above the budget."""
-    out = []
-    for c in comments:
-        n = len(c["body"].split())
-        if n > INLINE_WORD_BUDGET:
-            anchor = (f"reply to {c['in_reply_to']}" if c.get("in_reply_to")
-                      else f"{c['path']}:{c['line']}")
-            out.append((anchor, n))
-    return out
-
-
 def append_unanchored(body: str, invalid: "list[dict]") -> str:
     body += "\n\n---\n**Findings that could not be anchored inline:**\n"
     for f in invalid:
@@ -265,14 +246,6 @@ def _self_test() -> int:
     want("`nope.py:3`" in append_unanchored("body", invalid),
          "--drop-invalid names each dropped finding", "--drop-invalid text does not name the dropped finding")
 
-    # The word budget is reported, so it has to count words rather than
-    # sentences — three long sentences is the shape it exists to catch.
-    long_one = {"path": "a.py", "line": 1, "body": "w " * (INLINE_WORD_BUDGET + 1)}
-    short_one = {"path": "b.py", "line": 2, "body": "one. two. three."}
-    got = over_budget([long_one, short_one])
-    want([a for a, _ in got] == ["a.py:1"],
-         "the word budget counts words, not sentences", f"over_budget flagged {got}, want only a.py:1")
-
     # A finding that names a thread is a reply, and never reaches the diff
     # validation — its anchor is the thread's, not a line of ours.
     anchored, replies = split_replies([
@@ -295,8 +268,6 @@ def _self_test() -> int:
            {"path": "keep.py", "line": 11, "side": "LEFT", "body": "other side"}]
     got = [(c["body"], t["id"]) for c, t in shared_anchors(new, known, "me")]
     want(got == [("dup", 7)], "another reviewer's anchor is a shared anchor, my own is not", f"shared_anchors found {got}, want [('dup', 7)]")
-    want(over_budget([{"in_reply_to": 7, "body": "w " * (INLINE_WORD_BUDGET + 1)}])
-         == [("reply to 7", INLINE_WORD_BUDGET + 1)], "a long reply is flagged", "a long reply was not flagged")
 
     # An author may only COMMENT on their own PR; anyone else keeps the event.
     want(event_for("APPROVE", "me", "me")[0] == "COMMENT",
@@ -404,10 +375,6 @@ def main() -> None:
                           "replies": [{"in_reply_to": r["in_reply_to"],
                                        "body": r["body"]} for r in replies],
                           "dropped": len(invalid) if args.drop_invalid else 0,
-                          "over_word_budget": [
-                              {"anchor": a, "words": n,
-                               "budget": INLINE_WORD_BUDGET}
-                              for a, n in over_budget(comments + replies)],
                           "payload": payload}, indent=2))
         return
 

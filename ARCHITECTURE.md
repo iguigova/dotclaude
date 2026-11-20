@@ -102,6 +102,7 @@ and hooks in `settings.json` run those scripts:
 - `scripts/guideline_gate.py`: no code is edited before its guidelines are read.
 - `scripts/ask_gate.py`: a question to the user goes through the question dialog.
 - `scripts/block_gate.py`: once a call is blocked, nothing else runs until the user answers.
+- `scripts/draft_gate.py`: no PR review is posted before the `draft` skill is loaded.
 
 ### The gate loop
 

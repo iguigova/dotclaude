@@ -32,6 +32,10 @@
           {
             "type": "command",
             "command": "$HOME/.claude/scripts/guideline_gate.py clear"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/draft_gate.py clear"
           }
         ]
       }
@@ -63,6 +67,15 @@
             "command": "$HOME/.claude/scripts/guideline_gate.py edit"
           }
         ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/draft_gate.py post"
+          }
+        ]
       }
     ],
     "PostToolUse": [
@@ -81,6 +94,15 @@
           {
             "type": "command",
             "command": "$HOME/.claude/scripts/guideline_gate.py read"
+          }
+        ]
+      },
+      {
+        "matcher": "Skill",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/draft_gate.py loaded"
           }
         ]
       }
@@ -124,6 +146,10 @@
           {
             "type": "command",
             "command": "$HOME/.claude/scripts/guideline_gate.py clear"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/draft_gate.py clear"
           }
         ]
       }

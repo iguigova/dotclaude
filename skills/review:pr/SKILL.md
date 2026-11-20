@@ -335,7 +335,7 @@ D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 
 ### Posted text
 
-What gets posted is an executive summary written fresh for the author, in the shape the `draft` skill sets. It is never the chat review pasted in: the mechanism walkthroughs, evidence, `★ Insight` blocks and severity codes (C1, M2) stay in chat.
+Load the `draft` skill before writing any of it: the summary body, each inline comment and each reply. `draft_gate.py` refuses the post until it is loaded. What gets posted is an executive summary written fresh for the author. It is never the chat review pasted in: the mechanism walkthroughs, evidence, `★ Insight` blocks and severity codes (C1, M2) stay in chat.
 
 The **summary body** is one line per finding plus the two sections that tell the author where the review's authority ends — roughly 20–25 lines:
 
@@ -362,8 +362,6 @@ The **summary body** is one line per finding plus the two sections that tell the
 Omit a section that has no findings. A finding posted inline gets one line in the body marked `(inline)`, never a second full explanation. A finding posted as a reply is marked `(confirms [<author>](<thread URL>))` instead.
 
 **Open questions and Checked-and-cleared both belong in the posted body**, not just in chat.
-
-Each **inline comment** is **at most 60 words**, in three parts: the defect, its consequence, the fix. A **reply** to another reviewer's thread has the same budget. It opens with "Confirmed independently", and then says only what the thread does not already say.
 
 ## 7. After the Review
 

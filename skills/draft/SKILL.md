@@ -45,6 +45,8 @@ rules below are what an update adds to them.
   unconfirmed with who can confirm it.
 - A problem is stated by its cause, with the evidence for it, not by
   its symptom. When the cause is not found yet, the draft says so.
+- A review comment on a line of code says three things: the defect,
+  its consequence, the fix.
 - A change not yet made is conditional: it would, never it does.
 - Each sentence names what it compares: "today's date in the car park's
   time zone", not "its own clock".

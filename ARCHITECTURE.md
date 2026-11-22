@@ -120,7 +120,8 @@ flowchart TB
   timer["<b>systemd user timer</b><br>[Software System]"]
   ext["<b>Jira, Confluence, Slack, GitHub</b><br>[Software System]"]
   subgraph sys [The tooling]
-    rules["<b>Rules</b><br>[Markdown]<br>CLAUDE.md, credo.md, *_guidelines.md"]
+    rules["<b>Rules</b><br>[Markdown]<br>CLAUDE.md, credo.md"]
+    guides["<b>Guidelines</b><br>[Markdown]<br>*_guidelines.md"]
     hooks["<b>Hooks</b><br>[JSON]<br>settings.json"]
     skills["<b>Skills</b><br>[Markdown]<br>skills/: the methods"]
     scripts["<b>Scripts</b><br>[Bash, Python]<br>scripts/: one verb each, self-tested"]
@@ -128,6 +129,7 @@ flowchart TB
     records["<b>Records</b><br>[Markdown]<br>session history, notes, memory facts"]
   end
   cc -- "loads every turn" --> rules
+  cc -- "reads before a code edit; guideline_gate.py refuses until then" --> guides
   cc -- "fires on session and tool events" --> hooks
   cc -- "loads when asked" --> skills
   hooks -- "run the gates and the session-end scripts" --> scripts
@@ -145,8 +147,9 @@ it hands on.
 
 ### Rules and their gates
 
-`CLAUDE.md`, `credo.md` and the `*_guidelines.md` files say how every
-session works. A rule that can be checked names the script that enforces it,
+`CLAUDE.md` and `credo.md`, which it imports, are in every turn's context
+and say how every session works. The `*_guidelines.md` files are read on
+demand, before a code edit. A rule that can be checked names the script that enforces it,
 and hooks in `settings.json` run those scripts:
 
 - `scripts/guideline_gate.py`: no code is edited before its guidelines are read.

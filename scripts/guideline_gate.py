@@ -13,10 +13,14 @@ harness enforces it here. ``read`` adds a guidelines file the Read tool
 opened whole, with no offset or limit, to
 ``~/.claude/state/guidelines/<session_id>.json``. ``edit`` refuses an edit to
 a file whose extension names a language with a guidelines file until the
-three are in that record, and its reason names the ones still unread. ``clear`` removes the record when the session ends, and after a
+three are in that record, and its reason names the ones still unread. A
+frontend file (markup, a stylesheet, JSX) also needs
+accessibility_guidelines.md, which the user's rule makes mandatory for
+frontend, and a frontend file of no language with a guidelines file needs it
+beside the two. ``clear`` removes the record when the session ends, and after a
 compaction, since the summary no longer holds the text that was read.
 
-A file of a language with no guidelines file, or with no extension, is not
+A file that needs no guidelines file that exists, or with no extension, is not
 gated. Each mode reads the hook payload on stdin and exits 0; a payload it
 cannot read gates nothing, since a gate that failed closed would stop every
 edit. GUIDELINE_GATE_DIR names another directory for the records, and
@@ -45,6 +49,8 @@ LANGUAGES = {
     'dart': ('.dart',),
 }
 LANGUAGE_OF = {ext: lang for lang, exts in LANGUAGES.items() for ext in exts}
+ACCESSIBILITY = 'accessibility_guidelines.md'
+FRONTEND = frozenset({'.html', '.htm', '.css', '.scss', '.jsx', '.tsx'})
 
 
 def guides_dir():
@@ -66,13 +72,18 @@ def path_of(payload):
     return str(tool_input.get('file_path') or tool_input.get('notebook_path') or '')
 
 
+def specific(suffix):
+    """The language and frontend guidelines files a suffix names that exist."""
+    lang = LANGUAGE_OF.get(suffix)
+    named = (f'{lang}_coding_guidelines.md',) if lang else ()
+    frontend = (ACCESSIBILITY,) if suffix in FRONTEND else ()
+    return tuple(g for g in (*named, *frontend) if (guides_dir() / g).is_file())
+
+
 def needed(file_path):
     """The guidelines an edit to this file needs, or () when it is not gated."""
-    lang = LANGUAGE_OF.get(Path(file_path).suffix.lower())
-    guide = f'{lang}_coding_guidelines.md'
-    if not lang or not (guides_dir() / guide).is_file():
-        return ()
-    return (*ALWAYS, guide)
+    guides = specific(Path(file_path).suffix.lower())
+    return (*ALWAYS, *guides) if guides else ()
 
 
 def recorded(path):
@@ -152,7 +163,8 @@ def self_test():
     with tempfile.TemporaryDirectory() as tmp:
         guides, state = Path(tmp) / 'g', Path(tmp) / 's' / 'deep'
         guides.mkdir()
-        for name in (*ALWAYS, 'python_coding_guidelines.md', 'shell_coding_guidelines.md'):
+        for name in (*ALWAYS, ACCESSIBILITY, 'python_coding_guidelines.md',
+                     'shell_coding_guidelines.md', 'javascript_coding_guidelines.md'):
             (guides / name).write_text('x\n')
         os.environ['GUIDELINES_DIR'], os.environ['GUIDELINE_GATE_DIR'] = str(guides), str(state)
         self_test_edits(t, guides, state)
@@ -181,6 +193,7 @@ def self_test_edits(t, guides, state):
             'prose and a file with no extension are not gated')
     t.check(call('edit', file_path='/w/main.go') == '' and call('edit', file_path='/w/Main.java') == '',
             'a language whose guidelines file is missing, or that has none, is not gated')
+    self_test_frontend(t, guides)
     t.check(denied(call('edit', session='nb', notebook_path='/w/n.py')), 'a notebook edit is matched by its path')
     t.check(denied(call('edit', session='s2', file_path='/w/a.py')), 'what one session read does not open another')
     call('read', file_path=str(guides.parent / 'coding_guidelines.md'), session='s3')
@@ -189,6 +202,18 @@ def self_test_edits(t, guides, state):
     call('clear')
     t.check(call('clear', session='none') == '', 'clearing a session with no record does nothing')
     t.check(denied(call('edit', file_path='/w/a.py')), 'after a compaction or the session end, the reads are forgotten')
+
+
+def self_test_frontend(t, guides):
+    call, denied = self_test_call, self_test_denied
+    out = call('edit', session='fe', file_path='/w/App.tsx')
+    t.check(denied(out) and all(g in out for g in (*ALWAYS, 'javascript_coding_guidelines.md', ACCESSIBILITY)),
+            "a frontend edit in a language needs that language's file and the accessibility file", out)
+    out = call('edit', file_path='/w/index.html')
+    t.check(denied(out) and ACCESSIBILITY in out and 'style_guidelines.md' not in out,
+            'a frontend edit of no gated language needs the accessibility file beside the two', out)
+    call('read', file_path=str(guides / ACCESSIBILITY))
+    t.check(call('edit', file_path='/w/site.css') == '', 'once the accessibility file is read, a frontend edit runs')
 
 
 def self_test_payloads(t, guides, state):

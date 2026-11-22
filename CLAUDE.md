@@ -48,4 +48,4 @@ The following guidelines are available at `~/.claude/` and apply to all projects
 
 - `coding_guidelines.md`, `style_guidelines.md` — principles and style.
 - `<language>_coding_guidelines.md` — csharp, clojure, dart (Flutter too), go, haskell, javascript (TypeScript and React too), python, ruby, shell. The Ruby file is the Rails standard too: Active Record, jobs, security, RSpec.
-- `accessibility_guidelines.md` — WCAG, mandatory for frontend.
+- `accessibility_guidelines.md` — WCAG, mandatory for frontend; the gate refuses a frontend edit until it is read too.

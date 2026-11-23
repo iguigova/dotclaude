@@ -427,9 +427,10 @@ def self_test_report(t):
 
 
 def self_test_project():
+    from tap import project
     root = tempfile.mkdtemp()
-    os.makedirs(os.path.join(root, 'p', '.claude'))
-    os.makedirs(os.path.join(root, 'bare', '.claude'))
+    project(os.path.join(root, 'p'))
+    project(os.path.join(root, 'bare'))
     with open(os.path.join(root, 'p', '.claude', 'github_orgs'), 'w') as f:
         f.write('# owners\nacme\n\nbeta\n')
     return root

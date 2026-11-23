@@ -92,7 +92,7 @@ self_test() {
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   jw() { JOURNAL_HIST="$hist" CLAUDE_CODE_SESSION_ID="$1" "$SCRIPTS_DIR/journal.sh" "${@:2}"; }
 
-  DIR="$tmp/proj"; mkdir -p "$DIR/.claude"; hist="$DIR/.claude/session_history.md"
+  DIR="$tmp/proj"; tap_project "$DIR"; hist="$DIR/.claude/session_history.md"
   : > "$hist"
   long_note="ci_gate.sh picks the wrong profile for this repository and runs without the region"
   jw s-1 -t "XYZ-7 x" -b b -n "Probe script — list servers and spaces" \
@@ -147,7 +147,7 @@ self_test() {
   # Everything above tests the functions. These drive the script itself, which is
   # where the flags, the required-flag check and the write actually live — the
   # half a self-test that only calls functions never reaches.
-  run="$tmp/run"; mkdir -p "$run/.claude"; : > "$run/.claude/session_history.md"
+  run="$tmp/run"; tap_project "$run"; : > "$run/.claude/session_history.md"
   out=$("$0" --session s-e2e --rc 0 --open a --open b --open c --after 1 --dir "$run" \
         --log "$tmp/e2e.log" --commit "/r abc (2 paths)" --dry-run)
   # three --open and --after 1 means 2 were placed, computed here and nowhere else.

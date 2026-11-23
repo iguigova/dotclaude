@@ -11,7 +11,7 @@
 #   jira-attach.sh --self-test
 #
 # Example:
-#   jira-attach.sh ABC-10876 .playwright-mcp/a.png .playwright-mcp/b.png
+#   jira-attach.sh ABC-90876 .playwright-mcp/a.png .playwright-mcp/b.png
 #
 # Prints one line per attachment: "<id> <filename>". Every file is checked
 # for readability before anything is sent, so a typo attaches nothing. Exit 0

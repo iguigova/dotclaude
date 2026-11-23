@@ -9,7 +9,7 @@
 #
 # Example:
 #   jira-search.sh 'project = ABC AND status = "In Progress"'
-#   jira-search.sh 'key = ABC-10785' | jq -r '.[].summary'
+#   jira-search.sh 'key = ABC-90785' | jq -r '.[].summary'
 #   jira-search.sh 'assignee = currentUser() ORDER BY updated DESC' --max 20
 #
 # `/rest/api/3/search` answers 410 Gone — Atlassian removed it (CHANGE-2046) in

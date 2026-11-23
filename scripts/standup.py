@@ -308,11 +308,11 @@ HISTORY_FIXTURE = """# Session history
 
 - not reported
 
-## 2026-09-28 10:25 [bbbb] — XYZ-10764 scope agreed
+## 2026-09-28 10:25 [bbbb] — XYZ-90764 scope agreed
 
-- fixed UTF-8 handling for ABC-1273, DEF-369 and XYZ-7702
+- fixed UTF-8 handling for ABC-81273, DEF-369 and XYZ-87702
 **Session:** abc
-**Billed:** XYZ-10764 worklog 1
+**Billed:** XYZ-90764 worklog 1
 
 ## 2026-09-28 11:00 [cccc] — chore: notes
 
@@ -398,9 +398,9 @@ def self_test_calls(t, root):
 
 def self_test_project(root):
     """A project holding the values and the secret; the run moves into it."""
-    claude = root / 'p' / '.claude'
+    from tap import project
+    claude = Path(project(str(root / 'p'))) / '.claude'
     (root / 'p' / '.secrets').mkdir(parents=True)
-    claude.mkdir()
     for name, text in (('standup_channel', '# the DM\nD1\n'),
                        ('standup_thread', '100.000200\n'),
                        ('atlassian_site', 'https://site.example\n'),
@@ -411,7 +411,7 @@ def self_test_project(root):
     for name, body in FAKES.items():
         (claude / 'scripts' / name).write_text('#!/bin/sh\n' + body)
         (claude / 'scripts' / name).chmod(0o755)
-    (root / 'bare' / '.claude').mkdir(parents=True)
+    project(str(root / 'bare'))
     os.chdir(root / 'p')
 
 
@@ -478,7 +478,7 @@ def self_test_cases(t):
                          for h in history)),
         ('bullets kept', True, '- nothing billable' in history[1]),
         ('keys of every project found, sorted by number',
-              ['ABC-1273', 'DEF-369', 'UTF-8', 'XYZ-7702', 'XYZ-10764'],
+              ['ABC-81273', 'DEF-369', 'UTF-8', 'XYZ-87702', 'XYZ-90764'],
               issue_keys(history)),
         ('each key quoted in the search', 'key in ("XYZ-1","AND-1")',
               jql_of(['XYZ-1', 'AND-1'])),

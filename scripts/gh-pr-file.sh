@@ -87,6 +87,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # The script in a fixture project whose scripts it calls by name are stubs,
   # beside a gh that logs: where it stops, and what it called before.
   sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  tap_project "$sfx"
   me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
     local st=0

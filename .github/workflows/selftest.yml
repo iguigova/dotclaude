@@ -18,7 +18,7 @@ jobs:
         run: rm -rf "$HOME/.claude" && ln -s "$GITHUB_WORKSPACE" "$HOME/.claude"
       # The tools the self-tests run on, at the versions they run on at home:
       # the pinned shellcheck, ReportLab for gist.py, pytest and pytest-cov for
-      # change_gate.py's Python runner, uv for the parser gh-pr-structure.sh
+      # change_gate.py's Python runner, uv for the parser gh_pr_structure.py
       # fetches.
       - name: Install what the self-tests need
         run: |

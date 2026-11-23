@@ -24,8 +24,8 @@
 # and removes once nothing is left to report, so it is shown while it exists and
 # never moved.
 #
-# The project is the folder of the nearest .claude/session_history.md at or
-# above the payload's cwd. It exits 0 on every path, since a session starts
+# The project is the one the payload's cwd lies in (project_file.sh --root),
+# found by its history. It exits 0 on every path, since a session starts
 # whether or not a report is readable, and prints nothing for an unattended run
 # (CLAUDE_TOOLING_UNATTENDED), which is nobody's session.
 # SESSION_START_LAST_STATE names another folder for the moved reports, and
@@ -81,7 +81,7 @@ self_test() {
   # A cwd that is gone leaves the hook where it was started: start it in the
   # fixture, so no case can reach a real project's reports.
   cd "$fx" || return 1
-  mkdir -p "$fx/p/.claude" "$fx/p/sub" "$fx/q/.claude"
+  mkdir -p "$fx/p/.claude" "$fx/p/sub" "$fx/q/.claude"; tap_project "$fx/p"; tap_project "$fx/q"
   : > "$fx/p/.claude/session_history.md"; : > "$fx/q/.claude/session_history.md"
   printf 'deleted x\n' > "$fx/p/.claude/memory_check.last"
   printf 'git_sweep 2026: p\nrun finished rc=0\n' > "$fx/p/.claude/git_sweep.last"

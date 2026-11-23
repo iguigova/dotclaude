@@ -11,8 +11,8 @@
 #   jira-assign.sh --self-test
 #
 # Examples:
-#   jira-assign.sh ABC-7725 me
-#   jira-assign.sh --if-unassigned ABC-7725 me
+#   jira-assign.sh ABC-87725 me
+#   jira-assign.sh --if-unassigned ABC-87725 me
 #
 # Prints "<KEY>: assigned to <name>", or "<KEY>: kept, assigned to <name>"
 # when --if-unassigned found an assignee. --dry-run prints the request instead
@@ -29,7 +29,10 @@ KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport. Answers /myself and the assignee reads from fixtures,
 # records what would be PUT, and never opens a socket.
@@ -48,8 +51,6 @@ atlassian_curl() {
 STUB
   export JA_PUT="$fx/put.json" JA_STATUS=204
   ja() { (cd "$fx" && "$self" "$@"); }
-  # shellcheck source=tap.sh
-  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   out=$(ja --dry-run ABC-1 me)
   tap_is "a dry run names the v2 assignee endpoint" \

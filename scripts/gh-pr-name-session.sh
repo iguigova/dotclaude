@@ -61,8 +61,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "events-service#13 PR https://github.com/acme-internal/events-service/pull/13" \
     "null" "acme-internal" "events-service" "13" "PR" "a literal 'null' ticket is no ticket"
   # The suffix is what keeps /review:bot's session apart from /review:pr's.
-  check "ABC-10785 BOT https://github.com/Acme/billing-service/pull/194" \
-    "ABC-10785" "Acme" "billing-service" "194" "BOT" "the BOT suffix is kept"
+  check "ABC-90785 BOT https://github.com/Acme/billing-service/pull/194" \
+    "ABC-90785" "Acme" "billing-service" "194" "BOT" "the BOT suffix is kept"
   check "billing-service#194 BOT https://github.com/Acme/billing-service/pull/194" \
     "" "Acme" "billing-service" "194" "BOT" "the BOT suffix is kept with no ticket"
   tap_run "the ticket read uses '// empty'" grep -q '\.ticket // empty' "${BASH_SOURCE[0]}"
@@ -71,6 +71,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # The script in a fixture project whose scripts it calls by name are stubs,
   # beside a gh that logs: where it stops, and what it called before.
   sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  tap_project "$sfx"
   me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
     local st=0

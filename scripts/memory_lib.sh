@@ -17,23 +17,22 @@
 # mem_project_folder DIR — the harness folder for a project rooted at DIR.
 mem_project_folder() { printf '%s/.claude/projects/%s' "$HOME" "${1//[^a-zA-Z0-9]/-}"; }
 
-# mem_find_root DIR — the nearest directory at or above DIR that the harness
-# keeps a folder for, so a script run from a subdirectory finds its project's
-# store. DIR itself when none is found.
-mem_find_root() {
-  local d="$1"
-  while :; do
-    [[ -d "$(mem_project_folder "$d")" ]] && { printf '%s' "$d"; return; }
-    [[ "$d" == / ]] && break
-    d=$(dirname "$d")
-  done
-  printf '%s' "$1"
+# mem_root DIR — the project DIR lies in (project_file.sh --root); DIR itself,
+# failing, when it lies in none.
+mem_root() {
+  (cd "$1" 2>/dev/null && "$MEM_LIB_DIR/project_file.sh" --root 2>/dev/null) || { printf '%s' "$1"; return 1; }
 }
 
 # MEM_PROJECT_ROOT names the project when set, which is how memory_check.sh
 # --all hands each store to a run of its own; else the working directory finds
-# it. MEMORY_FILE overrides the store, for tests.
-MEM_PROJECT_ROOT="${MEM_PROJECT_ROOT:-$(mem_find_root "$PWD")}"
+# it. MEMORY_FILE overrides the store, for tests. With neither, a folder in no
+# project sets MEM_NO_PROJECT: a root keeps no records, so the writer refuses.
+MEM_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+MEM_NO_PROJECT=0
+# shellcheck disable=SC2034  # MEM_NO_PROJECT is read by memory_fact.sh
+if [[ -z "${MEM_PROJECT_ROOT:-}" ]]; then
+  MEM_PROJECT_ROOT=$(mem_root "$PWD") || [[ -n "${MEMORY_FILE:-}" ]] || MEM_NO_PROJECT=1
+fi
 MEM_CLAUDE_DIR="$MEM_PROJECT_ROOT/.claude"
 if [[ -z "${MEMORY_FILE:-}" ]]; then
   MEMORY_FILE="$(mem_project_folder "$MEM_PROJECT_ROOT")/memory/MEMORY.md"
@@ -224,10 +223,21 @@ FACT
   tap_is 'mem_tokens lowercases and drops short and stop words' "$(mem_tokens 'This Rails platform: rails PLATFORM, with an API' | paste -sd' ')" 'platform rails'
   tap_is 'mem_stores lists facts, both CLAUDE.md, skills and commands' "$(mem_stores | sed "s#$fx/##; s#mem/##" | tr '\t' ' ' | paste -sd'|')" \
     "fact a.md|fact b.md|claude-project proj/CLAUDE.md|claude-global home/.claude/CLAUDE.md|skill proj/.claude/skills/s/SKILL.md|command home/.claude/commands/c.md"
-  mkdir -p "$fx/proj/sub/deeper" "$(mem_project_folder "$fx/proj")"
+  tap_project "$fx/proj"; mkdir -p "$fx/proj/sub/deeper/.claude"
   tap_is 'mem_project_folder names the folder the harness keeps' "$(mem_project_folder /a/b.c_d)" "$HOME/.claude/projects/-a-b-c-d"
-  tap_is 'mem_find_root walks up from a subdirectory to its project' "$(mem_find_root "$fx/proj/sub/deeper")" "$fx/proj"
-  tap_is 'mem_find_root with no folder answers the directory it was given' "$(mem_find_root "$fx/none")" "$fx/none"
+  tap_is 'mem_root walks up from a clone to its project' "$(mem_root "$fx/proj/sub/deeper")" "$fx/proj"
+  tap_is 'mem_root in no project answers the directory it was given' "$(mem_root "$fx/none")" "$fx/none"
+  tap_fails 'and fails' mem_root "$fx/none"
+  mkdir -p "$fx/none"
+  # where <dir> [VAR=value…] — the project and the no-project flag a source there sets.
+  where() {
+    (cd "$1" && env -u MEM_PROJECT_ROOT -u MEMORY_FILE "${@:2}" \
+      bash -c '. "$1"; printf "%s %s" "$MEM_PROJECT_ROOT" "$MEM_NO_PROJECT"' _ "$MEM_LIB_DIR/memory_lib.sh")
+  }
+  tap_is 'the store is the project a clone lies in' "$(where "$fx/proj/sub/deeper")" "$fx/proj 0"
+  tap_is 'a folder in no project sets the flag' "$(where "$fx/none")" "$fx/none 1"
+  tap_is 'MEMORY_FILE names the store, so no project is needed' "$(where "$fx/none" MEMORY_FILE=/x/MEMORY.md)" "$fx/none 0"
+  tap_is 'MEM_PROJECT_ROOT names the project' "$(where "$fx/none" MEM_PROJECT_ROOT=/p)" "/p 0"
   export MEM_LEAK=x
   mem_verify 'test -z "${MEM_LEAK:-}"'; tap_is 'mem_verify passes none of the caller environment' "$?" 0
   mem_verify "test \"\$PATH\" = '$MEM_VERIFY_PATH' && test \"\$PWD\" = '$MEM_PROJECT_ROOT'"

@@ -12,8 +12,8 @@
 # writer's close-validation (journal.sh calls `--ids`) and this listing can never
 # disagree.
 #
-# Target file: the nearest `.claude/session_history.md` at or above $PWD
-# (override with JOURNAL_HIST).
+# Target file: the project's `.claude/session_history.md`, the project being
+# `project_file.sh --root` (override with JOURNAL_HIST).
 #
 # Usage:
 #   journal_queue.sh                 # TSV, oldest first: id, opened (UTC), age, ticket, text

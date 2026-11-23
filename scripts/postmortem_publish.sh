@@ -148,6 +148,7 @@ self_test_e2e() {
   set +e
   fx=$(mktemp -d) || return 2
   mkdir -p "$fx/p/.claude/helpers" "$fx/bare/.claude"
+  tap_project "$fx/p"; tap_project "$fx/bare"
   local self="$HERE/postmortem_publish.sh"
   echo 77001 > "$fx/p/.claude/postmortem_parent"
   cd "$fx/p" || return 2

@@ -16,8 +16,8 @@ which review and which inline comments are the viewer's. On anyone else's PR
 the viewer only answers, and ``own_review`` is null.
 
 Usage:
-    gh-pr-bot-comments.sh <pr-ref> [bot-login-substr ...]
-    gh-pr-bot-comments.sh --self-test
+    gh_pr_bot_comments.py <pr-ref> [bot-login-substr ...]
+    gh_pr_bot_comments.py --self-test
 
 <pr-ref> is one of:
     https://github.com/Org/repo/pull/123
@@ -141,13 +141,25 @@ def human_notes(reviews: "list[dict]", issue: "list[dict]",
     A note is answered once the viewer speaks at PR level after it; an
     empty review body (a bare approval) says nothing to answer.
     """
-    said = [(r.get("submitted_at"), r["user"]["login"], r.get("body") or "",
-             "review", r) for r in reviews]
-    said += [(c.get("created_at"), c["user"]["login"], c.get("body") or "",
-              "comment", c) for c in issue]
+    said = said_on_pr(reviews, issue)
     viewer_times = [t for t, who, body, _, _ in said
                     if who == viewer and body.strip() and t]
-    return [{
+    return [note(entry, viewer_times) for entry in sorted(said, key=lambda x: x[0] or "")
+            if is_human(entry[1], viewer) and entry[2].strip()]
+
+
+def said_on_pr(reviews: "list[dict]", issue: "list[dict]") -> list:
+    """(time, author, body, kind, raw) for each review body and issue comment."""
+    said = [(r.get("submitted_at"), r["user"]["login"], r.get("body") or "",
+             "review", r) for r in reviews]
+    return said + [(c.get("created_at"), c["user"]["login"], c.get("body") or "",
+                    "comment", c) for c in issue]
+
+
+def note(entry: tuple, viewer_times: list) -> dict:
+    """One human note, answered once the viewer spoke after it."""
+    t, who, body, kind, raw = entry
+    return {
         "id": raw["id"],
         "kind": kind,
         "author": who,
@@ -156,8 +168,7 @@ def human_notes(reviews: "list[dict]", issue: "list[dict]",
         "html_url": raw.get("html_url"),
         "body": body,
         "answered": any(v > t for v in viewer_times),
-    } for t, who, body, kind, raw in sorted(said, key=lambda x: x[0] or "")
-        if is_human(who, viewer) and body.strip()]
+    }
 
 
 def classify(inline: "list[dict]", issue: "list[dict]",
@@ -168,39 +179,37 @@ def classify(inline: "list[dict]", issue: "list[dict]",
     already_replied when any other comment replies to it, whoever wrote the
     reply.
     """
-    replied_to = {c["in_reply_to_id"] for c in inline if c.get("in_reply_to_id")}
-    threads = []
-    for c in inline:
-        if c.get("in_reply_to_id") is not None:
-            continue
-        if not is_bot(c["user"]["login"], substrs):
-            continue
-        sev = SEV_RE.search(c.get("body", "") or "")
-        threads.append({
-            "id": c["id"],
-            "author": c["user"]["login"],
-            "path": c.get("path"),
-            "line": c.get("line"),
-            "original_line": c.get("original_line"),
-            "severity": sev.group(1) if sev else None,
-            "html_url": c.get("html_url"),
-            "diff_hunk": c.get("diff_hunk"),
-            "body": c.get("body"),
-            "already_replied": c["id"] in replied_to,
-            "reply_authors": [
-                r["user"]["login"] for r in inline
-                if r.get("in_reply_to_id") == c["id"]
-            ],
-        })
+    threads = [bot_thread(c, inline) for c in inline
+               if c.get("in_reply_to_id") is None and is_bot(c["user"]["login"], substrs)]
     summary = [
         {"id": c["id"], "author": c["user"]["login"], "body": c.get("body")}
         for c in issue if is_bot(c["user"]["login"], substrs)
     ]
+    return {"summary": summary, "threads": threads, "open_count": open_count(threads)}
+
+
+def bot_thread(c: dict, inline: "list[dict]") -> dict:
+    """A top-level bot comment as a thread, with who replied to it."""
+    sev = SEV_RE.search(c.get("body", "") or "")
+    repliers = [r["user"]["login"] for r in inline if r.get("in_reply_to_id") == c["id"]]
     return {
-        "summary": summary,
-        "threads": threads,
-        "open_count": sum(1 for t in threads if not t["already_replied"]),
+        "id": c["id"],
+        "author": c["user"]["login"],
+        "path": c.get("path"),
+        "line": c.get("line"),
+        "original_line": c.get("original_line"),
+        "severity": sev.group(1) if sev else None,
+        "html_url": c.get("html_url"),
+        "diff_hunk": c.get("diff_hunk"),
+        "body": c.get("body"),
+        "already_replied": bool(repliers),
+        "reply_authors": repliers,
     }
+
+
+def open_count(items: "list[dict]") -> int:
+    """How many threads or findings no one has replied to."""
+    return sum(1 for i in items if not i["already_replied"])
 
 
 def classify_humans(inline: "list[dict]", reviews: "list[dict]",
@@ -258,23 +267,29 @@ def own_review(reviews: "list[dict]", inline: "list[dict]", issue: "list[dict]",
     findings = [{"id": f["id"], "path": f["path"], "line": f["line"],
                  "body": f["body"], "already_replied": bool(f["replies"])}
                 for f in prior["findings"]]
-    review = None
-    if mine is not None:
-        raw = next(r for r in reviews if r["user"]["login"] == viewer
-                   and r.get("submitted_at") == mine["submitted_at"])
-        anchor = f"pullrequestreview-{raw['id']}"
-        review = {
-            "id": raw["id"], "html_url": raw.get("html_url"),
-            "state": mine["state"], "commit": mine["commit"],
-            "stale": mine["stale"], "body": mine["body"],
-            "asks": bool(ASK_SECTION.search(mine["body"] or "")),
-            "answered": any(c["user"]["login"] == viewer
-                            and (c.get("created_at") or "") > mine["submitted_at"]
-                            and anchor in (c.get("body") or "") for c in issue),
-            "findings": findings,
-        }
-    return {"own_review": review,
-            "own_open_count": sum(1 for f in findings if not f["already_replied"])}
+    review = None if mine is None else latest_review(mine, reviews, issue, viewer, findings)
+    return {"own_review": review, "own_open_count": open_count(findings)}
+
+
+def latest_review(mine: dict, reviews: "list[dict]", issue: "list[dict]",
+                  viewer: str, findings: "list[dict]") -> dict:
+    """The viewer's latest review: what it asks, and whether a PR comment linking it answered."""
+    raw = next(r for r in reviews if r["user"]["login"] == viewer
+               and r.get("submitted_at") == mine["submitted_at"])
+    return {
+        "id": raw["id"], "html_url": raw.get("html_url"),
+        "state": mine["state"], "commit": mine["commit"],
+        "stale": mine["stale"], "body": mine["body"],
+        "asks": bool(ASK_SECTION.search(mine["body"] or "")),
+        "answered": linked_after(issue, viewer, mine["submitted_at"], f"pullrequestreview-{raw['id']}"),
+        "findings": findings,
+    }
+
+
+def linked_after(issue: "list[dict]", viewer: str, since: str, anchor: str) -> bool:
+    """The viewer posted a PR comment after since that links anchor."""
+    return any(c["user"]["login"] == viewer and (c.get("created_at") or "") > since
+               and anchor in (c.get("body") or "") for c in issue)
 
 
 def _comment(cid, login, body="", reply_to=None, at=None):
@@ -299,7 +314,15 @@ def _self_test() -> int:
              _comment(10, "iguigova", "looks good")]
     t = Tap()
     want = t.check
+    _self_test_bots(want, inline, issue)
+    _self_test_humans(want, inline)
+    _self_test_notes(want)
+    _self_test_own(want)
+    _self_test_is_bot(want)
+    return t.end()
 
+
+def _self_test_bots(want, inline, issue) -> None:
     r = classify(inline, issue, [])
     want([t["id"] for t in r["threads"]] == [1, 2],
          "only top-level bot threads are listed", f"threads {[t['id'] for t in r['threads']]}, want [1, 2]")
@@ -321,6 +344,8 @@ def _self_test() -> int:
     r = classify([_comment(1, "greptile-apps[bot]", "unanswered")], [], [])
     want(r["open_count"] == 1, "an unanswered bot thread is counted open", "an unanswered bot thread is not counted open")
 
+
+def _self_test_humans(want, inline) -> None:
     # A human reviewer's thread is open until someone other than them answers,
     # and neither a bot nor the viewer counts as a reviewer.
     h_inline = inline + [
@@ -343,6 +368,8 @@ def _self_test() -> int:
     h = classify_humans([_comment(1, "coderabbitai[bot]", "x")], [], [], "me")
     want(h["human_threads"] == [], "a bot outside the filter is not a human", "a bot outside the filter counted as human")
 
+
+def _self_test_notes(want) -> None:
     # A note is answered only by the viewer speaking after it; a bare
     # approval is not a note.
     reviews = [_review(20, "jp", "", "2026-01-01T10:00:00Z", "APPROVED"),
@@ -356,10 +383,13 @@ def _self_test() -> int:
          "a note is answered only by the viewer speaking after it", f"notes {[(n['id'], n['answered']) for n in notes]}, "
          "want [(22, True), (21, True), (24, False)]")
 
+
+def _self_test_own(want) -> None:
     # On the viewer's own PR, the latest review with a body is an ask; its
     # inline findings close on any reply, and the body only on a PR comment
     # that links it. On anyone else's PR there is no own review.
-    o_reviews = [_review(30, "me", "**Nits:** x", "2026-01-01T10:00:00Z"),
+    o_reviews = [_review(29, "me", "", "2026-01-01T09:00:00Z"),
+                 _review(30, "me", "**Nits:** x", "2026-01-01T10:00:00Z"),
                  _review(35, "me", "", "2026-01-01T10:30:00Z")]
     o_inline = [_comment(31, "me", "open finding"),
                 _comment(32, "me", "answered finding"),
@@ -378,6 +408,11 @@ def _self_test() -> int:
     want([(f["id"], f["already_replied"]) for f in (r or {}).get("findings", [])]
          == [(31, False), (32, True)], "an own finding closes on any reply", f"own findings {r and r['findings']}")
     want(o["own_open_count"] == 1, "the open own findings are counted", f"own_open_count {o['own_open_count']}, want 1")
+    o_issue.append(_comment(42, "me", "Addressed: pull/1#pullrequestreview-30",
+                            at="2026-01-01T10:00:00Z"))
+    o = own_review(o_reviews, o_inline, o_issue, "me", "h1", "me")
+    want(o["own_review"]["answered"] is False,
+         "a link posted at the review's own time does not answer it", "a link at the review's own time answered it")
     o_issue.append(_comment(41, "me", "Addressed: pull/1#pullrequestreview-30",
                             at="2026-01-01T12:00:00Z"))
     o = own_review(o_reviews, o_inline, o_issue, "me", "h1", "me")
@@ -387,10 +422,10 @@ def _self_test() -> int:
                             "2026-01-01T13:00:00Z")], [], [], "me", "h1", "me")
     want(o["own_review"]["asks"] is False, "a clean approve asks nothing", "a clean approve asked something")
 
+
+def _self_test_is_bot(want) -> None:
     want(is_bot("Greptile-Apps[bot]", []), "the [bot] suffix is matched in any case", "case-sensitive [bot] suffix missed")
     want(not is_bot("iguigova", []), "a human is not a bot", "a human counted as a bot")
-
-    return t.end()
 
 
 def main() -> None:
@@ -401,7 +436,7 @@ def main() -> None:
     if args[:1] == ["--self-test"]:
         raise SystemExit(_self_test())
     if not args:
-        die("Usage: gh-pr-bot-comments.sh <pr-ref> [bot-login-substr ...] | --self-test")
+        die("Usage: gh_pr_bot_comments.py <pr-ref> [bot-login-substr ...] | --self-test")
     try:
         owner, repo, number = parse_ref(args[0])
     except RefError as exc:

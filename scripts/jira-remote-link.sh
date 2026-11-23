@@ -23,7 +23,10 @@ KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport: one stored link per run, in $RL_STORE; never opens a socket.
 ATLASSIAN_SITE=https://example.invalid
@@ -48,8 +51,6 @@ STUB
   export RL_STORE="$fx/store.json" RL_LOG="$fx/log" RL_STATUS=201
   : > "$RL_STORE"
   rl() { (cd "$fx" && "$self" "$@"); }
-  # shellcheck source=tap.sh
-  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   st=0; rl get ABC-1 thread >/dev/null 2>&1 || st=$?
   tap_is "get of a link the issue lacks exits 3" "$st" 3

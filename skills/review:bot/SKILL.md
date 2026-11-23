@@ -33,7 +33,7 @@ Under plan mode, pass `--no-name`; its header states when else.
 "$(~/.claude/scripts/project_file.sh --script gh-pr-bot-fetch.sh)" <pr-ref> [bot-login-substr …]
 ```
 
-Show what it prints. It writes `$D/bot.json` and `$D/score.json` beside `$D/pr.json`, `$D` being the directory `gh-pr-workdir.sh <pr-ref>` prints; `gh-pr-bot-comments.sh --help` and `gh-pr-bot-score.sh --help` state their JSON. Pass a login substring, such as `greptile`, only when the user names one bot. A non-zero exit means neither file was written: stop, and say why.
+Show what it prints. It writes `$D/bot.json` and `$D/score.json` beside `$D/pr.json`, `$D` being the directory `gh-pr-workdir.sh <pr-ref>` prints; `gh_pr_bot_comments.py --help` and `gh_pr_bot_score.py --help` state their JSON. Pass a login substring, such as `greptile`, only when the user names one bot. A non-zero exit means neither file was written: stop, and say why.
 
 ## 2. Read the gates
 
@@ -85,7 +85,7 @@ A companion PR in another repo (a fix that belongs where the behaviour is decide
 
 **Out-of-diff findings** — `$D/score.json` → `outside_diff[]`. The bot raises these on lines the diff does not cover and posts them as prose in an issue comment. They are **not** review threads: they never appear in `threads[]` and never count towards `open_count`. **`open_count == 0` therefore does not mean the PR is clear** — check `outside_diff_count` and the gate before saying there is nothing to do. Read the `summary[]` bodies too, for context the inline comments assume.
 
-An out-of-diff finding is a worklist entry, not a blocker. Reconcile `outside_diff[]` against the replies you have already posted, not against its length, and do not re-fix an entry you have already answered; `gh-pr-bot-score.sh --help` says why one can stay listed after its fix.
+An out-of-diff finding is a worklist entry, not a blocker. Reconcile `outside_diff[]` against the replies you have already posted, not against its length, and do not re-fix an entry you have already answered; `gh_pr_bot_score.py --help` says why one can stay listed after its fix.
 
 **Human threads** — `$D/bot.json` → `human_threads[]`. A reviewer's inline comment, triaged exactly like a bot thread. Act on those with `already_replied == false`; `human_open_count` counts them. A reviewer's "not a blocker" or "worth considering" is still an ask, and gets a reply saying what was done about it.
 

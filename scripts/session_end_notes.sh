@@ -21,9 +21,9 @@
 #      this session's own next end, reaches them; another session's end does
 #      not, since each run places only its own session's notes.
 #
-# The notes are read, and the run started, in the project that holds the nearest
-# .claude/session_history.md at or above the session's cwd — the history
-# journal.sh wrote to — so a session inside a nested repo reaches its notes.
+# The notes are read, and the run started, in the project the session's cwd
+# lies in (project_file.sh --root), whose history journal.sh wrote to, so a
+# session inside a clone reaches its notes.
 #
 # The run is detached with detach.sh, not left as a child. The harness is
 # exiting, so a child in its process group or its systemd unit is killed with it,
@@ -75,9 +75,8 @@ RUN_BUDGET="${SESSION_END_RUN_BUDGET:-5}"     # dollars, --max-budget-usd
 
 say() { printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >> "$LOG"; }
 
-# project_of CWD — the project whose history the session wrote: the directory
-# holding the nearest .claude/session_history.md at or above CWD, found exactly
-# as journal.sh finds it, so a session in a nested repo reaches the same notes.
+# project_of CWD — the project whose history the session wrote, found exactly
+# as journal.sh finds it, so a session in a clone reaches the same notes.
 project_of() {
   local hist
   hist=$(cd "$1" && journal_hist session_end_notes.sh 2>/dev/null) || return 1
@@ -90,7 +89,7 @@ decide() {
   [[ -n "$sid" ]] || { echo "skip: the payload carried no session id"; return; }
   [[ -d "$cwd" ]] || { echo "skip: cwd $cwd does not exist"; return; }
   project=$(project_of "$cwd") || {
-    echo "skip: no .claude/session_history.md at or above $cwd"; return; }
+    echo "skip: no project history at or above $cwd"; return; }
   local ids status
   ids=$(cd "$project" && "$SCRIPTS_DIR/journal_queue.sh" --opened-by "$sid" --ids 2>/dev/null) && status=0 || status=$?
   [[ "$status" -eq 0 ]] || {
@@ -131,9 +130,9 @@ self_test() {
     "$(decide "$tmp" "")"
   check "a cwd that is gone is a skip" "skip: cwd" "$(decide "$tmp/absent" "s1")"
   check "a directory with no history above it is a skip" \
-    "skip: no .claude/session_history.md at or above $tmp" "$(decide "$tmp" "s1")"
+    "skip: no project history at or above $tmp" "$(decide "$tmp" "s1")"
 
-  repo="$tmp/project"; mkdir -p "$repo/.claude"
+  repo="$tmp/project"; tap_project "$repo"
   printf '# Log\n' > "$repo/.claude/session_history.md"
   check "a project with an empty queue is a skip" \
     "skip: session s1 has no open notes" "$(decide "$repo" "s1")"
@@ -154,7 +153,7 @@ self_test() {
 
   # This is the case that reported "no open notes" for a queue it could not
   # read at all: absence of evidence read as evidence of absence.
-  mkdir -p "$tmp/garbled/.claude"; printf '## not a heading journal.sh wrote\n' \
+  tap_project "$tmp/garbled"; printf '## not a heading journal.sh wrote\n' \
     > "$tmp/garbled/.claude/session_history.md"
   check "a history the queue cannot read is named as unreadable, not as empty" \
     "skip: the queue could not be read" "$(decide "$tmp/garbled" "s1")"
@@ -180,7 +179,7 @@ self_test() {
   # Everything above calls decide() directly. These drive the script itself, so
   # the payload parsing and the dry-run branch — which live only in the main body
   # and which no case above reaches — are covered too.
-  local e2e="$tmp/e2e"; mkdir -p "$e2e/.claude"
+  local e2e="$tmp/e2e"; tap_project "$e2e"
   git -C "$e2e" init -q 2>/dev/null
   printf '# Log\n' > "$e2e/.claude/session_history.md"
   JOURNAL_HIST="$e2e/.claude/session_history.md" CLAUDE_CODE_SESSION_ID=e-1 \

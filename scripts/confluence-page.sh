@@ -31,7 +31,10 @@ PF="$HOME/.claude/scripts/project_file.sh"
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
@@ -60,8 +63,6 @@ STUB
   left=$(cd "$fx/out" && ls | paste -sd' ')
   unset STUB_PAGE
   want_body=' < p > a & a m p ; b < / p > \n < p > c < / p >'
-  # shellcheck source=tap.sh
-  . "$(dirname "$self")/tap.sh"
   tap_is "an id asks for the page with its default expansion" \
     "$by_id" "$base/2415788040?expand=body.storage,version,space,ancestors"
   tap_is "a page URL asks for the same page as its id" "$by_url" "$by_id"

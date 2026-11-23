@@ -109,7 +109,7 @@ def _transcript_path() -> str:
 
 
 def session_ref() -> str:
-    """The PR URL this session was named after, e.g. from `ABC-10810 PR <url>`.
+    """The PR URL this session was named after, e.g. from `ABC-90810 PR <url>`.
 
     A session title is the last `custom-title` record in the transcript, which
     is what session_rename.sh appends and gh-pr-name-session.sh fills with the
@@ -201,7 +201,7 @@ def _self_test() -> int:
         json.dumps({"type": "ai-title", "title": "https://github.com/x/y/pull/999"}),
         "{ not json",
         # The latest title is /review:bot's form, the earlier one /review:pr's.
-        title("ABC-10810 BOT https://github.com/Acme/events-service/pull/13"),
+        title("ABC-90810 BOT https://github.com/Acme/events-service/pull/13"),
         title("a hand-written title with no PR in it"),
     ]
     with tempfile.TemporaryDirectory() as tmp:
@@ -225,7 +225,7 @@ def _self_test() -> int:
             # A transcript with no PR in any title must raise, never return "".
             empty = os.path.join(tmp, "empty.jsonl")
             with open(empty, "w", encoding="utf-8") as fh:
-                fh.write(title("ABC-10810 no link here") + "\n")
+                fh.write(title("ABC-90810 no link here") + "\n")
             os.environ["SESSION_RENAME_TRANSCRIPT"] = empty
             got = read_back()
             t.check(got is None, "a transcript with no PR title is refused",

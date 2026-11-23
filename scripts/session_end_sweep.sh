@@ -12,8 +12,8 @@
 #   session_end_sweep.sh --run PROJECT   # the detached half; not for direct use
 #   session_end_sweep.sh --self-test
 #
-# The project is the directory holding the nearest .claude/session_history.md
-# at or above the session's cwd, the history git_sweep.sh journals into. A
+# The project is the one the session's cwd lies in (project_file.sh --root),
+# whose history git_sweep.sh journals into. A
 # sweep is due when that project's stamp is missing or older than
 # SWEEP_HOURS. The stamp is written when a run starts, so a run that fails
 # waits a day like one that succeeds: the failure is in the log, and a
@@ -51,7 +51,7 @@ SWEEP_HOURS=24
 
 say() { printf '%s sweep %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG"; }
 
-project_of() {  # <cwd> -> the directory holding the nearest session history
+project_of() {  # <cwd> -> the project whose history the session wrote
   local hist
   hist=$(cd "$1" && journal_hist session_end_sweep.sh 2>/dev/null) || return 1
   dirname "$(dirname "$hist")"
@@ -71,7 +71,7 @@ decide() {  # <cwd> -> "run <project>" or "skip: <why>"
   local project
   [[ -d "$1" ]] || { echo "skip: cwd $1 does not exist"; return; }
   project=$(project_of "$1") \
-    || { echo "skip: no .claude/session_history.md at or above $1"; return; }
+    || { echo "skip: no project history at or above $1"; return; }
   due "$project" || { echo "skip: $project swept within ${SWEEP_HOURS}h"; return; }
   echo "run $project"
 }
@@ -140,10 +140,10 @@ self_test() {
     else tap_not_ok "$1" "want: $2" "got:  $3"; fi
   }
 
-  p="$tmp/project"; mkdir -p "$p/.claude" "$p/api/repo"
+  p="$tmp/project"; mkdir -p "$p/.claude" "$p/api/repo"; tap_project "$p"
   : >"$p/.claude/session_history.md"
   check "a cwd that is gone is a skip" "skip: cwd" "$(decide "$tmp/absent")"
-  check "no history above the cwd is a skip" "skip: no .claude" "$(decide "$tmp")"
+  check "no history above the cwd is a skip" "skip: no project history" "$(decide "$tmp")"
   check "a project never swept is a run, from a nested cwd" "run $p" \
     "$(decide "$p/api/repo")"
   touch "$(stamp_of "$p")"

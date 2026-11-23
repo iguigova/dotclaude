@@ -5,8 +5,8 @@
 # re-specifying the header regex, entry id and ticket token, so the read and write
 # sides of the format can never drift apart.
 #
-# Target file: the nearest `.claude/session_history.md` at or above $PWD
-# (override with JOURNAL_HIST).
+# Target file: the project's `.claude/session_history.md`, the project being
+# `project_file.sh --root` (override with JOURNAL_HIST).
 #
 # Usage:
 #   journal_scan.sh [TICKET]      # optional: restrict to one ticket key

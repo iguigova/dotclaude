@@ -105,7 +105,10 @@ self_test_runs() {
   local fx me log f
   fx=$(mktemp -d); me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "$0")"
   log="$fx/calls"
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   mkdir -p "$fx/p/.claude/scripts"
+  tap_project "$fx/p"
   for f in jira-assign.sh jira-transition.sh; do
     printf '#!/usr/bin/env bash\necho "%s $*" >> %q\n[[ "$*" != *refuse* ]]\n' "$f" "$log" > "$fx/p/.claude/scripts/$f"
   done
@@ -113,7 +116,7 @@ self_test_runs() {
   printf '#!/usr/bin/env bash\necho "jira-comment.sh $* $(cat)" >> %q\necho %q\n' "$log" '{"id":"77"}' \
     > "$fx/p/.claude/scripts/jira-comment.sh"
   chmod +x "$fx/p/.claude/scripts/"*
-  mkdir -p "$fx/bare/.claude"; cp -r "$fx/p/.claude/scripts" "$fx/bare/.claude/"
+  tap_project "$fx/bare"; cp -r "$fx/p/.claude/scripts" "$fx/bare/.claude/"
   echo Doing > "$fx/p/.claude/jira_status_in_progress"
   echo "On Hold" > "$fx/p/.claude/jira_status_blocked"
   run() { (cd "$fx/$1" && "$me" "${@:2}") 2>&1; }  # <project> <args…>
@@ -153,8 +156,6 @@ self_test_runs() {
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
-  # shellcheck source=tap.sh
-  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   NOTE="" BY="" OWNER="" UNTIL="" FROM="" QUESTION="" PRS=""
   t() {  # <label> <want> <moment>
     local got; got=$(body "$3" 2>&1) || true

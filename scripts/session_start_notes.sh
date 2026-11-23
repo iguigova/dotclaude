@@ -79,7 +79,7 @@ ssn_self_test() {
 
   # The hook is handed a cwd and must report that project, not the one it is
   # installed in — the whole point of a per-project queue.
-  mkdir -p "$fx/proj/.claude"
+  tap_project "$fx/proj"
   cp "$fx/open.md" "$fx/proj/.claude/session_history.md"
   out=$(printf '{"cwd":"%s","source":"startup"}' "$fx/proj" | bash "$SELF_DIR/session_start_notes.sh")
   tap_is "the payload's cwd selects the project" "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')" \

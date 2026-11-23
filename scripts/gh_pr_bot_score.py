@@ -3,8 +3,8 @@
 score was written against, and the findings it could not post inline.
 
 Usage:
-    gh-pr-bot-score.sh <pr-ref> [bot-login-substr ...]
-    gh-pr-bot-score.sh --self-test
+    gh_pr_bot_score.py <pr-ref> [bot-login-substr ...]
+    gh_pr_bot_score.py --self-test
 
 <pr-ref> takes the same forms as the sibling helpers:
     https://github.com/Org/repo/pull/123
@@ -12,7 +12,7 @@ Usage:
     #123                 (uses CWD's git remote)
 
 Extra args narrow the bot filter (default: greptile). They are passed straight
-through to gh-pr-bot-comments.sh, which owns ref parsing, pagination and the
+through to gh_pr_bot_comments.py, which owns ref parsing, pagination and the
 bot-login rule; this never re-implements them.
 
 Output JSON (to stdout):
@@ -38,7 +38,7 @@ of null with stale true means the new run has not reported yet.
 `outside_diff` holds the findings the bot raised on lines the diff does not
 cover, each with its `body`, the bot's prose for it. Greptile posts these in
 an issue comment, not as review threads, so they never appear in
-gh-pr-bot-comments.sh's `threads[]` and never count towards its `open_count`. A PR can read as "no open threads" with real
+gh_pr_bot_comments.py's `threads[]` and never count towards its `open_count`. A PR can read as "no open threads" with real
 findings outstanding; this is where they surface.
 
 A listed finding is a worklist entry, not a blocker: one already addressed
@@ -48,6 +48,7 @@ length of this array.
 
 Exits non-zero if any gh call fails.
 """
+import io
 import json
 import os
 import re
@@ -166,7 +167,7 @@ def self_test() -> int:
         '<!-- greptile_summary -->\n<h2><a href="https://app.greptile.com/api/'
         'retrigger?id=1"><img alt="Retrigger"></a>Confidence Score: 4/5</h2>\n'
         "<h3>Summary</h3>\n- Does a thing.\n"
-        '<sub>Reviews (1) · Last reviewed commit: ["ABC-10785: one name..."]'
+        '<sub>Reviews (1) · Last reviewed commit: ["ABC-90785: one name..."]'
         "(https://github.com/acme/billing-service/commit/38b76486df4d8980"
         "ce306f2515dab05d3f7f4753)</sub>"
     )
@@ -251,7 +252,36 @@ def self_test() -> int:
         "parse_ref returns a 3-tuple", f"parse_ref contract: got {parse_ref('Org/repo#123')}, want a 3-tuple",
     )
 
+    self_test_json_of(want)
     return t.end()
+
+
+def self_test_json_of(want) -> None:
+    py = sys.executable
+    want(json_of([py, "-c", "import json; print(json.dumps({'a': 1}))"], "x") == {"a": 1},
+         "a command's JSON output is read", "json_of did not read the output")
+
+    def ended(command):
+        keep, sys.stderr = sys.stderr, io.StringIO()
+        try:
+            json_of(command, "the probe")
+        except SystemExit as e:
+            return e.code, sys.stderr.getvalue()
+        finally:
+            sys.stderr = keep
+        return None, ""
+    want(ended([py, "-c", "import sys; sys.exit('boom')"]) == (1, "boom\n"),
+         "a command that fails ends the run with its own message", "json_of did not end on a failure with its message")
+    want(ended([py, "-c", "raise SystemExit(3)"]) == (1, "the probe failed\n"),
+         "a command that fails silently is named instead", "json_of did not name a silent failure")
+
+
+def json_of(command: "list[str]", what: str):
+    """A command's JSON output; its failure ends the run with the command's own message."""
+    res = subprocess.run(command, capture_output=True, text=True)
+    if res.returncode != 0:
+        die(res.stderr.strip() or f"{what} failed")
+    return json.loads(res.stdout)
 
 
 def main(argv: "list[str]") -> int:
@@ -261,7 +291,7 @@ def main(argv: "list[str]") -> int:
     if len(argv) == 1 and argv[0] == "--self-test":
         return self_test()
     if not argv:
-        print("Usage: gh-pr-bot-score.sh <pr-ref> [bot-login-substr ...] | --self-test", file=sys.stderr)
+        print("Usage: gh_pr_bot_score.py <pr-ref> [bot-login-substr ...] | --self-test", file=sys.stderr)
         return 1
 
     ref, bots = argv[0], (argv[1:] or ["greptile"])
@@ -270,23 +300,9 @@ def main(argv: "list[str]") -> int:
     except RefError as e:
         die(str(e))
 
-    res = subprocess.run(
-        [script("gh-pr-bot-comments.sh"), ref, *bots],
-        capture_output=True,
-        text=True,
-    )
-    if res.returncode != 0:
-        die(res.stderr.strip() or "gh-pr-bot-comments.sh failed")
-    comments = json.loads(res.stdout)
-
-    res = subprocess.run(
-        ["gh", "pr", "view", str(number), "--repo", f"{owner}/{repo}", "--json", "headRefOid"],
-        capture_output=True,
-        text=True,
-    )
-    if res.returncode != 0:
-        die(res.stderr.strip() or "gh pr view failed")
-    head_sha = json.loads(res.stdout)["headRefOid"]
+    comments = json_of([script("gh_pr_bot_comments.py"), ref, *bots], "gh_pr_bot_comments.py")
+    head_sha = json_of(["gh", "pr", "view", str(number), "--repo", f"{owner}/{repo}", "--json", "headRefOid"],
+                       "gh pr view")["headRefOid"]
 
     out = {"owner": owner, "repo": repo, "number": number}
     out.update(build(head_sha, comments.get("summary", [])))

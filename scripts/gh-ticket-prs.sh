@@ -129,6 +129,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # a comment, a blank line and two owners. The fake logs each search.
   T=$(mktemp -d); trap 'rm -rf "$T"' EXIT
   mkdir -p "$T/bin" "$T/p/.claude"
+  tap_project "$T/p"
   printf '# owners\n\nacme\nbeta\n' > "$T/p/.claude/github_orgs"
   cat > "$T/bin/gh" <<'FAKE'
 #!/usr/bin/env bash

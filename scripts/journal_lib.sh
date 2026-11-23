@@ -6,6 +6,8 @@
 # because a one-letter id such as R-31 labels a row, not a ticket.
 # POSIX ERE, so the same string serves grep -E, [[ =~ ]] and awk.
 # shellcheck disable=SC2034  # read by the scripts that source this file
+JOURNAL_LIB_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034  # read by the scripts that source this file
 JOURNAL_TICKET_RE='[A-Z][A-Z]+-[0-9]+'
 
 # The note queue: one queue of things noticed and not yet placed. `journal.sh -n`
@@ -86,7 +88,7 @@ journal_note_lines() {
 # journal_kinds — the things we author and control, from the one list
 # `inventory_kinds.txt`. /inventory censuses these; a note is placed by becoming one.
 journal_kinds() {
-  grep -v '^#' "$(dirname "${BASH_SOURCE[0]}")/inventory_kinds.txt" | grep -v '^$'
+  grep -v '^#' "$JOURNAL_LIB_DIR/inventory_kinds.txt" | grep -v '^$'
 }
 
 # journal_close_re — the grammar a close must match: `<placement> — <reason>`.
@@ -103,17 +105,12 @@ journal_close_re() {
   printf '^((%s)(:[a-z0-9][a-z0-9:._-]*)?|ticket:%s|-) — .+$' "$kinds" "$JOURNAL_TICKET_RE"
 }
 
-# journal_hist CALLER — the history file: $JOURNAL_HIST, else the nearest
-# `.claude/session_history.md` at or above $PWD. Fails naming CALLER.
+# journal_hist CALLER — the history file: $JOURNAL_HIST, else the project's
+# `.claude/session_history.md` (project_file.sh). Fails naming CALLER.
 journal_hist() {
   if [[ -n "${JOURNAL_HIST:-}" ]]; then printf '%s\n' "$JOURNAL_HIST"; return 0; fi
-  local d="$PWD"
-  while :; do
-    [[ -f "$d/.claude/session_history.md" ]] && { printf '%s\n' "$d/.claude/session_history.md"; return 0; }
-    [[ "$d" == "/" ]] && break
-    d=$(dirname "$d")
-  done
-  echo "$1: no .claude/session_history.md at or above $PWD (set JOURNAL_HIST)" >&2
+  "$JOURNAL_LIB_DIR/project_file.sh" session_history.md && return 0
+  echo "$1: no session history (set JOURNAL_HIST)" >&2
   return 1
 }
 
@@ -163,16 +160,16 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     tap_fails "a close missing a reason, a known placement or a ticket is refused: $c" \
       matches "$c" "$re"
   done
-  mkdir -p "$fx/a/.claude" "$fx/a/b/c" "$fx/none"
-  touch "$fx/a/.claude/session_history.md"
-  tap_is "the history is found by walking up" \
+  tap_project "$fx/a"; mkdir -p "$fx/a/b/c/.claude" "$fx/none"
+  touch "$fx/a/.claude/session_history.md" "$fx/a/b/c/.claude/session_history.md"
+  tap_is "the history is the project's, past a clone's own" \
     "$(cd "$fx/a/b/c" && JOURNAL_HIST='' journal_hist t)" "$fx/a/.claude/session_history.md"
+  tap_run "a history found exits 0" eval '(cd "$fx/a/b/c" && JOURNAL_HIST="" journal_hist t >/dev/null)'
   tap_is "JOURNAL_HIST overrides the walk" \
     "$(cd "$fx/none" && JOURNAL_HIST=/x journal_hist t)" /x
   walk_none() { (cd "$fx/none" && JOURNAL_HIST='' journal_hist t) 2>"$fx/err"; }
   tap_fails "no history above is an error" walk_none
-  tap_run "and the error names the caller" \
-    grep -q '^t: no .claude/session_history.md' "$fx/err"
+  tap_run "and the error names the caller" grep -q '^t: no session history' "$fx/err"
   printf '## 2026-10-14 09:00 a\n## 2026-10-14 09:01 b\n' > "$fx/ok.md"
   printf '## 2026-10-14 09:00 a\n## Notes\n' > "$fx/bad.md"
   tap_run "a parseable history passes the heading check" \

@@ -52,14 +52,14 @@ A test file (under spec/ or test/, or named *_spec.* / *_test.* / *.test.* /
 *.spec.* / test_*) is marked `test` and ranked after every source file.
 
 Usage:
-    gh-pr-structure.sh <pr-ref> --index-file <pr-index.json>
-    gh-pr-structure.sh --self-test
+    gh_pr_structure.py <pr-ref> --index-file <pr-index.json>
+    gh_pr_structure.py --self-test
 
 The parser is PARSER_PIN, run through `uv`: when it is not importable, the
 script re-runs itself under `uv run --with PARSER_PIN`, which installs nothing
 outside uv's cache.
 
-The index is gh-pr-diff-index.sh's output. Its head_sha must be the PR's live
+The index is gh_pr_diff_index.py's output. Its head_sha must be the PR's live
 head: the files are fetched at that head (gh-pr-file.sh) and at the merge base
 (gh-pr-file.sh --base), and an index of another commit would pair one commit's
 diff with another's files. An added file starts at zero lines and is not
@@ -505,17 +505,30 @@ def base_text(base_dir: str, entry: dict) -> str:
     return read(base_dir, entry["old_path"])
 
 
-def measure(ref: str, index: dict, get_parser) -> dict:
+def require_old_paths(index: dict) -> None:
     if any("old_path" not in e for e in index["files"]):
-        die("the index carries no old_path; re-run gh-pr-diff-index.sh")
-    entries = [e for e in index["files"] if measurable(e)]
-    head_sha, head_dir = fetch_dir(ref, [])
+        die("the index carries no old_path; re-run gh_pr_diff_index.py")
+
+
+def require_head(index: dict, head_sha: str) -> None:
     if index.get("head_sha") != head_sha:
         die(f"index describes {index.get('head_sha')}, the PR head is "
-            f"{head_sha}; re-run gh-pr-fetch.sh and gh-pr-diff-index.sh")
+            f"{head_sha}; re-run gh-pr-fetch.sh and gh_pr_diff_index.py")
+
+
+def fetch_sides(ref: str, entries: list) -> None:
+    """Each measured file at the head, and at the base unless it is new there."""
     fetch(ref, [], [e["path"] for e in entries])
     fetch(ref, ["--base"], [e["old_path"] for e in entries
                             if e["status"] != "added"])
+
+
+def measure(ref: str, index: dict, get_parser) -> dict:
+    require_old_paths(index)
+    entries = [e for e in index["files"] if measurable(e)]
+    head_sha, head_dir = fetch_dir(ref, [])
+    require_head(index, head_sha)
+    fetch_sides(ref, entries)
     _, base_dir = fetch_dir(ref, ["--base"])
     records = [file_record(e, base_text(base_dir, e),
                            read(head_dir, e["path"]), get_parser)
@@ -629,7 +642,18 @@ def _entry(path: str, status: str, added: "list[int]",
 def _self_test(get_parser) -> int:
     t = Tap()
     want = t.check
+    _self_test_grammars(want, get_parser)
+    _self_test_owner(want, get_parser)
+    rec = _self_test_matching(want, get_parser)
+    cross, over = _self_test_size(want, get_parser)
+    _self_test_parse_errors(want, get_parser, rec)
+    _self_test_ranks(want, get_parser, rec, over, cross)
+    _self_test_base_text(want)
+    _self_test_measurable(want)
+    return t.end()
 
+
+def _self_test_grammars(want, get_parser) -> None:
     # Each grammar: every function found, each count as hand-counted.
     for lang, (path, source, expected) in FIXTURES.items():
         tree = parse(get_parser, lang, source)
@@ -642,6 +666,8 @@ def _self_test(get_parser) -> int:
             want(got.get(name) == want_m,
                  f"{lang} {name} measures as hand-counted", f"{lang} {name}: {got.get(name)}, want {want_m}")
 
+
+def _self_test_owner(want, get_parser) -> None:
     # A changed line belongs to its innermost function only.
     path, source, _ = FIXTURES["python"]
     edit = _entry(path, "modified", [13], [])
@@ -649,6 +675,8 @@ def _self_test(get_parser) -> int:
     want([r["name"] for r in rows] == ["K.inner_host.inner"],
          "a changed line belongs to its innermost function only", f"line 13 owners {[r['name'] for r in rows]}")
 
+
+def _self_test_matching(want, get_parser) -> dict:
     # Matching: a branch added to K.m is a modified row with both shapes; a
     # function only at the head is added; one only at the base is removed.
     base = "def keep(a):\n    return a\n\ndef gone():\n    pass\n"
@@ -665,7 +693,10 @@ def _self_test(get_parser) -> int:
          and by["gone"]["lines"] == [2, None], "a function only at the base is removed", f"gone row {by.get('gone')}")
     want(rec["functions"][0]["name"] == "keep",
          "functions rank by the complexity and nesting they gained", f"function rank {[r['name'] for r in rec['functions']]}")
+    return rec
 
+
+def _self_test_size(want, get_parser) -> tuple:
     # Size: a crossing is base at or under the threshold and head over it.
     cross = file_record(_entry("big.py", "modified", [], []),
                         "x = 1\n" * 990, "x = 1\n" * 1011, get_parser)
@@ -673,7 +704,10 @@ def _self_test(get_parser) -> int:
                        "x = 1\n" * 1010, "x = 1\n" * 1020, get_parser)
     want(cross["crosses_threshold"], "990 to 1011 lines crosses the threshold", "990 -> 1011 lines must cross")
     want(not over["crosses_threshold"], "1010 to 1020 is over, not crossing", "1010 -> 1020 is over, not crossing")
+    return cross, over
 
+
+def _self_test_parse_errors(want, get_parser, rec: dict) -> None:
     # No grammar: size only, functions and parse errors unknown. A broken
     # parse names its commit, its lines and the function they fall in.
     haml = file_record(_entry("v.haml", "modified", [1], []), "%p\n",
@@ -699,6 +733,8 @@ def _self_test(get_parser) -> int:
         {"commit": "head", "lines": [5, 5], "function": None}],
          "one error over a function and a line it hides is two runs", f"wrapped parse errors {wrapped['parse_errors']}")
 
+
+def _self_test_ranks(want, get_parser, rec: dict, over: dict, cross: dict) -> None:
     # Test paths, and only test paths, are marked; tests rank last.
     for tpath, is_test in {"spec/a_spec.rb": True, "app/tests/x.py": True,
                            "src/x.test.ts": True, "pkg/x_test.go": True,
@@ -712,6 +748,8 @@ def _self_test(get_parser) -> int:
     want(order == ["big.py", "m.py", "over.py", "spec/z_spec.rb"],
          "files rank a threshold crossing first, then by gain, tests last", f"file rank {order}")
 
+
+def _self_test_base_text(want) -> None:
     # A rename is read at the merge base under its old path; an added file is
     # never read there, so a stray file at its path cannot leak in.
     with tempfile.TemporaryDirectory() as tmp:
@@ -724,12 +762,12 @@ def _self_test(get_parser) -> int:
         want(base_text(tmp, renamed) == "a\nb\n", "a rename is read at its old path", "rename not read at old path")
         want(base_text(tmp, added) == "", "an added file is never read at the base", "an added file was read at the base")
 
+
+def _self_test_measurable(want) -> None:
     # Deleted files and non-source files are skipped, not measured.
     want(not measurable(_entry("gone.py", "deleted", [], [])), "a deleted file is not measured", "deleted kept")
     want(not measurable(_entry("README.md", "modified", [], [])), "a .md file is not measured", ".md kept")
     want(measurable(_entry("app/x.rb", "modified", [], [])), "a .rb file is measured", ".rb skipped")
-
-    return t.end()
 
 
 def main() -> None:
@@ -740,7 +778,7 @@ def main() -> None:
     if args[:1] == ["--self-test"]:
         raise SystemExit(_self_test(load_parser()))
     if len(args) != 3 or args[1] != "--index-file":
-        die("Usage: gh-pr-structure.sh <pr-ref> --index-file <pr-index.json>"
+        die("Usage: gh_pr_structure.py <pr-ref> --index-file <pr-index.json>"
             " | --self-test")
     with open(args[2], encoding="utf-8") as fh:
         index = json.load(fh)

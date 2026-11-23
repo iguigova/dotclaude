@@ -24,8 +24,8 @@
 #     "review_comments": [ { id, in_reply_to, author, path, line, commit, body, created_at }, ... ]
 #   }
 #
-# `head_sha` is the commit the diff describes: gh-pr-diff-index.sh records it and
-# gh-pr-review-post.sh refuses to post a review whose index names a different
+# `head_sha` is the commit the diff describes: gh_pr_diff_index.py records it and
+# gh_pr_review_post.py refuses to post a review whose index names a different
 # one. `ticket` is the single owner of the ticket-key rule — the first
 # `[A-Z]+-[0-9]+` in the title or head branch — so the review's billing step
 # reads it from here instead of re-deriving it.
@@ -143,6 +143,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # The script in a fixture project whose scripts it calls by name are stubs,
   # beside a gh that logs: where it stops, and what it called before.
   sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  tap_project "$sfx"
   me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
     local st=0

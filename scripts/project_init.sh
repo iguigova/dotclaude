@@ -7,7 +7,10 @@
 # its memory/ beside the project's code. This makes each piece that is missing
 # and changes nothing already right, so a second run reports nothing to do:
 #
-#   .claude/                  the project layer
+#   .claude/                  the project layer, re-included by a repository
+#                             that ignores everything it does not name
+#   .claude/project           the marker that makes the folder a project,
+#                             holding its name
 #   .secrets/                 mode 700, ignored by git
 #   .claude-project-data/     ignored by git, all but memory/
 #   ~/.claude/projects/<slug> a link to <project>/.claude-project-data
@@ -37,10 +40,13 @@ link_of() { printf '%s\n' "$HOME/.claude/projects/$(slug_of "$1")"; }  # <dir>
 ignored() { git -C "$1" check-ignore -q -- "$2"; }  # <dir> <path>
 
 # ignore_wants <dir> — each .gitignore line the repository lacks, one per line.
-# Ignoring the transcripts ignores memory/ too, so its exception comes with them.
+# Ignoring the transcripts ignores memory/ too, so its exception comes with them;
+# a repository that ignores the data folder itself re-includes it first.
 ignore_wants() {
+  ignored "$1" .claude/project && echo "!/.claude"
   ignored "$1" .secrets/probe || echo ".secrets/"
-  if ! ignored "$1" "$DATA/probe.jsonl"; then printf '%s\n' "$DATA/*" "!$DATA/memory/"
+  if ignored "$1" "$DATA"; then printf '%s\n' "!/$DATA" "$DATA/*" "!$DATA/memory/"
+  elif ! ignored "$1" "$DATA/probe.jsonl"; then printf '%s\n' "$DATA/*" "!$DATA/memory/"
   elif ignored "$1" "$DATA/memory/probe.md"; then echo "!$DATA/memory/"; fi
 }
 
@@ -85,6 +91,11 @@ make_ignores() {
   say "added to .gitignore: ${wants[*]}"
 }
 
+make_marker() {  # <dir>
+  [[ -e "$1/.claude/project" ]] && return 0
+  basename "$1" > "$1/.claude/project" && say "wrote .claude/project: $(basename "$1")"
+}
+
 make_link() {  # <dir>
   local link
   link=$(link_of "$1")
@@ -102,7 +113,7 @@ init() {  # <dir> <account>
   git -C "$dir" rev-parse --show-toplevel >/dev/null 2>&1 \
     || refuse "$dir is no git repository, so nothing would version its memory; run git init first"
   check_link "$dir"; check_account "$dir" "$2"
-  out=$(make_ignores "$dir" && make_dirs "$dir" && make_link "$dir" && make_account "$dir" "$2") || exit 1
+  out=$(make_ignores "$dir" && make_dirs "$dir" && make_marker "$dir" && make_link "$dir" && make_account "$dir" "$2") || exit 1
   [[ -n "$out" ]] && printf '%s\n' "$out" || say "nothing to do in $dir"
 }
 
@@ -117,7 +128,8 @@ if [[ "${1:-}" == --self-test ]]; then
   tap_is "a folder's slug is its path with every other character a dash" "$(slug_of /a/b.c_d-e)" "-a-b-c-d-e"
   tap_is "a fresh repository is made a project" "$(run "$fx/p")" "$(printf 'project_init: %s\n' \
     "added to .gitignore: .secrets/ $DATA/* !$DATA/memory/" "made .claude/" "made .secrets/" \
-    "made $DATA/memory/" "linked $link")"
+    "made $DATA/memory/" "wrote .claude/project: p" "linked $link")"
+  tap_is "the marker names the project" "$(cat "$fx/p/.claude/project")" p
   tap_is "its memory link points into the project" "$(readlink -f "$link")" "$fx/p/$DATA"
   tap_is ".secrets/ is private" "$(stat -c %a "$fx/p/.secrets")" 700
   tap_run "a secret is ignored by git" git -C "$fx/p" check-ignore -q .secrets/token
@@ -139,8 +151,15 @@ if [[ "${1:-}" == --self-test ]]; then
   tap_like "a real folder at the link is refused, named" "$(run "$fx/w")" "*$(slug_of "$fx/w") is in the way*"
   tap_is "and nothing is made in the project" "$(find "$fx/w" -mindepth 1 -maxdepth 1 ! -name .git | wc -l)" 0
   printf '/*\n!.gitignore\n' > "$fx/w/.gitignore"; rmdir "$fx/home/.claude/projects/$(slug_of "$fx/w")"
+  mkdir -p "$fx/w/$DATA/memory"; echo '*' > "$fx/w/$DATA/memory/.gitignore"
   tap_like "an ignore rule that hides memory is refused" "$(run "$fx/w")" "*has a rule the added lines cannot override*"
   tap_is "and .gitignore is put back" "$(cat "$fx/w/.gitignore")" $'/*\n!.gitignore'
+  rm -r "$fx/w/$DATA"
+  tap_like "a repository ignoring all it does not name re-includes the layer and the data" "$(run "$fx/w")" \
+    "*added to .gitignore: !/.claude !/$DATA $DATA/* !$DATA/memory/*"
+  tap_fails "and versions the marker" git -C "$fx/w" check-ignore -q .claude/project
+  tap_run "and ignores a transcript" git -C "$fx/w" check-ignore -q "$DATA/s.jsonl"
+  tap_fails "and versions a memory fact" git -C "$fx/w" check-ignore -q "$DATA/memory/fact.md"
   mkdir "$fx/n"; echo x > "$fx/n/.gitignore"
   undo_ignores "$fx/n" none; tap_is "a .gitignore the run made is removed on undo" "$(find "$fx/n" -mindepth 1)" ""
   tap_is "a usage error exits 2" "$(run --account 2>/dev/null >/dev/null; echo $?)" 2

@@ -178,7 +178,7 @@ link_all() {  # <key>
 # $JC_DOR_EXIT, and whose jira-link.sh logs its arguments; the run moves into it.
 self_test_project() {  # <folder>
   local s="$1/p/.claude/scripts"
-  mkdir -p "$s" && : > "$1/p/.claude/session_history.md" && cd "$1/p" || return 1
+  mkdir -p "$s" && tap_project "$1/p" && cd "$1/p" || return 1
   echo "Story Points" > "$1/p/.claude/jira_points_field"
   cat > "$s/atlassian-auth.sh" <<'STUB'
 # shellcheck shell=bash

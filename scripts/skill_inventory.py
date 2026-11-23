@@ -194,6 +194,7 @@ import tempfile
 import textwrap
 from pathlib import Path
 
+import resolve
 from tap import Tap
 
 SCRIPTS = Path(__file__).resolve().parent
@@ -281,10 +282,10 @@ HOME_PREFIXES =("~/", "$HOME/", f"{Path.home()}/")
 # ---------------------------------------------------------------- discovery
 
 def find_project(start: Path) -> Path:
-    for d in (start, *start.parents):
-        if (d / ".claude").is_dir() and d != Path.home():
-            return d
-    sys.exit(f"skill_inventory: no .claude/ at or above {start}")
+    found = resolve.root(start)
+    if not found:
+        sys.exit(f"skill_inventory: no .claude/project at or above {start}")
+    return Path(found)
 
 
 def transcripts_for(home: Path, project: Path) -> Path:
@@ -2169,6 +2170,8 @@ EXPECTED = {
     "alpha.bundled": ["scripts/local.sh"],
     "probe.bundled": (["probe.list"], 1),
     "probe.bundle_edit": True,
+    "project.found": True,
+    "project.none": True,
     "alpha.journal": {"via_entries": 1,
                       "captured": ["open    make /alpha faster",
                                    "placed  cache the /alpha probe"],
@@ -2548,12 +2551,28 @@ def bundle_edit(inv: dict) -> bool:
                   probe["bundled"])["uncommitted"]
 
 
+def self_test_find_project(tmp: Path) -> dict:
+    """The project is the marked folder a clone lies in; no project ends the run."""
+    from tap import project as mark
+    mark(str(tmp / "marked"))
+    (tmp / "marked/api/repo/.claude").mkdir(parents=True)
+    (tmp / "unmarked").mkdir()
+    try:
+        find_project(tmp / "unmarked")
+        stopped = False
+    except SystemExit:
+        stopped = True
+    return {"project.found": find_project(tmp / "marked/api/repo") == tmp / "marked",
+            "project.none": stopped}
+
+
 def self_test() -> int:
     with tempfile.TemporaryDirectory() as d:
         home, project, transcripts = fixture(Path(d))
         inv = inventory(home, project, transcripts, dt.date.today())
         seen, extra = observed(inv), attention_facts(inv)
-        got = {**seen, **extra, "probe.bundle_edit": bundle_edit(inv)}
+        got = {**seen, **extra, "probe.bundle_edit": bundle_edit(inv),
+               **self_test_find_project(Path(d))}
         render_choice(chosen(inv["items"], "CLAUDE.md", None))
     got["desc"] = {k: got["desc"][k] for k in EXPECTED["desc"]}
     # A dict keeps the last of two equal keys without a word, so a check that

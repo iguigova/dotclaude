@@ -80,6 +80,7 @@ self_test() {
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   printf '#!/usr/bin/env bash\ncat "$JR_ISSUE"\n' > "$fx/.claude/scripts/jira-issue.sh"
   chmod +x "$fx/.claude/scripts/jira-issue.sh"
   printf 'ATLASSIAN_SITE=https://example.invalid\natlassian_curl() { cat "$JR_CONFIG"; }\n' > "$fx/.claude/scripts/atlassian-auth.sh"

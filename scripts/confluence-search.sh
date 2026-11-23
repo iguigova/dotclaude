@@ -30,7 +30,10 @@ PF="$HOME/.claude/scripts/project_file.sh"
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {
@@ -59,8 +62,6 @@ STUB
   if "$self" 'bad query' >/dev/null 2>"$fx/err"; then bad=accepted; else bad=$(cat "$fx/err"); fi
   want_all='[["1","page","a\tb","PA","https://example.invalid/wiki/p/1"],["2","blogpost","b","W2","https://example.invalid/wiki/p/2"],["3","page","c","PA","https://example.invalid/wiki/p/3"]]'
   want_capped='["1","2"]'
-  # shellcheck source=tap.sh
-  . "$(dirname "$self")/tap.sh"
   tap_is "the cursor is followed across pages" "$all" "$want_all"
   tap_is "--limit stops early" "$capped" "$want_capped"
   tap_like "a 400 exits 1 with Confluence's message" "$bad" "*Could not parse cql*"

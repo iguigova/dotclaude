@@ -73,7 +73,7 @@ Build the diff index once — it is the source of truth for every line number yo
 ```bash
 D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 jq -r '.diff' "$D/pr.json" > "$D/pr.diff"   # reuse the step-1 fetch, no re-download
-"$(~/.claude/scripts/project_file.sh --script gh-pr-diff-index.sh)" \
+"$(~/.claude/scripts/project_file.sh --script gh_pr_diff_index.py)" \
   --diff-file "$D/pr.diff" \
   --head-sha "$(jq -r '.head_sha' "$D/pr.json")" > "$D/pr-index.json"
 ```
@@ -94,7 +94,7 @@ every field and every rule:
 
 ```bash
 D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
-"$(~/.claude/scripts/project_file.sh --script gh-pr-structure.sh)" <pr-ref> \
+"$(~/.claude/scripts/project_file.sh --script gh_pr_structure.py)" <pr-ref> \
   --index-file "$D/pr-index.json" > "$D/structure.json"
 jq -r '.files[] | "\(.path) \(.lines_base)->\(.lines_head) cross=\(.crosses_threshold)",
        (.parse_errors // [] | .[] | "  parse error at \(.commit) lines \(.lines) in \(.function // "no function")"),
@@ -323,7 +323,7 @@ Posting is **never automatic** — a PR review is public and addressed to a coll
 
 ```bash
 D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
-"$(~/.claude/scripts/project_file.sh --script gh-pr-review-post.sh)" <pr-ref> \
+"$(~/.claude/scripts/project_file.sh --script gh_pr_review_post.py)" <pr-ref> \
   --event COMMENT \
   --body-file "$D/review-body.md" \
   --index-file "$D/pr-index.json" \
@@ -387,7 +387,7 @@ cat > "$D/worklog.md" <<'EOF'
 PR review — Org/repo#123 "<PR title>".
 Verdict: Comment — 1 Critical, 2 Medium, 3 Nits.
 Must fix: <the headline must-fix finding, one clause>.
-Review posted: [Org/repo#123 review](<url printed by gh-pr-review-post.sh>)
+Review posted: [Org/repo#123 review](<url printed by gh_pr_review_post.py>)
 EOF
 
 ENTRY=$("$(~/.claude/scripts/project_file.sh --script journal.sh)" -t "PR Review: <repo>#<NN> (<TICKET> <title>)" --via /review:pr \

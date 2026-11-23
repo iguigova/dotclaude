@@ -115,6 +115,7 @@ csu_self_test() {
   local run self sent
   run=$(mktemp -d); trap 'rm -f "$body"; rm -rf "$run"' RETURN
   mkdir -p "$run/bin" "$run/page" "$run/.claude/scripts"
+  tap_project "$run"
   cat > "$run/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid JIRA_USER=u JIRA_TOKEN=t
 atlassian_curl() { printf '{"version":{"number":%s},"space":{"key":"SP"},"title":"T"}' "$STUB_AT"; }

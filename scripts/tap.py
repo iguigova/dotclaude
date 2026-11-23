@@ -11,12 +11,15 @@ Usage:
 Each check prints `ok N - <name>` or `not ok N - <name>` and, on a miss,
 its details as `# ` lines; end prints the plan `1..N` and returns the exit
 status, 0 when every case held, else 1. tap.sh states what a name must be
-and where the code under test prints.
+and where the code under test prints. project(folder) makes a fixture
+folder a project, as tap.sh's tap_project does.
 """
 
 import contextlib
 import io
+import os
 import sys
+import tempfile
 
 
 class Tap:
@@ -38,6 +41,14 @@ class Tap:
         return 1 if self.failed else 0
 
 
+def project(folder: str) -> str:
+    """folder made a project as project_init.sh marks one; returns folder."""
+    os.makedirs(os.path.join(folder, ".claude"), exist_ok=True)
+    with open(os.path.join(folder, ".claude", "project"), "w") as f:
+        f.write(os.path.basename(os.path.normpath(folder)) + "\n")
+    return folder
+
+
 def self_test() -> int:
     t = Tap()
     out = io.StringIO()
@@ -57,6 +68,12 @@ def self_test() -> int:
         held.check(True, "one")
         status = held.end()
     t.check(status == 0, "a run whose cases all held exits 0")
+    with tempfile.TemporaryDirectory() as d:
+        project(os.path.join(d, "p"))
+        with open(os.path.join(d, "p", ".claude", "project")) as f:
+            t.check(f.read() == "p\n", "a fixture project is marked with its name")
+        t.check(project(os.path.join(d, "p")) == os.path.join(d, "p"),
+                "a folder already marked is marked again")
     return t.end()
 
 

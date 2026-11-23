@@ -16,8 +16,8 @@
 #   jira-description.sh --self-test
 #
 # Examples:
-#   jira-description.sh XYZ-1303 /tmp/desc.wiki
-#   printf 'h2. Goal\n\nExport the monthly report.\n' | jira-description.sh XYZ-1303
+#   jira-description.sh XYZ-81303 /tmp/desc.wiki
+#   printf 'h2. Goal\n\nExport the monthly report.\n' | jira-description.sh XYZ-81303
 #
 # Wiki markup reference: h2. heading, *bold*, {{code}}, [text|url], * bullet,
 # # numbered, ||th||th|| / |td|td| tables.

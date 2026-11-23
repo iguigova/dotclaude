@@ -128,7 +128,7 @@ self_test() {
   local tmp repo out
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   mkrepo() {  # DIR
-    mkdir -p "$1/.claude"; git -C "$1" init -q
+    tap_project "$1"; git -C "$1" init -q
     git -C "$1" config user.email t@t; git -C "$1" config user.name t
     echo base > "$1/base.txt"; git -C "$1" add -A; git -C "$1" commit -q -m base
   }

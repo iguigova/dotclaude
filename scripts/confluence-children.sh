@@ -26,7 +26,10 @@ PF="$HOME/.claude/scripts/project_file.sh"
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+  # shellcheck source=tap.sh
+  . "$(dirname "$self")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   head -c 200000 /dev/zero | tr '\0' x > "$fx/body"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
@@ -47,8 +50,6 @@ STUB
   want_flat='[["2","1"],["3","1"]]'
   want_tree='[["2","1"],["3","1"],["4","2"]]'
   want_bodies='[["2","a",200000],["3","b\tc",200000],["4","d",200000]]'
-  # shellcheck source=tap.sh
-  . "$(dirname "$self")/tap.sh"
   tap_is "one level lists each child beside its parent" "$flat" "$want_flat"
   tap_is "--recurse lists the children's children" "$tree" "$want_tree"
   tap_is "each body over 128 KiB is inlined, and a tab in a title is kept" \

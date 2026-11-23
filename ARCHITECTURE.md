@@ -16,11 +16,25 @@ Two layers, and every session runs in exactly one project.
 - **Project**: `<project>/.claude`. That project's values, secrets, verbs,
   domain skills and records. Nothing about one project lives anywhere else.
 
-A project is a git repository that `scripts/project_init.sh` has set up. The
-project layer is the nearest `.claude/` at or above the working directory;
-`~/.claude` is never taken for one. A name resolves in the project first,
-then in the global layer, and a name in neither stops the caller with exit 1.
-Nothing guesses and nothing falls back to a default.
+A folder is one of three things to the tooling:
+
+- **Project**: a folder whose `.claude/project` names it, written by
+  `scripts/project_init.sh`. It holds the project layer and the records.
+- **Clone**: a git repository the project works in. A clone's own `.claude/`
+  belongs to the clone's repository and is never a layer. A clone that is
+  itself a project carries its own `.claude/project`, and inside it that
+  nearer project is the layer.
+- **Root**: a folder that holds projects, such as `~/src`. It has no project
+  layer: its values, secrets and records stop with exit 1, and scripts
+  resolve in the global layer alone. A session starts in a project.
+
+The project is the nearest folder at or above the working directory whose
+`.claude/` holds `project`; `~/.claude` is never taken for one, and a
+`.claude/` without the marker is passed over. `scripts/project_file.sh
+--root` is the one finder: every script that needs the project calls it. A
+name resolves in the project first, then in the global layer, and a name in
+neither stops the caller with exit 1. Nothing guesses and nothing falls back
+to a default.
 
 ## Parts
 
@@ -39,9 +53,10 @@ Nothing guesses and nothing falls back to a default.
 `scripts/project_file.sh --value <name>` prints a value without its blank
 and `#` lines, and exits 1 naming where it looked when the file is missing or
 holds no value. `scripts/secret_file.sh <name>` prints the path of
-`<project>/.secrets/<name>`, and exits 1 when it is absent or empty. A script
-must read every value and credential through these two, never from a path of
-its own.
+`<project>/.secrets/<name>`, and exits 1 when it is absent or empty.
+`project_file.sh --root` prints the project's folder. A script reads every
+value and credential, and finds the project, through these, never from a path
+of its own or from where the script itself sits.
 
 ### Script
 
@@ -237,13 +252,14 @@ flowchart TB
 
 ### Projects and accounts
 
-- `scripts/project_init.sh` makes a git repository a project: its `.claude/`,
-  a private `<project>/.secrets/`, the ignore lines that keep secrets and
+- `scripts/project_init.sh` makes a git repository a project: its `.claude/`
+  and the `project` marker, the line that re-includes `.claude/` in a
+  repository that ignores all it does not name, a private `<project>/.secrets/`, the ignore lines that keep secrets and
   transcripts out of git, and the link from `~/.claude/projects/<slug>` into
   `<project>/.claude-project-data/`, where Claude Code then keeps the
   project's sessions and memory. A second run has nothing to do.
 - `scripts/project_file.sh` and `scripts/secret_file.sh` resolve a project's
-  values, scripts and secrets; `scripts/resolve.py` reads them for Python.
+  folder, values, scripts and secrets; `scripts/resolve.py` reads them for Python.
 - `scripts/claude_account.sh` runs a project under the account its
   `.claude/config_dir` names. That account's directory links every shared
   entry back to `~/.claude`, so one copy of the tooling serves every account.

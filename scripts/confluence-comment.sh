@@ -104,6 +104,7 @@ self_test() {
     || tap_not_ok "a session that has not loaded draft is refused before an edit is sent" "$st $err"
   # A fixture project whose atlassian-auth.sh is a stub, so a send never leaves the machine.
   mkdir -p "$gate_dir/p/.claude/scripts"; echo '["draft"]' > "$gate_dir/ok.json"
+  tap_project "$gate_dir/p"
   cat > "$gate_dir/p/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
 atlassian_curl() {

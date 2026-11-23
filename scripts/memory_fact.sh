@@ -34,6 +34,11 @@ LINT="$SCRIPTS_DIR/memory_lint.sh"
 
 die() { echo "memory_fact: $1" >&2; exit 1; }
 
+# A root keeps no records: a fact is written or removed only in a project.
+mf_in_project() {
+  [[ "$MEM_NO_PROJECT" -eq 0 ]] || die "no .claude/project at or above $PWD; a fact lives in a project"
+}
+
 # mf_pointer NAME HOOK — the one pointer grammar, written in one place.
 mf_pointer() { printf -- '- [%s](%s.md) — %s\n' "$1" "$1" "$2"; }
 
@@ -273,15 +278,20 @@ self_test() {
   # The writer evals what it read, so the shape that broke it is tested whole.
   fact esc 'test -n "a\"b"' | run write esc "hook" >/dev/null 2>&1
   tap_run "a fact whose verify carries escaped quotes is written" test -f "$d/esc.md"
+
+  local at_root
+  at_root=$(cd "$d" && fact r true | env -u MEMORY_FILE -u MEM_PROJECT_ROOT "$SELF" write r "hook" 2>&1)
+  tap_is "a fact is refused at a folder in no project" "$? $at_root" \
+    "1 memory_fact: no .claude/project at or above $d; a fact lives in a project"
 }
 
 # ---------------------------------------------------------------- main
 
 case "${1:-}" in
   --self-test) self_test; tap_end ;;
-  write)  [[ $# -eq 3 ]] || die "usage: memory_fact.sh write <name> <pointer hook>  (fact on stdin)"
+  write)  mf_in_project; [[ $# -eq 3 ]] || die "usage: memory_fact.sh write <name> <pointer hook>  (fact on stdin)"
           mf_write "$2" "$3" ;;
-  remove) [[ $# -eq 2 ]] || die "usage: memory_fact.sh remove <name>"
+  remove) mf_in_project; [[ $# -eq 2 ]] || die "usage: memory_fact.sh remove <name>"
           mf_remove "$2" ;;
   verify) [[ $# -eq 2 ]] || die "usage: memory_fact.sh verify <name>"
           mf_verify "$2" ;;

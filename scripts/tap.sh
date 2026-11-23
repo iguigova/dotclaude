@@ -7,7 +7,7 @@
 #   1..2                  the plan, printed last by tap_end
 #
 # tap_stub writes a fixture script that logs its calls, for a test of what a
-# script calls by name.
+# script calls by name; tap_project makes a fixture folder a project.
 #
 # selftest.sh refuses a self-test whose stdout is anything else, so whatever
 # the code under test prints goes to stderr. A case's name is unique in its
@@ -64,6 +64,12 @@ tap_stub() {  # <file> <log> [<status>] [<stdout>]
   mkdir -p "$(dirname "$1")" || return 1
   printf '#!/usr/bin/env bash\necho "%s $*" >> %q\nprintf %%s %q\nexit %s\n' \
     "$(basename "$1")" "$2" "${4:-}" "${3:-0}" > "$1" && chmod +x "$1"
+}
+
+# tap_project — <dir> made a project as project_init.sh marks one: its
+# .claude/project names it.
+tap_project() {  # <dir>
+  mkdir -p "$1/.claude" && basename "$1" > "$1/.claude/project"
 }
 
 # tap_end — print the plan and exit: 0 when every case held, else 1.
@@ -129,6 +135,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_stub "$s/bin/gh" "$s/log" "" $'a "b"\tc'
   st=0; out=$("$s/bin/gh" pr view) || st=$?
   tap_is "a stub exits 0 unless told, printing what it was given" "$st $(tail -1 "$s/log") $out" $'0 gh pr view a "b"\tc' 
+  tap_project "$s/p"
+  tap_is "a fixture project is marked with its name" "$(cat "$s/p/.claude/project")" p
   : > "$s/file"
   tap_fails "a stub whose folder cannot be made is refused" tap_stub "$s/file/x.sh" "$s/log"
   rm -rf "$s"

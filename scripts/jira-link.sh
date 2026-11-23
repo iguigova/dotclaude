@@ -18,13 +18,13 @@
 #   jira-link.sh --self-test
 #
 # Examples:
-#   jira-link.sh ABC-7489 relates to ABC-10968
-#   jira-link.sh ABC-10970 is blocked by ABC-10968
-#   jira-link.sh ABC-10970 Blocks ABC-10971
-#   jira-link.sh --delete ABC-10974 relates to ABC-10877
+#   jira-link.sh ABC-87489 relates to ABC-90968
+#   jira-link.sh ABC-90970 is blocked by ABC-90968
+#   jira-link.sh ABC-90970 Blocks ABC-90971
+#   jira-link.sh --delete ABC-90974 relates to ABC-90877
 #
 # Prints the link as Jira shows it from the inward issue, e.g.
-# "ABC-10968 blocks ABC-10970"; a delete prints it after "deleted: ".
+# "ABC-90968 blocks ABC-90970"; a delete prints it after "deleted: ".
 # --dry-run prints the request instead and changes nothing. Exit 0 on HTTP 201
 # (204 for a delete); 2 on a usage error or a phrase that names no single link
 # type; 1 when a delete finds no such link, or otherwise, with the HTTP status
@@ -41,7 +41,10 @@ ENDPOINT=/rest/api/2/issueLink
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport. Answers the link-type read from a fixture, records what
 # would be POSTed, and never opens a socket.
@@ -66,8 +69,6 @@ atlassian_curl() {
 STUB
   export JL_POSTED="$fx/posted.json" JL_STATUS=201
   jl() { (cd "$fx" && "$self" "$@"); }
-  # shellcheck source=tap.sh
-  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   sides() { jq -r '[.inwardIssue.key, .outwardIssue.key, .type.name] | join(" ")'; }
 
   out=$(jl --dry-run ABC-1 blocks ABC-2)

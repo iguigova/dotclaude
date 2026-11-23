@@ -109,6 +109,7 @@ self_test() {
     || tap_not_ok "a session that has loaded neither draft nor normative is refused before anything is sent" "$st $err"
   # A fixture project whose atlassian-auth.sh is a stub that finds no parent, so nothing leaves the machine.
   mkdir -p "$dir/p/.claude/scripts"; echo '["normative"]' > "$dir/ok.json"
+  tap_project "$dir/p"
   printf '%s\n' 'ATLASSIAN_SITE=https://example.invalid' 'atlassian_curl() { echo "{}"; }' \
     > "$dir/p/.claude/scripts/atlassian-auth.sh"
   st=0; err=$(cd "$dir/p" && CLAUDE_CODE_SESSION_ID=ok DRAFT_GATE_DIR="$dir" "$self" --parent 1 --title T "$dir/good.html" 2>&1 >/dev/null) || st=$?

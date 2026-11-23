@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Fetch a review bot's findings on a PR into its working directory: the threads
-# and notes that may still need an answer (gh-pr-bot-comments.sh) as bot.json,
-# and the bot's verdict (gh-pr-bot-score.sh) as score.json, each written whole
+# and notes that may still need an answer (gh_pr_bot_comments.py) as bot.json,
+# and the bot's verdict (gh_pr_bot_score.py) as score.json, each written whole
 # or not at all. /review:bot runs it in §1, and in §8 with --wait after a push,
 # so the loop back to triage reads the bot's run on the pushed head.
 #
@@ -59,13 +59,13 @@ fetch() {  # <pr-ref> [--wait] [bot-login-substr ...]
 fetch_both() {  # REF WAIT BOT_TMP SCORE_TMP [BOTS…]
   local ref=$1 wait=$2 tb=$3 ts=$4; shift 4
   await_score "$ref" "$wait" "$ts" "$@" || return
-  fetched "$tb" "${GH_PR_BOT_COMMENTS:-$("$PF" --script gh-pr-bot-comments.sh)}" "$ref" "$@" \
+  fetched "$tb" "${GH_PR_BOT_COMMENTS:-$("$PF" --script gh_pr_bot_comments.py)}" "$ref" "$@" \
     || { echo "gh-pr-bot-fetch.sh: comment fetch failed for $ref" >&2; return 1; }
 }
 
 await_score() {  # REF WAIT SCORE_TMP [BOTS…]
   local ref=$1 wait=$2 ts=$3 score interval deadline; shift 3
-  score="${GH_PR_BOT_SCORE:-$("$PF" --script gh-pr-bot-score.sh)}"
+  score="${GH_PR_BOT_SCORE:-$("$PF" --script gh_pr_bot_score.py)}"
   interval="${GH_PR_BOT_FETCH_INTERVAL:-20}"
   deadline=$((SECONDS + ${GH_PR_BOT_FETCH_WAIT:-100}))
   while :; do
@@ -191,6 +191,7 @@ EOF
   # The script in a fixture project whose scripts it calls by name are stubs,
   # beside a gh that logs: where it stops, and what it called before.
   sfx=$(mktemp -d); : > "$sfx/calls"; tap_stub "$sfx/bin/gh" "$sfx/calls"
+  tap_project "$sfx"
   me="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   stubbed() {  # <args…> -> "<exit> <call>|<call>…"; stdout kept in $sfx/out
     local st=0

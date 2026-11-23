@@ -20,8 +20,8 @@
 # Examples:
 #   jira-comment.sh XYZ-101 /tmp/comment.wiki
 #   printf 'Verified on staging; closing.' | jira-comment.sh XYZ-101
-#   jira-comment.sh --edit 75696 ABC-10785 /tmp/fixed.wiki
-#   jira-comment.sh --reply 77752 ABC-10955 /tmp/answer.wiki
+#   jira-comment.sh --edit 75696 ABC-90785 /tmp/fixed.wiki
+#   jira-comment.sh --reply 77752 ABC-90955 /tmp/answer.wiki
 #
 # Wiki markup reference: h3. heading, *bold*, {{code}}, [text|url], * bullet,
 # # numbered, ||th||th|| / |td|td| tables, {code}…{code} blocks.

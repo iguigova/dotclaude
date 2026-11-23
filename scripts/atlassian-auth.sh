@@ -20,7 +20,10 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
   [[ "${1:-}" == "--self-test" ]] || {
     echo "atlassian-auth.sh: source this file; executed, it takes only --self-test" >&2; exit 2; }
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
+  # shellcheck source=tap.sh
+  . "$(dirname "$0")/tap.sh"
   mkdir -p "$fx/.claude/scripts" "$fx/home" "$fx/bin"
+  tap_project "$fx"
   cp "$0" "$fx/.claude/scripts/atlassian-auth.sh"
   mkdir -p "$fx/home/.claude/scripts"
   cp "$(dirname "$0")/project_file.sh" "$(dirname "$0")/secret_file.sh" "$fx/home/.claude/scripts/"
@@ -39,9 +42,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     >/dev/null 2>"$fx/err" || site_rc=$?
   want='https://example.invalid|me@example.invalid|tok
 -s -u me@example.invalid:tok -H Accept: application/json https://example.invalid/x'
-  # shellcheck source=tap.sh
-  . "$(dirname "$0")/tap.sh"
-  tap_is "the site is read from the nearest .claude/atlassian_site above \$PWD" \
+  tap_is "the site is read from the project's .claude/atlassian_site" \
     "$(sed -n 1p <<<"$got" | cut -d'|' -f1)" "https://example.invalid"
   tap_is "credentials come from the project's .secrets/, newlines trimmed" \
     "$(sed -n 1p <<<"$got")" "$(sed -n 1p <<<"$want")"
@@ -49,7 +50,7 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     "$(sed -n 2p <<<"$got")" "$(sed -n 2p <<<"$want")"
   tap_is "a missing site fails the source" "$site_rc" 1
   tap_run "and says where it looked" \
-    grep -q 'no .claude/atlassian_site at or above' "$fx/err"
+    grep -qF "no $fx/.claude/atlassian_site" "$fx/err"
   printf 'https://example.invalid\n' > "$fx/.claude/atlassian_site"
   for secret in jira-token jira-email; do
     rm "$fx/.secrets/$secret"

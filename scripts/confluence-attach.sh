@@ -40,7 +40,10 @@ self_test() {
   local src out
   src="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "$0")"
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+  # shellcheck source=tap.sh
+  . "$(dirname "$src")/tap.sh"
   mkdir -p "$tmp/.claude/scripts"
+  tap_project "$tmp"
   printf 'x' > "$tmp/a.png"; printf 'y' > "$tmp/b.png"
   cat > "$tmp/.claude/scripts/atlassian-auth.sh" <<'STUB'
 ATLASSIAN_SITE=https://example.invalid
@@ -55,8 +58,6 @@ STUB
   cd "$tmp" || exit 2
   out=$("$src" \
     "https://example.invalid/wiki/spaces/PA/pages/42/Title" "$tmp/a.png" "$tmp/b.png")
-  # shellcheck source=tap.sh
-  . "$(dirname "$src")/tap.sh"
   # PUT, not POST: POST refuses a filename the page already has.
   tap_run "the files are PUT to child/attachment" grep -q -- \
     "-X PUT https://example.invalid/wiki/rest/api/content/42/child/attachment" "$tmp/calls"

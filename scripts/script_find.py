@@ -55,6 +55,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+import resolve
 import skill_inventory as si
 from tap import Tap
 
@@ -75,13 +76,9 @@ COMMON = frozenset({"this", "that", "with", "from", "into", "what", "when",
 
 
 def project_of(start: Path) -> Path | None:
-    """The nearest directory at or above start whose .claude/ holds scripts/,
-    other than the home directory, whose .claude/ is the global tree. A
-    .claude/ without one is a repo's own settings, not a project."""
-    for d in (start, *start.parents):
-        if d != Path.home() and (d / ".claude/scripts").is_dir():
-            return d
-    return None
+    """The project start lies in (project_file.sh --root), or None at a root."""
+    found = resolve.root(start)
+    return Path(found) if found else None
 
 
 def scripts(home: Path, project: Path | None) -> list[dict]:
@@ -253,6 +250,7 @@ def self_test_fixture(root: Path) -> tuple[list[dict], Path]:
     si.write(project / ".claude/scripts/tail.py",
              '"""Tail it."""\nDB = "prod-db"\n')
     si.write(project / "api/repo/.claude/settings.json", "{}\n")
+    si.write(project / ".claude/project", "proj\n")
     return scripts(home, project), project
 
 
@@ -275,6 +273,7 @@ def self_test_answers(items: list[dict], project: Path) -> dict:
         "broken": named("unterminated"),
         "project": project_of(project / ".claude/scripts") == project,
         "nested": project_of(project / "api/repo") == project,
+        "root": project_of(project.parent) is None,
         "sources": [(n, it["name"]) for n, it in sources(items)],
         "untagged": [(kind, it["name"]) for kind, it in
                      untagged(items, re.compile(r"prod-db|Rails"))],
@@ -293,7 +292,7 @@ def self_test() -> int:
             "lead": ["camera_report.py", "camera_report.py", "lambda-tail.sh"],
             "limit": 1, "summary": "x…", "wrapped": ["Per-camera LPR report."],
             "line": ["Tail a Lambda's log stream."],
-            "broken": [], "project": True, "nested": True,
+            "broken": [], "project": True, "nested": True, "root": True,
             "sources": [("Camera roles", "plates.sh"), ("plate reads", "plates.sh"),
                         ("Rails Postgres", "rails_sql.py")],
             "untagged": [("untagged", "deploy.sh"), ("no 75", "plates.sh"),
@@ -310,6 +309,7 @@ def self_test() -> int:
         "broken": "a header that does not parse finds nothing",
         "project": "the project is found from its .claude/scripts",
         "nested": "a product repo's own .claude does not hide its project",
+        "root": "a folder holding projects lies in none",
         "sources": "--sources lists each production source beside its reader",
         "untagged": "--untagged names an untagged script and a reader with no 75",
         "skip": "--skip leaves out the script that holds the pattern",

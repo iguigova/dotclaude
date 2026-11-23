@@ -67,6 +67,8 @@
 set -uo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=journal_lib.sh
+. "$SCRIPTS_DIR/journal_lib.sh"
 GH="${GIT_SWEEP_GH:-gh}"
 CLONE_DEPTH=4
 TAB=$'\t'
@@ -278,18 +280,6 @@ classify() {  # every record under ROOT
 
 # ---------------------------------------------------------------- apply
 
-history_of() {  # <dir> -> the session history journal.sh would write
-  local d
-  [[ -n "${JOURNAL_HIST:-}" ]] && { echo "$JOURNAL_HIST"; return; }
-  d=$(cd "$1" && pwd)
-  while [[ "$d" != / ]]; do
-    [[ -f "$d/.claude/session_history.md" ]] \
-      && { echo "$d/.claude/session_history.md"; return; }
-    d=$(dirname "$d")
-  done
-  return 1
-}
-
 leave_branch() {  # <clone> <branch> -> the main checkout is off branch
   local def
   current "$1" "$2" || return 0
@@ -500,8 +490,8 @@ parse_args() {
 main() {
   local records out
   parse_args "$@"
-  if (( APPLY )) && ! history_of "$ROOT" >/dev/null; then
-    echo "git_sweep: no session history at or above $ROOT; refusing" >&2
+  if (( APPLY )) && ! (cd "$ROOT" && journal_hist git_sweep.sh) >/dev/null; then
+    echo "git_sweep: refusing to apply without the history the deletions are journaled to" >&2
     exit 2
   fi
   records=$(classify)
@@ -542,7 +532,7 @@ self_test() {
     tap_run "$@" 2>/dev/null
   }
 
-  mkdir -p "$tmp/root/.claude" "$tmp/prs"
+  tap_project "$tmp/root"; mkdir -p "$tmp/prs"
   : >"$tmp/root/.claude/session_history.md"
   git init -q -b main "$tmp/root"
   git "${G[@]}" -C "$tmp/root" commit -q --allow-empty -m local

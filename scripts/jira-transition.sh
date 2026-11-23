@@ -17,9 +17,9 @@
 #   jira-transition.sh --self-test
 #
 # Examples:
-#   jira-transition.sh ABC-7725 Done
-#   jira-transition.sh ABC-10905 in progress
-#   jira-transition.sh --list ABC-10905
+#   jira-transition.sh ABC-87725 Done
+#   jira-transition.sh ABC-90905 in progress
+#   jira-transition.sh --list ABC-90905
 #
 # Prints "<KEY>: <from> -> <to>". --dry-run prints the request instead and
 # changes nothing. Exit 0 on HTTP 204; 2 on a usage error, or a status no
@@ -37,7 +37,10 @@ KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
 if [[ "${1:-}" == "--self-test" ]]; then
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  # shellcheck source=tap.sh
+  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   mkdir -p "$fx/.claude/scripts"
+  tap_project "$fx"
   cat > "$fx/.claude/scripts/atlassian-auth.sh" <<'STUB'
 # Stub transport. Answers the issue and transition reads from fixtures,
 # records what would be POSTed, and never opens a socket.
@@ -59,8 +62,6 @@ atlassian_curl() {
 STUB
   export JT_POSTED="$fx/posted.json" JT_STATUS=204
   jt() { (cd "$fx" && "$self" "$@"); }
-  # shellcheck source=tap.sh
-  . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
   out=$(jt --dry-run ABC-1 in progress)
   tap_is "a dry run names the v2 transitions endpoint" \

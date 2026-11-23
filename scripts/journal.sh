@@ -5,8 +5,8 @@
 # and no line in the file is changed or removed. Callers never track order,
 # formatting, timestamps, or the path.
 #
-# Target file: the nearest `.claude/session_history.md` at or above $PWD
-# (override with JOURNAL_HIST). Universal across projects. The readers,
+# Target file: the project's `.claude/session_history.md`, the project being
+# `project_file.sh --root` (override with JOURNAL_HIST). Universal across projects. The readers,
 # journal_scan.sh and journal_queue.sh, parse exactly what this writes and select
 # by timestamp, never by position.
 #
@@ -332,7 +332,7 @@ self_test() {
   repo=$(mktemp -d)
   git -C "$repo" init -q
   git -C "$repo" config user.email t@t; git -C "$repo" config user.name t
-  mkdir "$repo/.claude"; printf '# Log\n' > "$repo/.claude/session_history.md"
+  tap_project "$repo"; printf '# Log\n' > "$repo/.claude/session_history.md"
   printf 'a\n' > "$repo/staged"; printf 'a\n' > "$repo/dirty"
   git -C "$repo" add -A; git -C "$repo" commit -qm init
   printf 'b\n' > "$repo/staged"; git -C "$repo" add staged

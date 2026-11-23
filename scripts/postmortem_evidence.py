@@ -36,8 +36,8 @@ The credentials are its ``jira-email`` and ``jira-token`` secrets
 (``project_file.sh --script``). A project without one of them stops the run
 before any call, exit 1, naming it.
 
-  postmortem_evidence.py XYZ-7669
-  postmortem_evidence.py XYZ-7669 --out /tmp/pm --no-linked
+  postmortem_evidence.py XYZ-87669
+  postmortem_evidence.py XYZ-87669 --out /tmp/pm --no-linked
   postmortem_evidence.py --self-test         # offline, no network
 """
 import argparse
@@ -375,10 +375,11 @@ def read(link, out):
 def self_test_project(root):
     """A project holding the values, the secrets and a fake Slack reader;
     the run moves into it."""
-    claude = os.path.join(root, 'p', '.claude')
+    from tap import project
+    claude = os.path.join(project(os.path.join(root, 'p')), '.claude')
     os.makedirs(os.path.join(claude, 'scripts'))
     os.makedirs(os.path.join(root, 'p', '.secrets'))
-    os.makedirs(os.path.join(root, 'bare', '.claude'))
+    project(os.path.join(root, 'bare'))
     for path, text in ((('.claude', 'atlassian_site'), 'https://site.example\n'),
                        (('.claude', 'postmortem_parent'), '# reports\n77001\n'),
                        (('.claude', 'session_history.md'), '# history\n'),

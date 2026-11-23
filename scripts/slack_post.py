@@ -560,11 +560,11 @@ def self_test(tmp):
     check('text over the block limit is refused', True, refused(long_))
     check('a typed bullet is refused', True, refused(typed))
     check('the sample is accepted', False, refused_text(tmp, SAMPLE))
-    check('a bare @name is refused', True, refused_text(tmp, '@amanda hi'))
-    check('a bare @name mid-sentence is found', ['@amanda'],
-          bare_mentions('Thanks, @amanda.'))
+    check('a bare @name is refused', True, refused_text(tmp, '@alex hi'))
+    check('a bare @name mid-sentence is found', ['@alex'],
+          bare_mentions('Thanks, @alex.'))
     check('a tag, an email, a URL and code are no bare @name', [],
-          bare_mentions('<@U08SRDTANMT> a@example.com https://x.io/@u `@x`\n'
+          bare_mentions('<@U00000000> a@example.com https://x.io/@u `@x`\n'
                         '```\n@y\n```'))
     check('a missing image is refused', True, image_refused(tmp, None))
     check('an empty image is refused', True, image_refused(tmp, b''))

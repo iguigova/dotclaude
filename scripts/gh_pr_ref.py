@@ -156,7 +156,7 @@ def _self_test() -> int:
          "https://github.com/AcmeLabs/py-sdk.git/pull/7",
          ("AcmeLabs", "py-sdk", "7")),
         ("an owner/repo and number parse",
-         "Acme/web-app#5236", ("Acme", "web-app", "5236")),
+         "Acme/web-app#101", ("Acme", "web-app", "101")),
         ("a ref padded with spaces parses",
          "  AcmeLabs/web-hub#12  ", ("AcmeLabs", "web-hub", "12")),
     ]
@@ -197,7 +197,7 @@ def _self_test() -> int:
 
     lines = [
         json.dumps({"type": "user", "text": "irrelevant"}),
-        title("XYZ-1234 PR https://github.com/Acme/web-app/pull/5236"),
+        title("XYZ-1234 PR https://github.com/Acme/web-app/pull/101"),
         json.dumps({"type": "ai-title", "title": "https://github.com/x/y/pull/999"}),
         "{ not json",
         # The latest title is /review:bot's form, the earlier one /review:pr's.

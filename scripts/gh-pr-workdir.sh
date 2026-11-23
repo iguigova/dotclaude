@@ -44,10 +44,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
 
-  a=$(workdir "Acme/web-app#5236")
-  b=$(workdir "https://github.com/Acme/web-app/pull/5236")
+  a=$(workdir "Acme/web-app#101")
+  b=$(workdir "https://github.com/Acme/web-app/pull/101")
   c=$(workdir "Acme/web-app#5237")
-  d=$(workdir "AcmeLabs/web-hub#5236")
+  d=$(workdir "AcmeLabs/web-hub#101")
 
   tap_is "the slug and URL forms of one PR share a directory" "$b" "$a"
   tap_fails "two PR numbers get two directories" test "$a" = "$c"
@@ -57,7 +57,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_is "the base is mode 700" "$(stat -c %a "$GH_PR_WORKDIR_BASE")" 700
   # Re-running must be idempotent, so a resumed review finds its own files.
   echo marker > "$a/probe"
-  tap_is "a second call names the same directory" "$(workdir "Acme/web-app#5236")" "$a"
+  tap_is "a second call names the same directory" "$(workdir "Acme/web-app#101")" "$a"
   tap_run "and keeps its contents" test -f "$a/probe"
   # A ref that names no PR must fail rather than yield a directory.
   tap_fails "a bad ref is refused" workdir "not-a-ref"

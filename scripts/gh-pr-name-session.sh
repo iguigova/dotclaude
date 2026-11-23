@@ -54,8 +54,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check() { # <want> <ticket> <owner> <repo> <number> <suffix> <name>
     tap_is "$7" "$(session_title "$2" "$3" "$4" "$5" "$6")" "$1"
   }
-  check "XYZ-1234 PR https://github.com/Acme/web-app/pull/5236" \
-    "XYZ-1234" "Acme" "web-app" "5236" "PR" "a ticket leads the title"
+  check "XYZ-1234 PR https://github.com/Acme/web-app/pull/101" \
+    "XYZ-1234" "Acme" "web-app" "101" "PR" "a ticket leads the title"
   check "events-service#13 PR https://github.com/acme-internal/events-service/pull/13" \
     "" "acme-internal" "events-service" "13" "PR" "with no ticket, the repo and number lead"
   check "events-service#13 PR https://github.com/acme-internal/events-service/pull/13" \

@@ -71,7 +71,7 @@ and `uv`.
 `~/.claude` is a local-only repo, and everything here, this README and the
 page included, is written there. `scripts/dotclaude_export.sh` copies it, as
 committed, into this repo. It refuses the copy on any denylisted name, token
-shape, real email or binary file, runs the copy's selftest, and commits.
+shape, Slack id, real email or binary file, runs the copy's selftest, and commits.
 When any session ends, `scripts/session_end_export.sh` runs that export for
 a new `~/.claude` commit and pushes the result; a refusal opens a note.
 Each `~/.claude` commit made through `scripts/tooling_commit.sh` runs the

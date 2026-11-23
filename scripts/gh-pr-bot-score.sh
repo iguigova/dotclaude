@@ -173,8 +173,8 @@ def self_test() -> int:
     outside = (
         "<!-- greptile_outside_diff -->\n<h3>Comments Outside Diff</h3>\n"
         '- <img alt="P2" src="p2.svg" align="top">&nbsp;**Deleted builders '
-        "remain documented** `apps/functions/apis/cybersource/config/"
-        'cybersource_create_plan_request.py:1` <a href="x">▶</a>\n\n'
+        "remain documented** `apps/functions/billing/config/"
+        'create_plan_request.py:1` <a href="x">▶</a>\n\n'
         "  Removing these request builders leaves the docs stale.\n"
         '- <img alt="P1" src="p1.svg" align="top">&nbsp;**Console utilities '
         'no longer import** `apps/x/configuration.py:59` <a href="x">▶</a>\n\n'
@@ -201,7 +201,7 @@ def self_test() -> int:
     want(len(od) == 2, "each outside-diff finding is found", f"outside-diff count: got {len(od)}, want 2")
     want(od and od[0]["severity"] == "P2", "an outside-diff finding keeps its severity", "outside-diff severity must be P2")
     want(
-        od and od[0]["path"] == "apps/functions/apis/cybersource/config/cybersource_create_plan_request.py:1",
+        od and od[0]["path"] == "apps/functions/billing/config/create_plan_request.py:1",
         "an outside-diff finding keeps its path", f"outside-diff path: got {od[0]['path'] if od else None}",
     )
     want(od and od[0]["title"] == "Deleted builders remain documented", "an outside-diff title is the bold text", "outside-diff title must be the bold text")

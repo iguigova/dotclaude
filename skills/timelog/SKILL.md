@@ -62,7 +62,7 @@ For each ticket, silently (no questions):
 - **Remaining:** don't work it out. Once the effort is settled, `jira-remaining.sh` decides it:
 
   ```bash
-  "$(~/.claude/scripts/project_file.sh --script jira-remaining.sh)" XYZ-1273 "2h"
+  "$(~/.claude/scripts/project_file.sh --script jira-remaining.sh)" XYZ-101 "2h"
   ```
 
   **stdout** is the argument §5 passes, and empty means omit it. **stderr** is one line saying what was decided and why — show that line in §4 verbatim, so the user approves the number that will actually be posted.
@@ -76,11 +76,11 @@ Present a single block — one section per ticket — then one prompt:
 
 > **Ready to log (`N` ticket(s)):**
 >
-> **`XYZ-1273`** (`<summary>`) — **`2h`** · remaining 2h (was 4h; original 8h)
+> **`XYZ-101`** (`<summary>`) — **`2h`** · remaining 2h (was 4h; original 8h)
 > 1. <item>
 > 2. <item>
 >
-> **`XYZ-1267`** (`<summary>`) — **`1h`** · remaining 0h already — In Progress is open but the burndown is spent (14.5h logged against an original of none). Argument omitted: any number would raise it.
+> **`XYZ-102`** (`<summary>`) — **`1h`** · remaining 0h already — In Progress is open but the burndown is spent (14.5h logged against an original of none). Argument omitted: any number would raise it.
 > 1. <item>
 >
 > _`N` entries name no ticket in their heading and will be marked skipped, each with its reason: "<topic>" (`chore work, not billed`), …_
@@ -88,7 +88,7 @@ Present a single block — one section per ticket — then one prompt:
 >
 > _`N` unbilled entries from `M` other sessions — `/timelog --all` to include them._  ← only if `.others.entries` > 0
 >
-> Reply **`go`** to log all, or correct anything ("XYZ-1273 1h30m instead", "drop XYZ-1267", "skip").
+> Reply **`go`** to log all, or correct anything ("XYZ-101 1h30m instead", "drop XYZ-102", "skip").
 
 The text after `remaining` is `jira-remaining.sh`'s stderr line from §3, copied verbatim.
 
@@ -97,11 +97,11 @@ Proceed only on explicit approval. `go`/`yes`/`ship it` = log as-is. Anything el
 ## 5. Log — loop the helper, one call per ticket
 
 ```bash
-REMAINING=$("$(~/.claude/scripts/project_file.sh --script jira-remaining.sh)" XYZ-1273 "2h")
-if WORKLOG=$("$(~/.claude/scripts/project_file.sh --script jira-worklog.sh)" --quiet XYZ-1273 "2h" ${REMAINING:+"$REMAINING"} <<'EOF'
+REMAINING=$("$(~/.claude/scripts/project_file.sh --script jira-remaining.sh)" XYZ-101 "2h")
+if WORKLOG=$("$(~/.claude/scripts/project_file.sh --script jira-worklog.sh)" --quiet XYZ-101 "2h" ${REMAINING:+"$REMAINING"} <<'EOF'
 Topic — concise outcome. See [PR #31](https://github.com/AcmeLabs/events-service/pull/31).
 EOF
-); then echo "XYZ-1273 worklog $WORKLOG"; else echo "XYZ-1273 failed — its entries stay unmarked"; fi
+); then echo "XYZ-101 worklog $WORKLOG"; else echo "XYZ-101 failed — its entries stay unmarked"; fi
 ```
 
 Args: `[--quiet] <issue-key> <time-spent> [remaining-estimate]`. A worklog already posted is corrected with `--edit <worklog-id>` on the same arguments, never by posting a second one, which would bill the time twice. `${REMAINING:+"$REMAINING"}` is what passes the argument or omits it — never pass `""`. Re-run `jira-remaining.sh` here rather than reusing §3's value. Capture the id `--quiet` prints: §6 marks each entry with it.
@@ -112,15 +112,15 @@ The `if` is what decides whether that ticket gets a mark at all. The helper prin
 
 Every entry §1 returned whose outcome is settled gets a mark, in one call per run. Three kinds settle, one does not:
 
-- **billed** — `"<entry-id>: XYZ-1273 worklog 41233"`, naming the id §5 captured.
+- **billed** — `"<entry-id>: XYZ-101 worklog 10001"`, naming the id §5 captured.
 - **dropped in §4** — `"<entry-id>: skipped — <why the user dropped it>"`.
 - **no ticket in the heading** — `"<entry-id>: skipped — <reason>"`, the reason §2 gives for that heading: `chore work, not billed` for the common case.
 - **not settled — no mark** — the entries of a ticket whose POST failed (§5), and any entry whose worklog id came back empty (below). Nothing was paid, so nothing is recorded.
 
 ```bash
 "$(~/.claude/scripts/project_file.sh --script journal.sh)" \
-  --bill "<entry-id>: XYZ-1273 worklog 41233" --bill "<entry-id>: XYZ-1273 worklog 41233" \
-  --bill "<entry-id>: XYZ-1267 worklog 41234" \
+  --bill "<entry-id>: XYZ-101 worklog 10001" --bill "<entry-id>: XYZ-101 worklog 10001" \
+  --bill "<entry-id>: XYZ-102 worklog 10002" \
   --bill "<entry-id>: skipped — chore work, not billed"
 ```
 

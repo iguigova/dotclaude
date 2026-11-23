@@ -18,8 +18,8 @@
 # comment of its thread, which the script resolves before posting.
 #
 # Examples:
-#   jira-comment.sh XYZ-1273 /tmp/comment.wiki
-#   printf 'Verified on staging; closing.' | jira-comment.sh XYZ-1273
+#   jira-comment.sh XYZ-101 /tmp/comment.wiki
+#   printf 'Verified on staging; closing.' | jira-comment.sh XYZ-101
 #   jira-comment.sh --edit 75696 ABC-10785 /tmp/fixed.wiki
 #   jira-comment.sh --reply 77752 ABC-10955 /tmp/answer.wiki
 #

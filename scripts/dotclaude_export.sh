@@ -25,6 +25,8 @@
 #     allowlist, because it names exactly what must not be published.
 #   - a token shape: GitHub, Slack, AWS, Google OAuth, Anthropic keys, or a
 #     private key block. AWS's documented example key is a fixture and passes.
+#   - a Slack user, channel or group id, which names a real person or room.
+#     An id of all zeros after its letter, such as U00000000, is a fixture.
 #   - an email address outside the example domains, the top-level domains
 #     reserved for examples (.example, .invalid, .test, .localhost) and the
 #     commit trailer's. The tail of a name@x@y chain, such as lizard's
@@ -48,7 +50,9 @@ ALLOW=(CLAUDE.md credo.md ARCHITECTURE.md '*_guidelines.md' statusline.sh settin
        index.html README.md LICENSE .github)
 KEEP=(.git .claude)
 TOKENS='gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|xox[abprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|GOCSPX-[A-Za-z0-9_-]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY-----'
-TOKEN_OK=AKIAIOSFODNN7EXAMPLE  # AWS's documented example key, used as a fixture
+TOKEN_OK='^AKIAIOSFODNN7EXAMPLE$'  # AWS's documented example key, used as a fixture
+SLACK_ID='\b[UWCGD]0[0-9A-Z]{7,10}\b'
+SLACK_OK='^[UWCGD]0+$'
 EMAIL='[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}'
 CHAIN="([A-Za-z0-9._%+-]+@)?$EMAIL"  # a match holding two @ is the tail of a chain
 EMAIL_OK='@(example\.(com|org|net)|test\.com|([A-Za-z0-9-]+\.)*(example|invalid|test|localhost))$|^git@github\.com$|^noreply@anthropic\.com$'
@@ -81,7 +85,8 @@ scan() {
   local dir=$1 deny=$2 hits=0
   scan_binary "$dir" || hits=1
   scan_denylist "$dir" "$deny" || hits=1
-  scan_tokens "$dir" || hits=1
+  scan_shape "$dir" "$TOKENS" "$TOKEN_OK" "token shape" || hits=1
+  scan_shape "$dir" "$SLACK_ID" "$SLACK_OK" "slack id" || hits=1
   scan_emails "$dir" || hits=1
   return "$hits"
 }
@@ -108,15 +113,16 @@ scan_denylist() {
   return "$hits"
 }
 
-# scan_tokens <dir> — every token shape but AWS's documented example key.
-scan_tokens() {
-  local dir=$1 f n e hits=0
+# scan_shape <dir> <regex> <fixture-regex> <reason> — every match of the shape
+# but one the fixture regex takes whole.
+scan_shape() {
+  local dir=$1 re=$2 ok=$3 reason=$4 f n e hits=0
   while IFS= read -r f; do
     while IFS=: read -r n e; do
-      [[ "$e" == "$TOKEN_OK" ]] && continue
-      printf '%s:%s [token shape]\n' "${f#"$dir/"}" "$n"; hits=1
-    done < <(grep -noIE -e "$TOKENS" "$f")
-  done < <(files "$dir" | xargs -r -d '\n' grep -slIE -e "$TOKENS")
+      [[ "$e" =~ $ok ]] && continue
+      printf '%s:%s [%s]\n' "${f#"$dir/"}" "$n" "$reason"; hits=1
+    done < <(grep -noIE -e "$re" "$f")
+  done < <(files "$dir" | xargs -r -d '\n' grep -slIE -e "$re")
   return "$hits"
 }
 
@@ -285,14 +291,15 @@ self_test() {
   tok="ghp_$(printf 'a%.0s' {1..36})"
   expect_refusal scripts/b.sh "t=$tok" "scripts/b.sh:1 \[token shape\]" "a GitHub token is refused"
   grep -q "$tok" <<<"$out" && tap_not_ok "a token hit never prints the token" || tap_ok "a token hit never prints the token"
+  expect_refusal scripts/s.py "tag <@U0$(printf 8)ABCDEFGH> here" "scripts/s.py:1 \[slack id\]" "a Slack user id is refused"
   expect_refusal scripts/c.sh "mail me@realmail$(printf .)org" "scripts/c.sh:1 \[email\]" "a real email is refused"
   grep -q "realmail" <<<"$out" && tap_not_ok "an email hit never prints the address" || tap_ok "an email hit never prints the address"
   expect_refusal scripts/h.sh "follow @me@realmail$(printf .)social" "scripts/h.sh:1 \[email\]" "a handle with an address in it is refused"
-  echo "fixtures use alice@example.com, ssh://git@gh.example, f@1-4@a.js and AKIAIOSFODNN7EXAMPLE" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
+  echo "fixtures use alice@example.com, ssh://git@gh.example, f@1-4@a.js AKIAIOSFODNN7EXAMPLE, <@U00000000> and C0000000000" > "$fx/src/scripts/d.sh"; g "$fx/src" add -A; g "$fx/src" commit -qm d
   printf 'a\0b' > "$fx/src/scripts/e.bin"; g "$fx/src" add -A; g "$fx/src" commit -qm bin
   out=$(run "binary") && tap_not_ok "a binary file is refused" "a binary file exported" || { grep -q "scripts/e.bin \[binary\]" <<<"$out" && tap_ok "a binary file is refused" || tap_not_ok "a binary file is refused" "binary: $out"; }
   g "$fx/src" rm -q scripts/e.bin; g "$fx/src" commit -qm "undo bin"
-  out=$(run "example email") && tap_ok "an example domain, a reserved TLD, an @-chain's tail and AWS's example key pass" || tap_not_ok "an example domain, a reserved TLD, an @-chain's tail and AWS's example key pass" "examples refused: $out"
+  out=$(run "example email") && tap_ok "an example domain, a reserved TLD, an @-chain's tail, AWS's example key and an all-zero Slack id pass" || tap_not_ok "an example domain, a reserved TLD, an @-chain's tail, AWS's example key and an all-zero Slack id pass" "examples refused: $out"
   echo "secret-co" >> "$fx/dst/.claude/session_history.md"
   out=$(run "ignored hit") && tap_ok "a hit in the clone's ignored .claude is never read" || tap_not_ok "a hit in the clone's ignored .claude is never read" "ignored .claude refused: $out"
   echo "draft" > "$fx/dst/NOTES.md"; echo "edited" >> "$fx/dst/README.md"

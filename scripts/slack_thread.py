@@ -216,18 +216,18 @@ def download_refused(status):
 
 
 def self_test():
-    base = 'https://x.slack.com/archives/C0123ABCDEF/p1792703410430689'
+    base = 'https://x.slack.com/archives/C00000000/p1792703410430689'
     msgs = [{'user': 'U1', 'ts': '1792703410.430689',
              'text': 'Hi <@U2>', 'files': [{'id': 'F1', 'name': 'a.png'}]},
             {'user': 'U2', 'ts': '1792703411.000100', 'text': 'Yes'}]
     md = render('C1', {'name': 'product', 'purpose': {'value': 'P'}}, msgs,
                 {'U1': 'Ann', 'U2': 'Bo'}, {'F1': '/o/files/F1-a.png'})
     check('a parent link gives its own ts',
-          ('C0123ABCDEF', '1792703410.430689'), parse_link(base))
+          ('C00000000', '1792703410.430689'), parse_link(base))
     check('a reply link reads its parent thread',
-          ('C0123ABCDEF', '1792703410.430689'),
+          ('C00000000', '1792703410.430689'),
           parse_link(base[:-6] + '999999?thread_ts=1792703410.430689'
-                     '&cid=C0123ABCDEF'))
+                     '&cid=C00000000'))
     check('a link that is not a message is refused', True,
           refused('https://x.slack.com/archives/C1'))
     check('authors include people only mentioned', ['U1', 'U2'],

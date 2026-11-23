@@ -5,14 +5,14 @@
 # silently rewrites a burndown.
 #
 # Usage:
-#   jira-remaining.sh <issue-key> <effort>   # e.g. jira-remaining.sh ABC-7703 2h
+#   jira-remaining.sh <issue-key> <effort>   # e.g. jira-remaining.sh ABC-123 2h
 #   jira-remaining.sh --self-test            # decides over fixtures, no network
 #
 # stdout is the argument to pass, or EMPTY when it must be omitted. Capture it
 # and expand it conditionally, so an omit stays an omit:
 #
-#   REM=$(jira-remaining.sh ABC-7703 2h)
-#   jira-worklog.sh --quiet ABC-7703 2h ${REM:+"$REM"} < items
+#   REM=$(jira-remaining.sh ABC-123 2h)
+#   jira-worklog.sh --quiet ABC-123 2h ${REM:+"$REM"} < items
 #
 # stderr is one line naming the decision and why. That line is the confirmation
 # text, so what the user approves is what was computed.

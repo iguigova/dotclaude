@@ -8,7 +8,7 @@ argument-hint: "[TICKET | --session <id> | --all | the one thing to place]   (de
 
 ```bash
 /notes              # the notes this session opened — the default
-/notes ABC-7703      # that ticket's open notes, from every session
+/notes ABC-123      # that ticket's open notes, from every session
 /notes --session ID # that session's open notes — what the SessionEnd hook passes
 /notes --all        # every open note, oldest first
 /notes <thing>      # note this one thing and place it, queue or not

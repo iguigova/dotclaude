@@ -86,7 +86,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
     tap_is "$1" "$(jq -r "$TICKET_JQ" <<<"$2")" "$3"
   }
   check "a key in the title is the ticket" '{"title":"XYZ-1234 fix the thing","headRefName":"feature/x"}' "XYZ-1234"
-  check "a key in the branch is the ticket" '{"title":"Fix the thing","headRefName":"ABC-7213-scan-button"}' "ABC-7213"
+  check "a key in the branch is the ticket" '{"title":"Fix the thing","headRefName":"ABC-213-scan-button"}' "ABC-213"
   check "the title's key wins over the branch's" '{"title":"XYZ-1 a","headRefName":"ABC-2-b"}' "XYZ-1"
   check "no key in either is no ticket" '{"title":"Bump deps","headRefName":"chore/bump"}' ""
   check "a null branch still reads the title" '{"title":"XYZ-9 x","headRefName":null}' "XYZ-9"

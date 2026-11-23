@@ -132,6 +132,10 @@
           {
             "type": "command",
             "command": "$HOME/.claude/scripts/claude_account.sh check"
+          },
+          {
+            "type": "command",
+            "command": "$HOME/.claude/scripts/session_start_project.sh"
           }
         ]
       },

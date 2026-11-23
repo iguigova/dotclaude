@@ -26,7 +26,12 @@ A folder is one of three things to the tooling:
   nearer project is the layer.
 - **Root**: a folder that holds projects, such as `~/src`. It has no project
   layer: its values, secrets and records stop with exit 1, and scripts
-  resolve in the global layer alone. A session starts in a project.
+  resolve in the global layer alone. A session starts in a project's
+  folder: Claude Code keeps a session's transcript under the folder it
+  starts in, and a SessionStart hook,
+  `scripts/session_start_project.sh`, names the project the session
+  resolved to, and tells the user when it started at a root or below its
+  project's folder, so transcripts and records never split by start folder.
 
 The project is the nearest folder at or above the working directory whose
 `.claude/` holds `project`; `~/.claude` is never taken for one, and a
@@ -180,6 +185,7 @@ list, and `selftest.sh` refuses one out of step with the hooks or the headers.
 - `scripts/session_start_notes.sh` (SessionStart): SessionStart hook: say how much is in the note queue, before the session forgets to ask.
 - `scripts/session_start_last.sh` (SessionStart): SessionStart hook: show what ran while nobody was here.
 - `scripts/claude_account.sh` (SessionStart check): run a project under its own Claude Code account, sharing every piece of the tooling in ~/.claude.
+- `scripts/session_start_project.sh` (SessionStart): SessionStart hook: name the project a session resolved to, and say so when the session started where its records split.
 <!-- hooks:end -->
 
 ### The gate loop

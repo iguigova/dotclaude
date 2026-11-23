@@ -18,6 +18,7 @@
 #
 # SESSION_START_NOTES_N overrides how many items are listed (default 3).
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 QUEUE="$SELF_DIR/journal_queue.sh"
@@ -40,6 +41,7 @@ ssn_self_test() {
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local fx out
+  unset CLAUDE_TOOLING_UNATTENDED
   fx=$(mktemp -d); trap 'rm -rf "$fx"' RETURN
 
   {
@@ -82,9 +84,14 @@ ssn_self_test() {
   out=$(printf '{"cwd":"%s","source":"startup"}' "$fx/proj" | bash "$SELF_DIR/session_start_notes.sh")
   tap_is "the payload's cwd selects the project" "$(printf '%s\n' "$out" | head -1 |  sed 's/ ·.*//' | sed 's/ *$//')" \
     'notes: 4 open'
+  tap_is "an unattended run's start prints nothing" \
+    "$(printf '{"cwd":"%s","source":"startup"}' "$fx/proj" | CLAUDE_TOOLING_UNATTENDED=1 bash "$SELF_DIR/session_start_notes.sh")" ''
 }
 
 [ "${1:-}" = "--self-test" ] && { ssn_self_test; tap_end; }
+
+# An unattended run is nobody's session: there is no one to tell.
+[ -n "${CLAUDE_TOOLING_UNATTENDED:-}" ] && exit 0
 
 # The payload names the session's directory; without one, this process's own.
 payload=$(timeout 2 cat 2>/dev/null || true)

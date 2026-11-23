@@ -218,7 +218,22 @@ def test_root(root: pathlib.Path, names: set[str], asker=ask) -> int:
     runnable = sorted(n for n in names if invocable(root, n))
     cases = [c for n in runnable for c in cases_for(root, n, table)]
     with tempfile.TemporaryDirectory() as scratch:
-        return run_cases(cases, session_dir(root, scratch), asker=asker)
+        status = run_cases(cases, session_dir(root, scratch), asker=asker)
+    forget_scratch(pathlib.Path.home(), scratch)
+    return status
+
+
+def forget_scratch(home: pathlib.Path, scratch: str) -> None:
+    """Remove the folder the harness keeps for a session started in scratch.
+
+    Every session the cases start makes ~/.claude/projects/<scratch slug>/memory,
+    --no-session-persistence or not. Each level goes only while it is empty, so
+    nothing a session left there is lost.
+    """
+    folder = home / ".claude" / "projects" / re.sub(r"[^A-Za-z0-9]", "-", scratch)
+    for level in (folder / "memory", folder):
+        if level.is_dir() and not any(level.iterdir()):
+            level.rmdir()
 
 
 def run(wanted: dict[pathlib.Path, set[str]], asker=ask) -> int:
@@ -231,6 +246,9 @@ def run(wanted: dict[pathlib.Path, set[str]], asker=ask) -> int:
 
 
 def main(argv: list[str]) -> int:
+    if argv[:1] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if argv[:1] == ["--self-test"]:
         return self_test()
     if argv[:1] == ["--changed"]:
@@ -381,7 +399,23 @@ def self_test() -> int:
         self_test_targets(t, base / "targets")
         self_test_cases(t, base / "cases")
         self_test_main(t, base / "main")
+        self_test_forget(t, base / "home")
     return t.end()
+
+
+def self_test_forget(t: Tap, home: pathlib.Path) -> None:
+    folder = home / ".claude" / "projects" / "-tmp-tmpabc"
+    (folder / "memory").mkdir(parents=True)
+    forget_scratch(home, "/tmp/tmpabc")
+    t.check(not folder.exists(), "the harness's empty folder for the scratch directory is removed")
+    (folder / "memory").mkdir(parents=True)
+    (folder / "memory" / "MEMORY.md").write_text("x")
+    forget_scratch(home, "/tmp/tmpabc")
+    t.check((folder / "memory" / "MEMORY.md").exists(), "a folder that holds anything is kept")
+    other = home / ".claude" / "projects" / "-p"
+    (other / "memory").mkdir(parents=True)
+    forget_scratch(home, "/tmp/none")
+    t.check((other / "memory").is_dir(), "another directory's folder is never touched")
 
 
 if __name__ == "__main__":

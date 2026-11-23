@@ -57,6 +57,7 @@
 # by deleting its target changes no file, and is caught by the grep half of the
 # rename rule, not here.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 EXTS='sh|py|md|json|yaml|yml'
 NL_PROJECT=""   # the run's project; --project names it, else the first file's

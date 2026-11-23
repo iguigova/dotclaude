@@ -70,7 +70,7 @@ set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 ```
 
-The header is the documentation: `--help` prints it, and nothing else restates it. The handler runs before any network call, credential read or argument check, so `--help` works offline and with no arguments. A project's tooling gate may fail an executable script with no `-h`/`--help` handler.
+The header is the documentation: `--help` prints it, and nothing else restates it. The handler runs before any network call, credential read or argument check, so `--help` works offline and with no arguments. `gate_lib.sh`'s `gate_help_handlers`, which every tooling repo's selftest can run, fails an executable script with no `--help` handler.
 
 ---
 

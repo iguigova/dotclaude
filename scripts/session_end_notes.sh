@@ -17,8 +17,9 @@
 #      Nothing open means nothing to place, so no run — this is the whole
 #      threshold. There is no count, no age and no schedule.
 #   2. No other end-run holds the lock. The lock is non-blocking: a second one
-#      exits rather than queueing, because the notes it would place stay open
-#      and the next session end reaches them.
+#      exits rather than queueing. Its notes stay open, and a later /notes, or
+#      this session's own next end, reaches them; another session's end does
+#      not, since each run places only its own session's notes.
 #
 # The notes are read, and the run started, in the project that holds the nearest
 # .claude/session_history.md at or above the session's cwd — the history
@@ -38,17 +39,26 @@
 # 1500 ms, and a `timeout:` in the hook config raises only the harness's outer
 # wait, not that kill. This measures 40 ms over an 11,479-line history, so the
 # budget is not close — but anything added here is spent against 1500 ms, not
-# against the run, which is detached and unbounded.
+# against the run, which is detached.
+#
+# The run is bounded three ways, because nobody is watching it. timeout stops
+# it at RUN_LIMIT seconds, its scope's RuntimeMaxSec stops whatever it left
+# running a little later and its MemoryMax caps the memory of everything in
+# it, and --max-budget-usd caps what it spends. It runs with
+# CLAUDE_TOOLING_UNATTENDED set, which the session hooks read as "skip": the
+# run is a session of its own, and its start and end must not report, export
+# or start another run.
 #
 # A failure here costs one line: the harness prints `SessionEnd hook [cmd] failed`
 # to stderr and the session ends normally. SessionEnd is not wired for blocking,
 # so exit code 2 means nothing special. Nothing is lost either way, because only
-# `journal.sh --placed` closes a note: a run that dies leaves its notes open and
-# the next session end reaches them.
+# `journal.sh --placed` closes a note: a run that dies leaves its notes open for
+# a later /notes.
 #
 # Output goes to $LOG, one line per decision, so every firing is accountable
 # whether or not it ran anything. Read it with `tail ~/.claude/logs/session_end.log`.
 set -euo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG="${SESSION_END_LOG:-$HOME/.claude/logs/session_end.log}"
@@ -59,6 +69,9 @@ LOCK="${SESSION_END_LOCK:-$HOME/.claude/state/session_end_notes.lock}"
 # The classifier mode, not bypass: an unattended run still gets a decision on each
 # permission, and everything it writes is in a git repo that can be reverted.
 PERMISSION_MODE="${SESSION_END_PERMISSION_MODE:-auto}"
+RUN_LIMIT="${SESSION_END_RUN_LIMIT:-1200}"    # seconds the run may take
+RUN_MEMORY="${SESSION_END_RUN_MEMORY:-4G}"    # the scope's MemoryMax
+RUN_BUDGET="${SESSION_END_RUN_BUDGET:-5}"     # dollars, --max-budget-usd
 
 say() { printf '%s %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >> "$LOG"; }
 
@@ -93,7 +106,8 @@ decide() {
 # read, linted or self-tested, which is how its first version came to redirect a
 # whole run's output into a file named after a flag.
 start_run() {
-  "$SCRIPTS_DIR/detach.sh" "$SCRIPTS_DIR/session_end_run.sh" \
+  "$SCRIPTS_DIR/detach.sh" -p "MemoryMax=$RUN_MEMORY" -p "RuntimeMaxSec=$((RUN_LIMIT + 300))" \
+    "$SCRIPTS_DIR/session_end_run.sh" \
     "$LOCK" "$LOG" "$CWD" "$1" "${@:2}"
 }
 
@@ -104,6 +118,7 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp out repo e2e
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+  unset CLAUDE_TOOLING_UNATTENDED
   # Every run started below, and every process it starts, inherits these, so no
   # case can snapshot the real repos.
   export SESSION_END_REPOS="$tmp"
@@ -181,6 +196,11 @@ self_test() {
     "$(grep -c 'would run' <<<"$out")"
   check "the command it would run names that session" "1" \
     "$(grep -c -- '--session e-1' <<<"$out")"
+  check "the run is marked unattended and bounded in time and money" "1" \
+    "$(grep -c -- 'env CLAUDE_TOOLING_UNATTENDED=1 timeout --kill-after=30 1200 claude .*--max-budget-usd 5 ' <<<"$out")"
+  out=$(CLAUDE_TOOLING_UNATTENDED=1 drive "{\"session_id\":\"e-1\",\"cwd\":\"$e2e\",\"reason\":\"clear\"}" --dry-run)
+  check "an unattended run's own end starts nothing" "" "$out"
+  check "and says so in the log" "1" "$(grep -c 'session=e-1 skip: an unattended' "$tmp/e2e.log")"
 
   out=$(drive "{\"session_id\":\"e-2\",\"cwd\":\"$e2e\",\"reason\":\"clear\"}" --dry-run)
   check "a session with nothing open prints nothing and exits 0" "" "$out"
@@ -188,7 +208,7 @@ self_test() {
   # Malformed stdin must skip, not crash: the harness sends what it sends.
   check "a payload that is not JSON is a skip, not a failure" "0" \
     "$(drive "not json at all" --dry-run >/dev/null 2>&1; echo $?)"
-  check "every firing left a line in the log, skips included" "3" \
+  check "every firing left a line in the log, skips included" "4" \
     "$(grep -c "^20" "$tmp/e2e.log")"
 }
 
@@ -198,11 +218,17 @@ DRY=0
 [[ "${1:-}" == --dry-run ]] && DRY=1
 
 mkdir -p "$(dirname "$LOG")" "$(dirname "$LOCK")"
+# The first SessionEnd hook keeps the log every one of them appends to bounded.
+"$SCRIPTS_DIR/log_rotate.sh" "$LOG"
 
 payload=$(cat)
 SID=$(jq -r '.session_id // empty' <<<"$payload" 2>/dev/null || true)
 CWD=$(jq -r '.cwd // empty'        <<<"$payload" 2>/dev/null || true)
 REASON=$(jq -r '.reason // "other"' <<<"$payload" 2>/dev/null || echo other)
+if [[ -n "${CLAUDE_TOOLING_UNATTENDED:-}" ]]; then
+  say "reason=$REASON session=${SID:-none} skip: an unattended run's own end"
+  exit 0
+fi
 
 verdict=$(decide "$CWD" "$SID")
 if [[ "$verdict" != run ]]; then
@@ -211,9 +237,10 @@ if [[ "$verdict" != run ]]; then
 fi
 CWD=$(project_of "$CWD")
 
-CMD=(claude -p "/notes --session $SID"
-     --permission-mode "$PERMISSION_MODE"
-     --append-system-prompt "You were started by the SessionEnd hook. Nobody is watching, so propose nothing: a close whose placement is - has no gate, so it is the user's call and the note stays open; a ticket placement writes to a shared tracker, so that note stays open too.")
+CMD=(env CLAUDE_TOOLING_UNATTENDED=1 timeout --kill-after=30 "$RUN_LIMIT"
+     claude -p "/notes --session $SID"
+     --permission-mode "$PERMISSION_MODE" --max-budget-usd "$RUN_BUDGET"
+     --append-system-prompt "You were started by the SessionEnd hook. Nobody is watching, so propose nothing: a close whose placement is - has no gate, so it is the user's call and the note stays open; a ticket placement writes to a shared tracker, so that note stays open too. Never start a test suite, a server or any other long-running process: the run is stopped at its time limit, and a note that needs one stays open.")
 
 if [[ "$DRY" -eq 1 ]]; then
   say "reason=$REASON session=$SID dry-run, would run: ${CMD[*]}"

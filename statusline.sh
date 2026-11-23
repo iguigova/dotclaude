@@ -9,6 +9,7 @@
 # Its git and start-time caches live in TMPDIR, /tmp when unset.
 
 set -euo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 if [[ "${1:-}" == --self-test ]]; then
   set +e

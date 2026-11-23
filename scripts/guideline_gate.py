@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""guideline_gate.py — no code is edited before its guidelines are read in that session.
+"""guideline_gate.py — no code is edited with the edit tools before its guidelines are read in that session.
 
   guideline_gate.py read         # PostToolUse(Read): record a guidelines file read
   guideline_gate.py edit         # PreToolUse(Edit|Write|NotebookEdit): refuse an unread one
@@ -21,7 +21,9 @@ beside the two. ``clear`` removes the record when the session ends, and after a
 compaction, since the summary no longer holds the text that was read.
 
 A file that needs no guidelines file that exists, or with no extension, is not
-gated. Each mode reads the hook payload on stdin and exits 0; a payload it
+gated. The hook sees only the Edit, Write and NotebookEdit tools, so a write
+through Bash is outside it, and a subagent shares its session's id and so its
+record. Each mode reads the hook payload on stdin and exits 0; a payload it
 cannot read gates nothing, since a gate that failed closed would stop every
 edit. GUIDELINE_GATE_DIR names another directory for the records, and
 GUIDELINES_DIR another folder for the guidelines.
@@ -33,6 +35,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from hook_lib import dispatch, record_file, recorded
 from tap import Tap
 
 HOME = Path(__file__).resolve().parent.parent
@@ -60,10 +63,7 @@ def guides_dir():
 def record_path(payload):
     """The session's record file, or None when the payload names no session."""
     default = HOME / 'state' / 'guidelines'
-    session = str(payload.get('session_id') or '')
-    if not session or '/' in session or session.startswith('.'):
-        return None
-    return Path(os.environ.get('GUIDELINE_GATE_DIR', default)) / f'{session}.json'
+    return record_file(os.environ.get('GUIDELINE_GATE_DIR', default), payload.get('session_id'))
 
 
 def path_of(payload):
@@ -84,14 +84,6 @@ def needed(file_path):
     """The guidelines an edit to this file needs, or () when it is not gated."""
     guides = specific(Path(file_path).suffix.lower())
     return (*ALWAYS, *guides) if guides else ()
-
-
-def recorded(path):
-    try:
-        names = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return set()
-    return set(names) if isinstance(names, list) else set()
 
 
 def whole(payload):
@@ -138,14 +130,7 @@ MODES = {'read': read, 'edit': edit, 'clear': clear}
 
 def run(mode, stdin_text):
     """What the hook prints for this payload, or '' for nothing."""
-    try:
-        payload = json.loads(stdin_text)
-    except ValueError:
-        return ''
-    if not isinstance(payload, dict):
-        return ''
-    out = MODES[mode](payload)
-    return json.dumps(out) if out else ''
+    return dispatch(MODES, mode, stdin_text)
 
 
 # ── Self-test ────────────────────────────────────────────────────────
@@ -240,6 +225,9 @@ def self_test_main(t):
 
 
 def main(argv):
+    if argv[1:2] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if argv[1:] == ['--self-test']:
         return self_test()
     if len(argv) != 2 or argv[1] not in MODES:

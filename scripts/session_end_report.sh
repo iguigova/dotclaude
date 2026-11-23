@@ -7,10 +7,11 @@
 #                         [--left "<one line>"]… [--log PATH] [--dry-run]
 #   session_end_report.sh --self-test
 #
-# The record is DIR/.claude/session_end.last, read at the start of the next
-# session — the same shape as memory_check.last, which a session already reads
-# and reports: every note with its whole text, every commit, every path left
-# uncommitted. --dry-run prints it instead of writing it.
+# The record is added to DIR/.claude/session_end.last, which the next session
+# start shows and moves aside, so a run's record waits, beside any later run's,
+# until a session has read it. It holds every note with its whole text, every
+# commit and every path left uncommitted. --dry-run prints it instead of
+# writing it.
 #
 # --open names each of the session's notes that was open when the run started,
 # and only those can be the run's placements. A note another session closed
@@ -20,6 +21,7 @@
 # still placed the work; an exit code here would turn a reporting problem into a
 # lost one.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=journal_lib.sh
@@ -160,6 +162,10 @@ self_test() {
   tap_is "a real run writes the record the next session reads" "$(grep -c '^session_end ' "$run/.claude/session_end.last" 2>/dev/null || echo 0)" \
     "1"
   tap_is "and exits 0" "$st" "0"
+  SESSION_END_LOG="$tmp/e2e.log" \
+    "$0" --session s-e2e --rc 0 --open a --after 1 --dir "$run" >/dev/null 2>&1
+  tap_is "a second run's record is added after the unread first, a blank line between" \
+    "$(grep -c '^session_end ' "$run/.claude/session_end.last") $(grep -B1 '^session_end ' "$run/.claude/session_end.last" | sed -n 3p)" "2 "
 
   tap_is "a missing required flag is refused by name" "$("$0" --session s --rc 0 --open a --after 0 >/dev/null 2>&1; echo $?)" \
     "2"
@@ -198,6 +204,6 @@ if [[ "$DRY" -eq 1 ]]; then
 fi
 
 mkdir -p "$DIR/.claude"
-printf '%s\n' "$RECORD" > "$DIR/.claude/session_end.last"
+{ [[ -s "$DIR/.claude/session_end.last" ]] && echo; printf '%s\n' "$RECORD"; } >> "$DIR/.claude/session_end.last"
 say "report: wrote $DIR/.claude/session_end.last"
 exit 0

@@ -45,6 +45,7 @@
 # DOTCLAUDE_SRC overrides the source repo (default ~/.claude).
 # Exit 0 committed, nothing to commit or a clean scan, 1 refused or a hit, 2 usage.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 ALLOW=(CLAUDE.md credo.md ARCHITECTURE.md '*_guidelines.md' statusline.sh settings.json skills scripts
        index.html README.md LICENSE .github)

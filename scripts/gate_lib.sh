@@ -185,6 +185,25 @@ gate_tracked_self_tests() {  # <repo>
   cd "$back" || fail=1
 }
 
+# gate_help_handlers — every executable script the repo tracks answers --help
+# from its header: a shell script with a `--help)` case arm or an `== --help`
+# test, a Python one with a '--help' test or argparse. The scripts are read,
+# never run, since one with no handler would run its real work. Paths are
+# relative to <repo>.
+GATE_HELP_RE="--help\\)|== --help|['\"]--help['\"]|argparse"
+gate_help_handlers() {  # <repo>
+  local listed f n=0 bad=0
+  listed=$(git -C "$1" ls-files -- '*.sh' '*.py') \
+    || { echo "  FAIL git ls-files in $1, so no script was read"; fail=1; return; }
+  while IFS= read -r f; do
+    [ -n "$f" ] && [ -x "$1/$f" ] || continue
+    n=$((n + 1))
+    grep -qE -e "$GATE_HELP_RE" "$1/$f" || { echo "  FAIL $f answers no --help"; bad=1; }
+  done <<<"$listed"
+  [ "$bad" -eq 0 ] && echo "  ok  every one of the $n executable scripts answers --help"
+  [ "$bad" -eq 0 ] || fail=1
+}
+
 # gate_run — a lint's output is captured and then shown: piping it into sed would
 # report sed's success as the gate's verdict.
 gate_run() {  # <command…>
@@ -364,6 +383,19 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
     $'  FAIL git ls-files in untracked, so no script was swept\nfail=1'
   git init -q empty
   tap_is "a repo tracking no script passes" "$(run gate_tracked_self_tests empty)" $'  ok  no script tracked\nfail=0'
+  git init -q helped
+  # shellcheck disable=SC2016  # the fixtures are script text, not expansions here
+  printf '#!/usr/bin/env bash\ncase "${1:-}" in -h|--help) exit 0 ;; esac\n' > helped/a.sh
+  printf '#!/usr/bin/env python3\nif sys.argv[1:2] == ["--help"]: pass\n' > helped/b.py
+  printf '# shellcheck shell=bash\nlib() { :; }\n' > helped/lib.sh
+  chmod +x helped/a.sh helped/b.py; git -C helped add -A
+  tap_is "executable scripts with a handler pass, and a sourced library is not read" \
+    "$(run gate_help_handlers helped)" $'  ok  every one of the 2 executable scripts answers --help\nfail=0'
+  printf '#!/usr/bin/env bash\necho work\n' > helped/c.sh; chmod +x helped/c.sh; git -C helped add c.sh
+  tap_is "an executable script with no handler fails, named" \
+    "$(run gate_help_handlers helped)" $'  FAIL c.sh answers no --help\nfail=1'
+  tap_is "a folder that is no repo fails the --help read, naming why" "$(run gate_help_handlers untracked 2>/dev/null)" \
+    $'  FAIL git ls-files in untracked, so no script was read\nfail=1'
   tap_is "a lint that passes is shown" "$(run gate_run echo fine)" $'  fine\nfail=0'
   tap_is "a lint that fails is shown and named" "$(run gate_run sh -c 'echo no; exit 3')" \
     $'  no\n  FAIL sh exited 3\nfail=1'

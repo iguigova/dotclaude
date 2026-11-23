@@ -15,6 +15,7 @@
 #   2  not a git repo
 
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 resolve_base() {
   local root=$1 b c

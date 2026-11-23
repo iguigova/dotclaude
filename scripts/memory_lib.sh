@@ -73,6 +73,14 @@ mem_verify() {
          bash -c "$1" ) >/dev/null 2>&1
 }
 
+# mem_shallow CMD — true when CMD checks only that a file is there or that a
+# script's own self-test passes: every part it joins with && is `test -s|-f|-e
+# PATH` or `[VAR=VALUE …] CMD --self-test`. Such a check passes whatever a live
+# system does, so it cannot contradict a claim about one.
+MEM_SHALLOW_PART='(test -[sfe] [^ &;|]+|([A-Z_]+=[^ ]+ )*[^ ]+ --self-test)'
+MEM_SHALLOW_RE="^${MEM_SHALLOW_PART}( && ${MEM_SHALLOW_PART})*\$"
+mem_shallow() { [[ "$1" =~ $MEM_SHALLOW_RE ]]; }
+
 # Both constants below are read by the scripts that source this file
 # (memory_lint.sh), never here, which a linter cannot see across a `source`.
 # shellcheck disable=SC2034
@@ -226,5 +234,10 @@ FACT
   tap_is 'mem_verify runs on the declared PATH from the project root' "$?" 0
   mem_verify 'exit 75'; tap_is 'mem_verify returns the exit status' "$?" 75
   mem_verify 'yes | head -1 | grep -q y'; tap_is 'mem_verify runs without pipefail' "$?" 0
+  tap_is 'mem_shallow names a presence or self-test chain, and nothing that reads a source' \
+    "$(for c in 'test -s .secrets/a && test -f b' 'X=1 .claude/scripts/a.sh --self-test' 'test -e a && b.sh --self-test' \
+                'scripts/git_fact.sh r ref p pat' 'test -f a && ! git -C r cat-file -e x' \
+                'aws configure get region' 'test -s a; curl x'; do
+         mem_shallow "$c" && echo y || echo n; done | paste -sd' ')" 'y y y n n n n'
   tap_end
 fi

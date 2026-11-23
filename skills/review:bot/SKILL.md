@@ -115,10 +115,10 @@ Two judgements worth making explicitly:
 
 ## 6. Verify
 
-Run the repo's gate, plus the tool behind every check that was red in §2 that the gate does not run. The gate is the project's `ci_gate.sh` when it has one; otherwise it is the commands the repo's CI workflow runs.
+Run the repo's gate, plus the tool behind every check that was red in §2 that the gate does not run. The gate is the project's `ci_gate.py` when it has one; otherwise it is the commands the repo's CI workflow runs.
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script ci_gate.sh)" <repo>     # or the CI workflow's commands
+"$(~/.claude/scripts/project_file.sh --script ci_gate.py)" <repo>     # or the CI workflow's commands
 <the failing check's own tool>
 ```
 
@@ -126,21 +126,20 @@ The gate must pass, and each §2 failure must be resolved locally **before** you
 
 ## 7. Post a reply per finding (auto-post)
 
-Write each reply body to a file in the PR's working directory first — multi-line markdown survives the shell cleanly and the drafts stay keyed to the PR:
+Load the `draft` skill with the Skill tool before writing the first reply: `gh_pr_reply.py` refuses to send until it is loaded. Write each reply body to a file in the PR's working directory, so the drafts stay keyed to the PR, then post it:
 
 ```bash
 D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+R="$(~/.claude/scripts/project_file.sh --script gh_pr_reply.py)"
 
-# An inline thread: the replies endpoint guarantees correct nesting.
-gh api -X POST repos/<owner>/<repo>/pulls/<number>/comments/<thread-id>/replies \
-  -f body="$(cat "$D/reply-<thread-id>.md")"
+# An inline thread: the reply nests under the thread's top-level comment.
+"$R" <pr-ref> --thread <thread-id> "$D/reply-<thread-id>.md"
 
-# An out-of-diff finding or a human note: an issue comment has no in_reply_to,
-# so there is no thread to nest under. Post one top-level comment, quoting the
-# finding or note it answers and @-mentioning a human author. A reply to your
-# own review links it (its html_url), which is what marks own_review answered.
-gh api -X POST repos/<owner>/<repo>/issues/<number>/comments \
-  -f body="$(cat "$D/reply-outside-diff.md")"
+# An out-of-diff finding or a human note has no thread to nest under: post one
+# top-level comment, quoting the finding or note it answers and @-mentioning a
+# human author. A reply to your own review links it (its html_url), which is
+# what marks own_review answered.
+"$R" <pr-ref> --issue "$D/reply-outside-diff.md"
 ```
 
 A good reply:

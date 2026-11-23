@@ -29,7 +29,11 @@
 # neither pass nor fail on it — gating it would only hold the audit trail back
 # behind an unrelated red script. Only the named paths are staged and committed
 # (--only), so another session's staged or dirty work is left as it was. A
-# deleted path is committed as its deletion.
+# deleted path is committed as its deletion. A named path that changes while
+# the gate runs is refused, nothing committed, since what the gate passed is
+# then not what would be committed: each path's size, modification time, mode,
+# type and link target, and those of everything under a folder, are read
+# before the gate and again after it.
 #
 # With --patch, the commit is HEAD plus that patch rather than the named paths
 # as they are now, so one session's hunks commit alone from a file another
@@ -178,6 +182,14 @@ lay_paths() {  # TREE TOP REL… — the named paths as they are now, a deleted 
   done
 }
 
+# fingerprint TOP REL… — one line per path, and per entry under a folder:
+# its size, modification time, mode, type and link target. An absent path
+# has no line.
+fingerprint() {
+  local top=$1; shift
+  (cd "$top" && find "$@" -printf '%p\t%s\t%T@\t%m\t%y\t%l\n' 2>/dev/null | sort)
+}
+
 lay_patch() {  # TREE PATCH
   git -C "$1" apply --unidiff-zero -- "$2" 2>/dev/null || { warn "$2 does not apply to HEAD"; return 1; }
 }
@@ -189,6 +201,15 @@ gate_tree() {
   git clone -q --shared "$top" "$tree" 2>/dev/null || die "could not clone $top to gate it"
   link_ignored "$tree" "$top"
   if [[ -n "$patch" ]]; then lay_patch "$tree" "$patch"; else lay_paths "$tree" "$top" "$@"; fi
+}
+
+# red_output OUTPUT — what a red gate said: every FAIL and `not ok` line, which
+# a long run puts far from its end, then the last 20 lines.
+red_output() {
+  local fails
+  fails=$(grep -E '^[[:space:]]*(FAIL|not ok)' <<<"$1")
+  [[ -n "$fails" ]] && printf 'Its failures:\n%s\n\nThe end of its output:\n' "$fails"
+  printf '%s\n' "$1" | tail -20
 }
 
 run_gates() {  # TOP PATCH REL…
@@ -203,7 +224,7 @@ run_gates() {  # TOP PATCH REL…
     out=$(cd "$scratch/tree" && MEM_PROJECT_ROOT="$1" "$g" 2>&1) || { st=1; break; }
   done
   rm -rf "$scratch"
-  [[ "$st" -eq 0 ]] || { printf '%s\n' "$out" | tail -20 >&2; die "gate ${g#"$scratch/tree/"} is red; nothing committed"; }
+  [[ "$st" -eq 0 ]] || { red_output "$out" >&2; die "gate ${g#"$scratch/tree/"} is red; nothing committed"; }
 }
 
 run_trigger_cases() {  # ABS…
@@ -289,8 +310,11 @@ main() {
   all_known "$top" "${rel[@]}"
   has_changes "$top" "${rel[@]}"
   [[ -z "$patch" ]] || patch_fits "$top" "$patch" "${rel[@]}"
+  local before; before=$(fingerprint "$top" "${rel[@]}")
   if gated "${rel[@]}"; then run_gates "$top" "$patch" "${rel[@]}"; run_trigger_cases "${abs[@]}"
   else warn "the session history alone; no gate reads it"; fi
+  [[ -n "$patch" || "$(fingerprint "$top" "${rel[@]}")" == "$before" ]] \
+    || die "a named path changed while the gate ran, so the gate did not pass what would be committed; nothing committed"
   if [[ -n "$patch" ]]; then commit_patch "$top" "$msg" "$patch"; else commit "$top" "$msg" "${rel[@]}"; fi
   if gated "${rel[@]}"; then warn_export "$top"; fi
 }
@@ -307,7 +331,7 @@ self_test() {
     git -C "$1" config user.email t@t; git -C "$1" config user.name t
     if [[ -n "${2:-}" ]]; then
       mkdir -p "$1/$(dirname "$2")"
-      printf '#!/usr/bin/env bash\n[[ ! -e "$(dirname "$0")/RED" ]]\n' > "$1/$2"
+      printf '#!/usr/bin/env bash\n[[ ! -e "$(dirname "$0")/RED" ]] || { echo "  FAIL early"; seq 30; exit 1; }\n' > "$1/$2"
       chmod +x "$1/$2"
     fi
     echo base > "$1/base.txt"; git -C "$1" add -A; git -C "$1" commit -qm base
@@ -325,6 +349,14 @@ self_test() {
   out=$(tc -m "chore: a" -- "$r/a.txt")
   tap_is "prints the sha of the commit it made" "$out" "$(head_of "$r")"
   tap_is "commits the named path alone" "$(files_of_head "$r")" "a.txt"
+  local racy="$tmp/racy" racy_head; mkrepo "$racy" .claude/scripts/selftest.sh
+  # This gate writes to the live file it is gating, as another session would mid-gate.
+  printf '#!/usr/bin/env bash\necho more >> "$MEM_PROJECT_ROOT/a.txt"\n' > "$racy/.claude/scripts/selftest.sh"
+  git -C "$racy" commit -qam "racy gate"; racy_head=$(head_of "$racy")
+  echo a > "$racy/a.txt"
+  out=$(tc -m "chore: a" -- "$racy/a.txt")
+  tap_is "a named path that changes while the gate runs is refused, nothing committed" \
+    "$(grep -c 'changed while the gate ran' <<<"$out") $(head_of "$racy")" "1 $racy_head"
   tap_is "leaves another session's staged path staged" "$(git -C "$r" status --porcelain -- staged.txt)" \
     "A  staged.txt"
   tap_is "leaves another session's untracked path untracked" "$(git -C "$r" status --porcelain -- theirs.txt)" \
@@ -347,6 +379,8 @@ moved.txt"
   tap_is "a red gate commits nothing" "$(head_of "$r")" "$h"
   tap_is "and says the gate was red" "$(grep -c 'is red; nothing committed' <<<"$out")" "1"
   tap_is "and names the gate as the repo holds it" "$(grep -c 'gate .claude/scripts/selftest.sh is red' <<<"$out")" "1"
+  tap_is "and shows a failure line its last 20 lines would cut" \
+    "$(grep -c '^Its failures:$' <<<"$out") $(grep -c '^  FAIL early$' <<<"$out") $(grep -c '^30$' <<<"$out")" "1 1 1"
   out=$(tc -m "chore: b" -- "$r/b.txt")
   tap_is "another session's uncommitted file does not redden the gate" "$(files_of_head "$r")" "b.txt"
   rm "$r/.claude/scripts/RED"

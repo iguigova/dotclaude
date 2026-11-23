@@ -26,6 +26,7 @@
 # anything. A function body is parsed as one unit before it runs, so an edit
 # during the run cannot reach it.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPOS_ENV="${SESSION_END_REPOS:-}"   # self-test override; empty means the real two
@@ -104,6 +105,7 @@ main() {
   stamp "run started"
   "$@" >> "$LOG" 2>&1
   local rc=$?
+  [[ "$rc" -eq 124 ]] && stamp "run stopped at its time limit"
   stamp "run finished rc=$rc"
 
   local -a report=("$SCRIPTS_DIR/session_end_report.sh"
@@ -176,6 +178,13 @@ self_test() {
     "1 open at the end, 0 placed by the run, 1 still open. Run exit 0."
   tap_is "and lists a note closed before the run as placed before it" "$(sed -n '/^Placed before the run:/,$p' "$e2e/.claude/session_end.last" | grep -c "^  | $gone ")" \
     "1"
+  : > "$tmp/limit.log"
+  SESSION_END_REPOS="$e2e" "$0" "$tmp/limit.lock" "$tmp/limit.log" "$e2e" "reason=other session=sid-limit" bash -c 'exit 124'
+  tap_is "a run stopped by timeout is logged as stopped at its limit" \
+    "$(grep -c 'run stopped at its time limit' "$tmp/limit.log")" 1
+  : > "$tmp/fail.log"
+  SESSION_END_REPOS="$e2e" "$0" "$tmp/fail.lock" "$tmp/fail.log" "$e2e" "reason=other session=sid-fail" bash -c 'exit 1'
+  tap_is "a run that merely fails is not" "$(grep -c 'time limit' "$tmp/fail.log")" 0
 }
 
 [[ "${1:-}" == --self-test ]] && { self_test; tap_end; }

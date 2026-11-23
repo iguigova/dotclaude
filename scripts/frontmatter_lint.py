@@ -201,6 +201,9 @@ def self_test() -> int:
 
 if __name__ == "__main__":
     args = sys.argv[1:]
+    if args[:1] in (["-h"], ["--help"]):
+        print(__doc__.strip())
+        sys.exit(0)
     if args[:1] == ["--self-test"]:
         sys.exit(self_test())
     roots = args or [pathlib.Path.home() / ".claude", pathlib.Path.cwd() / ".claude"]

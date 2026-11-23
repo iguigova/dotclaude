@@ -23,6 +23,9 @@
 #     unique per space, and a retry must never create a second page
 #   - a label name with any other character
 #
+# A Claude session that has loaded neither the draft nor the normative skill
+# is refused by draft_gate.py before anything is sent.
+#
 # --dry-run runs every check, including the read-only parent and title lookups,
 # and prints the payload without creating anything.
 #
@@ -99,6 +102,17 @@ self_test() {
     "$self" --dry-run --parent 1 --title T < <(printf '')
   tap_fails "a malformed body is refused on the argument path" \
     "$self" --dry-run --parent 1 --title T "$dir/bad.html"
+  local st=0 err
+  err=$(CLAUDE_CODE_SESSION_ID=st DRAFT_GATE_DIR="$dir" "$self" --parent 1 --title T "$dir/good.html" 2>&1 >/dev/null) || st=$?
+  [[ "$st" -eq 1 && "$err" == draft_gate:* ]] \
+    && tap_ok "a session that has loaded neither draft nor normative is refused before anything is sent" \
+    || tap_not_ok "a session that has loaded neither draft nor normative is refused before anything is sent" "$st $err"
+  # A fixture project whose atlassian-auth.sh is a stub that finds no parent, so nothing leaves the machine.
+  mkdir -p "$dir/p/.claude/scripts"; echo '["normative"]' > "$dir/ok.json"
+  printf '%s\n' 'ATLASSIAN_SITE=https://example.invalid' 'atlassian_curl() { echo "{}"; }' \
+    > "$dir/p/.claude/scripts/atlassian-auth.sh"
+  st=0; err=$(cd "$dir/p" && CLAUDE_CODE_SESSION_ID=ok DRAFT_GATE_DIR="$dir" "$self" --parent 1 --title T "$dir/good.html" 2>&1 >/dev/null) || st=$?
+  tap_is "a session that loaded normative goes on to look up the parent" "$st $err" "1 Parent page 1 not found"
   local bad
   for bad in "two words" "a:b" ""; do
     tap_fails "the label '$bad' is refused" \
@@ -148,6 +162,7 @@ fi
 well_formed "$BODY_FILE" || exit 1
 
 PARENT_ID=$(page_id_of "$PARENT")
+[[ "$DRY_RUN" -eq 1 ]] || "$("$PF" --script draft_gate.py)" check draft normative || exit 1
 
 # shellcheck disable=SC1091
 # shellcheck source=atlassian-auth.sh

@@ -16,6 +16,8 @@ the reviewer is handed that section too.
 Exit 0 every case held, 1 a case failed, 75 a run got no answer.
 """
 import concurrent.futures
+import contextlib
+import io
 import json
 import pathlib
 import re
@@ -104,8 +106,15 @@ def run(cases: list, review: str, credo: str, asker=ask, runs: int = RUNS) -> in
 
 
 def main(argv: list) -> int:
+    if argv[:1] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if argv[:1] == ["--self-test"]:
         return self_test()
+    if argv:
+        print(f"voice_test.py: {argv[0]} is not an argument; it takes none, --help or --self-test",
+              file=sys.stderr)
+        return 2
     return run(json.loads(CASES.read_text()), REVIEW.read_text(), CREDO.read_text())
 
 
@@ -122,6 +131,14 @@ def self_test() -> int:
             "the named section reaches the prompt")
     skill = "---\nname: v\n---\n# V\nRules.\n\nText to check:\n\n$ARGUMENTS\n"
     t.check(instructions(skill) == "# V\nRules.", "the prompt drops the frontmatter and the text placeholder")
+    with contextlib.redirect_stderr(io.StringIO()) as err:
+        status = main(["--bogus"])
+    t.check(status == 2 and "--bogus is not an argument" in err.getvalue(),
+            "an unknown argument is a usage error and starts no paid run")
+    with contextlib.redirect_stdout(io.StringIO()) as out:
+        status = main(["--help"])
+    t.check(status == 0 and out.getvalue().startswith("Does the voice review"),
+            "--help prints the header and starts no paid run")
     cases = [{"text": "A", "liked": False}, {"text": "B", "liked": True}]
     samples = prompt("R", credo, cases, "A").split("Text to review")[0]
     t.check('"A"' in samples and '"B"' in samples, "every sample is in view, the one under review included")
@@ -133,7 +150,6 @@ def self_test() -> int:
             == ("a b", "x" * SHOWN, "x" * SHOWN + "…"),
             "a result line shows a sample's text on one line, cut after SHOWN characters")
     t.check(verdict(cases[0], [True, None, True]) is None, "a run with no answer leaves the case unanswered")
-    import io, contextlib
     with contextlib.redirect_stdout(io.StringIO()):
         right = run(cases, "R", credo, asker=lambda s: '"A" — r' if "Text to review:\nA" in s else "NONE", runs=1)
         wrong = run(cases, "R", credo, asker=lambda s: "NONE", runs=1)

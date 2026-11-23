@@ -32,6 +32,7 @@ import json
 import re
 import sys
 
+from hook_lib import dispatch
 from tap import Tap
 
 QUOTE_LIMIT = 200
@@ -96,14 +97,7 @@ MODES = {'stop': stop}
 
 def run(mode, stdin_text):
     """What the hook prints for this payload, or '' for nothing."""
-    try:
-        payload = json.loads(stdin_text)
-    except ValueError:
-        return ''
-    if not isinstance(payload, dict):
-        return ''
-    out = MODES[mode](payload)
-    return json.dumps(out) if out else ''
+    return dispatch(MODES, mode, stdin_text)
 
 
 # ── Self-test ────────────────────────────────────────────────────────
@@ -165,6 +159,9 @@ def self_test():
 
 
 def main(argv):
+    if argv[1:2] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if argv[1:] == ['--self-test']:
         return self_test()
     if len(argv) != 2 or argv[1] not in MODES:

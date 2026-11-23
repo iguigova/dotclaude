@@ -32,6 +32,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from hook_lib import dispatch, record_file, recorded
 from tap import Tap
 
 HOME = Path(__file__).resolve().parent.parent
@@ -40,19 +41,7 @@ SESSION_VAR = 'CLAUDE_CODE_SESSION_ID'
 
 def record_path(session):
     """The session's record file, or None when the id names no session."""
-    default = HOME / 'state' / 'draft'
-    session = str(session or '')
-    if not session or '/' in session or session.startswith('.'):
-        return None
-    return Path(os.environ.get('DRAFT_GATE_DIR', default)) / f'{session}.json'
-
-
-def recorded(path):
-    try:
-        names = json.loads(path.read_text())
-    except (OSError, ValueError):
-        return set()
-    return set(names) if isinstance(names, list) else set()
+    return record_file(os.environ.get('DRAFT_GATE_DIR', HOME / 'state' / 'draft'), session)
 
 
 # ── Hook modes ───────────────────────────────────────────────────────
@@ -76,12 +65,7 @@ HOOKS = {'loaded': loaded, 'clear': clear}
 
 
 def run_hook(mode, stdin_text):
-    try:
-        payload = json.loads(stdin_text)
-    except ValueError:
-        return
-    if isinstance(payload, dict):
-        HOOKS[mode](payload)
+    dispatch(HOOKS, mode, stdin_text)
 
 
 # ── Writer check ─────────────────────────────────────────────────────
@@ -183,7 +167,10 @@ def self_test_main(t):
 
 
 def main(argv):
-    mode, rest = (argv[1], argv[2:]) if len(argv) > 1 else ('', [])
+    if argv[1:2] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
+    mode, rest = (argv + [''])[1], argv[2:]
     if mode == '--self-test' and not rest:
         return self_test()
     if mode == 'check' and rest:

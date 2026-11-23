@@ -21,6 +21,7 @@
 # fails honestly.
 
 set -euo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 VERSION=v0.10.0
 SHA256_linux_x86_64=6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87

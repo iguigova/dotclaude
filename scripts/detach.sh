@@ -2,7 +2,7 @@
 # detach.sh — start a command that outlives whatever started it, and return at once.
 #
 # Usage:
-#   detach.sh CMD [ARG…]
+#   detach.sh [-p PROPERTY=VALUE]… CMD [ARG…]
 #   detach.sh --self-test
 #
 # A SessionEnd hook is killed at 1500 ms, so its real work runs detached. setsid
@@ -15,17 +15,26 @@
 # end does not reach, and keeps the caller's environment and working directory.
 # Where no user manager answers, setsid alone is used.
 #
+# Each -p is a property of that scope, passed to systemd-run as it is, such as
+# MemoryMax=4G or RuntimeMaxSec=1800: a limit on the scope reaches every
+# process the command starts, so a stray grandchild is bounded too. Without a
+# user manager there is no scope, and the properties are not applied.
+#
 # The command's stdin, stdout and stderr are /dev/null: it writes its own log.
 # DETACH_SCOPE=0 forces the setsid-only path.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 scope_ok() {
   [[ "${DETACH_SCOPE:-1}" != 0 ]] && command -v systemd-run >/dev/null \
     && systemd-run --user --scope --quiet --collect true >/dev/null 2>&1
 }
 
-detach() {
-  if scope_ok; then set -- systemd-run --user --scope --quiet --collect "$@"; fi
+detach() {  # [-p PROP]… CMD [ARG…]
+  local -a props=()
+  while [[ "${1:-}" == -p ]]; do props+=(-p "$2"); shift 2; done
+  [[ $# -gt 0 ]] || return 2
+  if scope_ok; then set -- systemd-run --user --scope --quiet --collect "${props[@]}" "$@"; fi
   setsid nohup "$@" </dev/null >/dev/null 2>&1 &
   disown || true
 }
@@ -51,7 +60,14 @@ self_test() {
   tap_is "without a user manager it still runs the command" \
     "$(cat "$tmp/plain" 2>/dev/null)" ran
 
+  tap_run "a detached command exits 0" bash "$self" true
   tap_fails "no command is a usage error" bash "$self"
+  tap_fails "properties with no command is a usage error" bash "$self" -p MemoryMax=1G
+
+  DETACH_SCOPE=0 bash "$self" -p RuntimeMaxSec=1 bash -c 'echo plain >"$1"' _ "$tmp/props-plain"
+  wait_for "$tmp/props-plain"
+  tap_is "without a user manager the properties are dropped and the command runs" \
+    "$(cat "$tmp/props-plain" 2>/dev/null)" plain
 
   # The case this script exists for, where a user manager runs here: a oneshot
   # unit starts the command and exits, and systemd kills what is left in its
@@ -64,6 +80,10 @@ self_test() {
     sleep 1.2; wait_for "$tmp/unit"
     tap_is "a command started by a systemd unit outlives the unit" \
       "$(cat "$tmp/unit" 2>/dev/null)" alive
+    bash "$self" -p RuntimeMaxSec=1 bash -c 'echo started >"$1"; sleep 3; echo late >"$1"' _ "$tmp/bounded"
+    sleep 3.5
+    tap_is "a runtime property stops the command and everything it started" \
+      "$(cat "$tmp/bounded" 2>/dev/null)" started
   else
     echo "detach.sh: no user systemd manager, so the unit case does not run" >&2
   fi
@@ -71,6 +91,6 @@ self_test() {
 
 case "${1:-}" in
   --self-test) self_test; tap_end ;;
-  ""|-h|--help) sed -n '2,/^set -uo/p' "$0" | sed '$d; s/^# \{0,1\}//' >&2; exit 2 ;;
-  *) detach "$@" ;;
+  "") echo "usage: detach.sh [-p PROPERTY=VALUE]… CMD [ARG…]" >&2; exit 2 ;;
+  *) detach "$@" || { echo "usage: detach.sh [-p PROPERTY=VALUE]… CMD [ARG…]" >&2; exit 2; } ;;
 esac

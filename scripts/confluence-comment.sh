@@ -19,6 +19,9 @@
 #   confluence-comment.sh --reply-to 2634973186 2613510170 /tmp/reply.html
 #   confluence-comment.sh --edit 2694021121 /tmp/corrected.html
 #
+# A Claude session that has not loaded the draft skill is refused by
+# draft_gate.py before anything is sent.
+#
 # Prints the comment's id and link. Exit 0 on HTTP 200; non-zero
 # otherwise.
 
@@ -57,6 +60,9 @@ edit_payload() {
       body:{storage:{value:$v, representation:"storage"}}}'
 }
 
+# gate — refuse a send from a session that has not loaded draft; a dry run sends nothing.
+gate() { [[ "$DRY_RUN" -eq 1 ]] || "$("$PF" --script draft_gate.py)" check draft; }
+
 self_test() {
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "$0")"
   # shellcheck source=tap.sh
@@ -86,6 +92,33 @@ self_test() {
   tap_fails "--edit is refused beside --reply-to" \
     "$self" --dry-run --edit 7 --reply-to 8 42 < <(printf '<p>x</p>')
   tap_fails "an empty comment is refused" "$self" --dry-run 42 < <(printf '')
+  local gate_dir st=0 err
+  gate_dir=$(mktemp -d) || return 1
+  err=$(printf '<p>x</p>' | CLAUDE_CODE_SESSION_ID=st DRAFT_GATE_DIR="$gate_dir" "$self" 42 2>&1 >/dev/null) || st=$?
+  [[ "$st" -eq 1 && "$err" == draft_gate:* ]] \
+    && tap_ok "a session that has not loaded draft is refused before a comment is sent" \
+    || tap_not_ok "a session that has not loaded draft is refused before a comment is sent" "$st $err"
+  st=0; err=$(printf '<p>x</p>' | CLAUDE_CODE_SESSION_ID=st DRAFT_GATE_DIR="$gate_dir" "$self" --edit 7 2>&1 >/dev/null) || st=$?
+  [[ "$st" -eq 1 && "$err" == draft_gate:* ]] \
+    && tap_ok "a session that has not loaded draft is refused before an edit is sent" \
+    || tap_not_ok "a session that has not loaded draft is refused before an edit is sent" "$st $err"
+  # A fixture project whose atlassian-auth.sh is a stub, so a send never leaves the machine.
+  mkdir -p "$gate_dir/p/.claude/scripts"; echo '["draft"]' > "$gate_dir/ok.json"
+  cat > "$gate_dir/p/.claude/scripts/atlassian-auth.sh" <<'STUB'
+ATLASSIAN_SITE=https://example.invalid
+atlassian_curl() {
+  local o=""; while [[ $# -gt 0 ]]; do [[ "$1" == -o ]] && o=$2; shift; done
+  [[ -z "$o" ]] && { echo '{"version":{"number":3}}'; return 0; }
+  echo '{"id":"9","version":{"number":4},"_links":{"webui":"/c9"}}' > "$o"; printf 200
+}
+STUB
+  tap_is "a session that loaded draft posts the comment" \
+    "$(cd "$gate_dir/p" && printf '<p>x</p>' | CLAUDE_CODE_SESSION_ID=ok DRAFT_GATE_DIR="$gate_dir" "$self" 42 2>/dev/null)" \
+    "9 https://example.invalid/wiki/c9"
+  tap_is "a session that loaded draft sends the edit" \
+    "$(cd "$gate_dir/p" && printf '<p>x</p>' | CLAUDE_CODE_SESSION_ID=ok DRAFT_GATE_DIR="$gate_dir" "$self" --edit 7 2>/dev/null)" \
+    "9 v4 https://example.invalid/wiki/c9"
+  rm -rf "$gate_dir"
 }
 
 DRY_RUN=0
@@ -116,6 +149,7 @@ if [[ -n "$EDIT" ]]; then
     edit_payload "$BODY" 0
     exit 0
   fi
+  gate || exit 1
   # shellcheck disable=SC1091
   # shellcheck source=atlassian-auth.sh
   source "$("$PF" --script atlassian-auth.sh)"
@@ -155,6 +189,7 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   payload "$PAGE_ID" "$BODY" "$PARENT"
   exit 0
 fi
+gate || exit 1
 
 # shellcheck disable=SC1091
 # shellcheck source=atlassian-auth.sh

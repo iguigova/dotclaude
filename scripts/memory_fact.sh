@@ -16,6 +16,10 @@
 # and memory_check.sh do (memory_lib.sh, mem_verify), so its exit status is the
 # night's verdict.
 #
+# A fact whose verify checks only presence or a self-test (memory_lib.sh,
+# mem_shallow) is written, with a warning on stderr: it holds whatever a live
+# system does, and the nightly check counts it apart.
+#
 # Every call ends in memory_lint.sh. A call the lint rejects is rolled back whole,
 # so a rejected write leaves the store exactly as it found it and the caller sees
 # the lint's own complaint.
@@ -90,7 +94,10 @@ mf_admit() {
   mem_verify "$vcmd"
   vrc=$?
   [[ "$vrc" -eq 0 ]] || refuse "its verify: exited $vrc, so the claim is not confirmed; leave it open in the queue
-  verify: $vcmd"
+  verify: $vcmd" || return
+  if mem_shallow "$vcmd"; then
+    echo "memory_fact.sh: $name's verify checks presence or a self-test only, so the nightly check cannot see the claim change; a verify that reads the source would" >&2
+  fi
 }
 
 # A project's first fact starts its store, and a rollback takes the store back.
@@ -179,7 +186,13 @@ self_test() {
   tap_run "and its pointer lands last"    \
     eval '[[ "$(tail -n1 "$d/MEMORY.md")" == "- [new](new.md) — when it matters" ]]'
 
-  fact new 'test -e .' | run write new "a better hook" >/dev/null
+  out=$(fact new 'test -e .' | run write new "a better hook" 2>&1 >/dev/null)
+  tap_is "a presence-only verify is written, with a warning that names it" \
+    "$(grep -c "new's verify checks presence or a self-test only" <<<"$out") $(grep -c 'test -e' "$d/new.md")" "1 1"
+  tap_is "a verify that reads a source draws no warning" \
+    "$(fact other2 'test -e . && true' | run write other2 "h" 2>&1 >/dev/null | grep -c 'presence')" 0
+  tap_run "and it is written" test -f "$d/other2.md"
+  run remove other2 >/dev/null
   tap_run "a rewrite replaces the pointer in place, not a second one" \
     eval '[[ $(grep -c "^- \[new\](" "$d/MEMORY.md") -eq 1 ]]'
   tap_run "and keeps the store at two pointers" \

@@ -28,6 +28,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from hook_lib import dispatch, record_file
 from tap import Tap
 
 ASKS = {'AskUserQuestion'}
@@ -41,10 +42,7 @@ def record_dir():
 
 def record_path(payload):
     """The session's record file, or None when the payload names no session."""
-    session = str(payload.get('session_id') or '')
-    if not session or '/' in session or session.startswith('.'):
-        return None
-    return record_dir() / f'{session}.json'
+    return record_file(record_dir(), payload.get('session_id'))
 
 
 def summary(tool_input):
@@ -108,14 +106,7 @@ MODES = {'denied': denied, 'gate': gate, 'clear': clear}
 
 def run(mode, stdin_text):
     """What the hook prints for this payload, or '' for nothing."""
-    try:
-        payload = json.loads(stdin_text)
-    except ValueError:
-        return ''
-    if not isinstance(payload, dict):
-        return ''
-    out = MODES[mode](payload)
-    return json.dumps(out) if out else ''
+    return dispatch(MODES, mode, stdin_text)
 
 
 # ── Self-test ────────────────────────────────────────────────────────
@@ -170,6 +161,9 @@ def self_test():
 
 
 def main(argv):
+    if argv[1:2] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if argv[1:] == ['--self-test']:
         return self_test()
     if len(argv) != 2 or argv[1] not in MODES:

@@ -6,6 +6,10 @@
 #   postmortem_publish.sh --dry-run --ticket <KEY> --title "..." <storage-file>
 #   postmortem_publish.sh --self-test
 #
+# A Claude session that has not loaded the draft skill is refused by
+# draft_gate.py before step 1, so the page and its comment go out together or
+# not at all.
+#
 # Three steps, each gated on the one before:
 #   1. create the page under the project's post-mortem parent page
 #      (confluence-create.sh, which refuses an empty, malformed or
@@ -169,6 +173,8 @@ STUB
   mv "$fx/p/.claude/helpers" "$fx/p/.claude/scripts"
   export PM_CREATED="$fx/created" PM_COMMENT_BODY="$fx/comment.wiki" \
          PM_COMMENT_RESP="$fx/comment.json" PM_RENDERED="$fx/rendered.html"
+  export CLAUDE_CODE_SESSION_ID=pm DRAFT_GATE_DIR="$fx/gate"
+  mkdir -p "$fx/gate" && echo '["draft"]' > "$fx/gate/pm.json"
 
   cp "$TEMPLATE" "$fx/full.html"
   sed 's|<h2>Timeline</h2>|<h2>Timelime</h2>|' "$TEMPLATE" > "$fx/gap.html"
@@ -202,6 +208,10 @@ STUB
   check "an unreadable body is a usage error" 1 "$st"
   "$self" --bogus --ticket XYZ-1 --title "XYZ-1: x" "$fx/full.html" >/dev/null 2>&1; st=$?
   check "an unknown flag is refused" 2 "$st"
+
+  out=$(CLAUDE_CODE_SESSION_ID=nodraft "$self" --ticket XYZ-1 --title "XYZ-1: Gates stuck" "$fx/full.html" 2>&1); st=$?
+  check "a session that has not loaded draft is refused" "1 true" "$st $(grep -q 'draft_gate' <<<"$out" && echo true || echo false)"
+  check "and no page was created" 'true' "$([[ ! -s "$PM_CREATED" ]] && echo true || echo false)"
 
   out=$("$self" --ticket XYZ-1 --title "XYZ-1: Gates stuck" "$fx/full.html" 2>&1); st=$?
   check "a full run exits 0" 0 "$st"
@@ -274,6 +284,8 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   comment_wiki "$TITLE" "<page url>"
   exit 0
 fi
+
+"$("$PF" --script draft_gate.py)" check draft || exit 1
 
 CREATED=$("$CREATE" --parent "$PARENT" --title "$TITLE" "$BODY")
 PAGE_ID=$(sed -n 1p <<<"$CREATED")

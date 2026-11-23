@@ -167,6 +167,9 @@ def self_test() -> int:
 # --------------------------------------------------------------------- main
 
 def main(argv: list[str]) -> int:
+    if argv[1:2] in (['-h'], ['--help']):
+        print(__doc__.strip())
+        return 0
     if argv[1:2] == ["--self-test"]:
         return self_test()
     if len(argv) != 4:

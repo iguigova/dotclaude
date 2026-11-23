@@ -63,4 +63,7 @@ def self_test() -> int:
 if __name__ == "__main__":
     if sys.argv[1:] == ["--self-test"]:
         sys.exit(self_test())
+    if sys.argv[1:2] in (["-h"], ["--help"]):
+        print(__doc__.strip())
+        sys.exit(0)
     sys.exit(__doc__)

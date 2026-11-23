@@ -33,6 +33,8 @@ Fetch first (`git fetch origin`) and read the repo's default branch, never a sta
 
 ## 3. Write
 
+Load the `draft` skill with the Skill tool before writing: `postmortem_publish.sh` refuses to publish until it is loaded.
+
 Copy `template.storage.html` to `<scratchpad>/pm<KEY>.storage.html` and replace every bracketed placeholder; the storage format is Confluence XHTML. Keep its headings, summary rows, info panel and table header rows exactly as they are: `postmortem_publish.sh` refuses a report that departs from them. The summary table carries the page owner (the user's Atlassian account id), the incident and related tickets, the symptom, priority, affected services and evidence links. The Customer row carries the ticket's client label, and is the one row left out when no customer is involved; the template marks it `data-optional`, an attribute to delete when the row is kept.
 
 | Section | What it holds |

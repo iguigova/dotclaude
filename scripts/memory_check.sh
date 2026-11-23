@@ -23,12 +23,22 @@
 #     wakes, before its network is back;
 #   * a contradiction must reproduce, because a verdict that does not repeat
 #     is not evidence, and the fact it would delete may be true;
-#   * an empty store is a missing store — a volume not mounted, say — so the
-#     run ends having touched nothing, report included. --all never sees a
-#     store whose folder is a link to an unmounted volume.
+#   * a store with no facts is checked no further, and touched not at all.
+#     With no index it is not mounted; with an index that names facts, its
+#     facts are gone, which exits 1 so --all reports it; with an index that
+#     names none, it is empty. --all never sees a store whose folder is a link
+#     to an unmounted volume.
 #
-# A run that deletes writes what it deleted to <project>/.claude/memory_check.last
-# and the project's journal, the only places the text survives. A run of --all
+# A fact whose verify checks only that a file is there or that a script's own
+# self-test passes (memory_lib.sh, mem_shallow) holds whatever a live system
+# does. It is counted as held and also named, and the summary says how many of
+# the held were checked that way.
+#
+# A run that deletes adds what it deleted to <project>/.claude/memory_check.last
+# and the project's journal, the only places the text survives. The report is
+# never removed here: the next session start shows it and moves it aside, so a
+# night's deletions wait, beside any later night's, until a session has read
+# them. A run of --all
 # writes ~/.claude/memory_check.last when it skipped a store, left a fact
 # unchecked, or a store's run or its own fixtures failed, and removes it when
 # none of these happened.
@@ -308,10 +318,20 @@ mc_night_of() {
 # Prints one line per fact that needs saying, and sets the counters. A fact that
 # holds says nothing: silence is the good case.
 
-held=0; deleted=0; unchecked=0; deleted_text=""
+held=0; shallow=0; deleted=0; unchecked=0; deleted_text=""
+
+# mc_held FILE NAME — count a fact that held, and say so when its verify checks
+# presence or a self-test only, which holds whatever the claim says.
+mc_held() {
+  held=$((held + 1))
+  if mem_shallow "$(mem_field "$1" verify)"; then
+    shallow=$((shallow + 1))
+    echo "  shallow    $2 — its verify checks presence or a self-test only, not the claim"
+  fi
+}
 
 mc_run() {
-  held=0; deleted=0; unchecked=0; deleted_text=""
+  held=0; shallow=0; deleted=0; unchecked=0; deleted_text=""
   local f name stale
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
@@ -329,7 +349,7 @@ mc_run() {
     fi
 
     case "$(mc_verify "$f")" in
-      ok)    held=$((held + 1)) ;;
+      ok)    mc_held "$f" "$name" ;;
       unrun) echo "  unchecked  $name — its verify never ran"; unchecked=$((unchecked + 1)) ;;
       unanswered) echo "  unchecked  $name — its verify got no answer, so nothing was learned"
              unchecked=$((unchecked + 1)) ;;
@@ -469,7 +489,8 @@ mc_e2e_test() {
   local report="$fx/proj/.claude/memory_check.last"
 
   # HOME is redirected so the journal call on a deletion cannot reach the real
-  # history; it is silenced and non-fatal, and a test must not write one.
+  # history; the fixture project keeps none, so that call fails, which is said
+  # and is not fatal.
   mc() { HOME="$fx/home" MEM_PROJECT_ROOT="$fx/proj" MEMORY_FILE="$fx/mem/MEMORY.md" "$self" "$@"; }
   seed() {
     rm -f "$fx"/mem/*.md
@@ -498,17 +519,35 @@ mc_e2e_test() {
   # The report is the only place a deleted fact's text survives.
   tap_is "the report records what was deleted" "$(grep -q 'e2egone' "$report" 2>/dev/null && echo true || echo false)" \
     'true'
+  tap_is "a journal copy that failed is said, naming the report that holds the text" \
+    "$(grep -c "the journal entry for the deletions failed; $report holds the text" <<<"$out")" 1
 
   seed
   mc >/dev/null 2>&1
-  tap_is "a run that deletes nothing clears the stale report" "$([[ ! -f "$report" ]] && echo true || echo false)" \
-    'true'
+  tap_is "a run that deletes nothing keeps the unread report" "$(grep -c '^memory_check ' "$report" 2>/dev/null)" 1
+  seed with-bad; mc >/dev/null 2>&1; mc >/dev/null 2>&1
+  tap_is "a second night's deletions are added beside the unread first" "$(grep -c '^memory_check ' "$report" 2>/dev/null)" 2
+  tap_is "a blank line parts them, and none leads the report" \
+    "$(head -c 12 "$report") $(grep -B1 '^memory_check ' "$report" | sed -n 3p)|" "memory_check |"
+  rm -f "$report"
+
+  seed; touch "$fx/proj/marker"; mc_fixture "$fx/mem" e2eshallow 'test -s marker || test -e marker'
+  mc_fixture "$fx/mem" e2epresent 'test -e marker && X=1 true --self-test'
+  out=$(mc 2>&1)
+  tap_is "a presence or self-test check holds, is named, and is counted apart" \
+    "$(grep -c '^  shallow    e2epresent — ' <<<"$out") $(grep -c 'e2eshallow' <<<"$out") $(grep -c '3 held, 0 deleted, 0 unchecked; 1 of the held checked by presence or a self-test only' <<<"$out")" "1 0 1"
 
   rm -f "$fx"/mem/*.md; echo "# empty" > "$fx/mem/MEMORY.md"
   out=$(mc 2>&1); st=$?
-  tap_is "an empty store is not an error" "$st" 0
-  tap_is "and it says the store is not mounted rather than deleting" "$(grep -q 'not mounted' <<<"$out" && echo true || echo false)" \
-    'true'
+  tap_is "an empty store whose index names nothing is not an error, and says it is empty" \
+    "$st $(grep -c 'is empty, and its index names no fact' <<<"$out")" "0 1"
+  printf -- '- [gone](gone.md) — a fact that was here\n' > "$fx/mem/MEMORY.md"
+  out=$(mc 2>&1); st=$?
+  tap_is "a store whose index names facts it does not hold exits 1, saying they are gone" \
+    "$st $(grep -c 'names facts that .* does not hold' <<<"$out")" "1 1"
+  rm -f "$fx/mem/MEMORY.md"
+  out=$(mc 2>&1); st=$?
+  tap_is "a store with no index is not mounted, which is not an error" "$st $(grep -c 'not mounted' <<<"$out")" "0 1"
 
   mc --bogus >/dev/null 2>&1; st=$?
   tap_is "an unknown argument is refused" "$st" 2
@@ -599,10 +638,18 @@ if ! mc_self_test >/dev/null 2>&1; then
   exit 2
 fi
 
-if [[ "$ALL" -eq 1 ]]; then mc_all; exit $?; fi
+# The nightly run keeps its own log, which systemd appends to, bounded.
+if [[ "$ALL" -eq 1 ]]; then "$SCRIPTS_DIR/log_rotate.sh" "$HOME/.claude/memory_check.log"; mc_all; exit $?; fi
 
 if ! mc_store_present; then
-  echo "memory_check: no facts under $MEM_DIR — the store is not mounted; nothing touched" >&2
+  if [[ ! -f "$MEMORY_FILE" ]]; then
+    echo "memory_check: no $MEMORY_FILE — the store is not mounted; nothing touched" >&2
+  elif grep -qE "$MEM_POINTER_RE" "$MEMORY_FILE"; then
+    echo "memory_check: $MEMORY_FILE names facts that $MEM_DIR does not hold — they are gone; nothing touched" >&2
+    exit 1
+  else
+    echo "memory_check: $MEM_DIR is empty, and its index names no fact; nothing to check" >&2
+  fi
   exit 0
 fi
 
@@ -612,23 +659,23 @@ for r in "${!MC_STALE[@]}"; do
   echo "  not fetched $r — ${MC_STALE[$r]}; every fact reading it is left unchecked"
 done
 mc_run
-echo "memory_check: $held held, $deleted deleted, $unchecked unchecked"
+echo "memory_check: $held held, $deleted deleted, $unchecked unchecked; $shallow of the held checked by presence or a self-test only"
 
 # Only a deletion is worth reporting, because only a deletion changed anything,
 # and the deleted text survives nowhere else.
 if [[ "$DRY" -eq 0 && "$deleted" -gt 0 ]]; then
   mkdir -p "$MEM_CLAUDE_DIR"
   {
+    [[ -s "$REPORT" ]] && echo
     echo "memory_check $TODAY: $deleted deleted, $held held, $unchecked unchecked"
     echo; echo "Deleted:"; echo "$deleted_text"
-  } > "$REPORT"
+  } >> "$REPORT"
   # From the project, since the journal writer takes the history nearest its
   # working directory.
   ( cd "$MEM_PROJECT_ROOT" && "$HOME/.claude/scripts/journal.sh" \
     -t "chore: memory_check $TODAY" \
     -b "$deleted facts deleted, $held held, $unchecked unchecked." \
-    -b "Deleted, and this is the only remaining copy: ${deleted_text//$'\n'/ }" ) >/dev/null 2>&1
-elif [[ "$DRY" -eq 0 ]]; then
-  rm -f "$REPORT"
+    -b "Deleted, and this is the only remaining copy: ${deleted_text//$'\n'/ }" ) >/dev/null 2>&1 \
+    || echo "memory_check: the journal entry for the deletions failed; $REPORT holds the text" >&2
 fi
 exit 0

@@ -149,13 +149,23 @@ it hands on.
 
 `CLAUDE.md` and `credo.md`, which it imports, are in every turn's context
 and say how every session works. The `*_guidelines.md` files are read on
-demand, before a code edit. A rule that can be checked names the script that enforces it,
-and hooks in `settings.json` run those scripts:
+demand, before a code edit. A rule that can be checked names the script that
+enforces it, and hooks in `settings.json` run these scripts, each said in the
+first sentence of its own header. `scripts/hook_list.py --write` writes the
+list, and `selftest.sh` refuses one out of step with the hooks or the headers.
 
-- `scripts/guideline_gate.py`: no code is edited before its guidelines are read.
-- `scripts/ask_gate.py`: a question to the user goes through the question dialog.
-- `scripts/block_gate.py`: once a call is blocked, nothing else runs until the user answers.
-- `scripts/draft_gate.py`: no text is sent to people before the `draft` skill is loaded (`normative` also opens a Confluence page write). Each writer calls its `check` before it sends, so a script that calls a writer is held too.
+<!-- hooks:begin -->
+- `scripts/session_end_notes.sh` (SessionEnd): SessionEnd hook: place what the ending session noticed, unattended.
+- `scripts/session_end_sweep.sh` (SessionEnd): SessionEnd hook: sweep the project's git clones, at most once a day.
+- `scripts/session_end_export.sh` (SessionEnd): SessionEnd hook: publish ~/.claude's public part whenever it has moved.
+- `scripts/block_gate.py` (SessionEnd clear; PermissionDenied denied; PreToolUse gate; PostToolUse[AskUserQuestion] clear; UserPromptSubmit clear): once auto mode blocks a call, no other tool runs until the user answers.
+- `scripts/guideline_gate.py` (SessionEnd clear; PreToolUse[Edit|Write|NotebookEdit] edit; PostToolUse[Read] read; SessionStart[compact] clear): no code is edited with the edit tools before its guidelines are read in that session.
+- `scripts/draft_gate.py` (SessionEnd clear; PostToolUse[Skill] loaded; SessionStart[compact] clear): no text is sent to people before its writing skill is loaded in that session.
+- `scripts/ask_gate.py` (Stop stop): a reply asks nothing in prose; a question to the user is the dialog.
+- `scripts/session_start_notes.sh` (SessionStart): SessionStart hook: say how much is in the note queue, before the session forgets to ask.
+- `scripts/session_start_last.sh` (SessionStart): SessionStart hook: show what ran while nobody was here.
+- `scripts/claude_account.sh` (SessionStart check): run a project under its own Claude Code account, sharing every piece of the tooling in ~/.claude.
+<!-- hooks:end -->
 
 ### The gate loop
 
@@ -194,6 +204,11 @@ What a session did and learned outlives it.
   (`scripts/session_end_notes.sh`) places what it can unattended, and
   `scripts/session_end_report.sh` writes `.claude/session_end.last` for the
   next session.
+- **Reports.** Each unattended run adds a report to the project's `.claude/`:
+  `memory_check.last`, `session_end.last` or `git_sweep.last`. A SessionStart
+  hook (`scripts/session_start_last.sh`) shows each once, whole, and moves it
+  aside; it shows `~/.claude/memory_check.last`, the nightly check's current
+  state, while it exists.
 - **Memory.** `scripts/memory_fact.sh` writes a fact only when its `verify`
   command passes. `scripts/memory_check.sh --all` re-runs every command each
   night, on the timer `scripts/memory_schedule.sh` installs, and deletes a
@@ -216,6 +231,8 @@ flowchart TB
   fact -- "writes when verify passes" --> mem
   check["memory_check.sh --all<br>04:30 timer"] -- "reruns verify, deletes a contradicted fact" --> mem
   check --> mcl[(".claude/memory_check.last")]
+  last["session_start_last.sh<br>SessionStart"] -- "shows once, moves aside" --> sel
+  last -- "shows once, moves aside" --> mcl
 ```
 
 ### Projects and accounts

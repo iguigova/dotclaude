@@ -127,6 +127,10 @@
           },
           {
             "type": "command",
+            "command": "$HOME/.claude/scripts/session_start_last.sh"
+          },
+          {
+            "type": "command",
             "command": "$HOME/.claude/scripts/claude_account.sh check"
           }
         ]

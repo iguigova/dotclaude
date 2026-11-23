@@ -4,10 +4,11 @@
 # The harness runs this when any session ends. When ~/.claude's HEAD is a
 # commit no run has handled yet, it starts a detached run that exports it with
 # `dotclaude_export.sh` into the public clone and pushes the clone, which
-# publishes the page. A source commit is handled once, whatever the outcome:
-# exported, nothing to export, or refused. So a commit that touches nothing
-# public costs one export, and a refusal is reported once rather than on every
-# session end. A run counts as handled only when it ends, so a run killed
+# publishes the page. A source commit is handled once it is exported and
+# pushed, has nothing to export, or is refused. So a commit that touches
+# nothing public costs one export, and a refusal is reported once rather than
+# on every session end. A failed push leaves its commit unhandled, so the next
+# session end exports nothing new and pushes again. A run counts as handled only when it ends, so a run killed
 # partway leaves its commit for the next session end to try again; if it died
 # mid-export, the clone holds its half-made copy, so that retry is refused as a
 # dirty clone and opens a note.
@@ -19,8 +20,10 @@
 #   session_end_export.sh --self-test
 #
 # A refused export or a failed push opens one note in the clone's session
-# history, naming the source commit and the last line the failure printed.
-# The next ~/.claude commit is a new source commit, so it tries again.
+# history, naming the source commit and the last line the failure printed. A
+# push that fails again for the same commit is logged and opens no second note.
+# The next ~/.claude commit is a new source commit, so a refusal is tried again
+# then.
 #
 # The run is detached with detach.sh, because a SessionEnd hook is killed at
 # 1500 ms and the export runs the copy's whole selftest. It holds a
@@ -35,6 +38,7 @@
 # DOTCLAUDE_SRC overrides the source repo (default ~/.claude), DOTCLAUDE_CLONE
 # the public clone (default ~/src/oceanhue/dotclaude).
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SRC="${DOTCLAUDE_SRC:-$HOME/.claude}"
@@ -48,6 +52,17 @@ say() { printf '%s export %s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" "$*" >>"$LOG"
 
 handled() { cat "$STATE/dotclaude_export.handled" 2>/dev/null; }
 done_with() { echo "$1" >"$STATE/dotclaude_export.handled"; }
+push_failed() { cat "$STATE/dotclaude_export.push_failed" 2>/dev/null; }
+
+# push_failure <sha> <output> — the first failed push of a commit opens its note;
+# a repeat is only logged, since every session end retries it.
+push_failure() {
+  if [[ "$(push_failed)" == "$1" ]]; then
+    say "$1 push failed again: $(grep -v '^[[:space:]]*$' <<<"$2" | tail -n 1)"; return
+  fi
+  echo "$1" >"$STATE/dotclaude_export.push_failed"
+  fail "$1" "push failed" "$2"
+}
 
 decide() {  # -> "run <sha>" or "skip: <why>"
   local sha
@@ -80,7 +95,8 @@ run() {  # <sha> — the detached half
     || { printf '%s\n' "$out" >>"$LOG"; done_with "$sha"; fail "$sha" "export refused" "$out"; return 0; }
   printf '%s\n' "$out" >>"$LOG"
   out=$(git -C "$CLONE" push -q origin HEAD 2>&1) \
-    || { printf '%s\n' "$out" >>"$LOG"; done_with "$sha"; fail "$sha" "push failed" "$out"; return 0; }
+    || { printf '%s\n' "$out" >>"$LOG"; push_failure "$sha" "$out"; return; }
+  rm -f "$STATE/dotclaude_export.push_failed"
   done_with "$sha"
   say "$sha run finished, $(git -C "$CLONE" rev-parse --short HEAD) is pushed"
 }
@@ -92,6 +108,7 @@ start_run() {  # <sha>
 hook() {  # <dry>
   local reason verdict
   reason=$(jq -r '.reason // "other"' 2>/dev/null)
+  if [[ -n "${CLAUDE_TOOLING_UNATTENDED:-}" ]]; then say "reason=${reason:-other} skip: an unattended run's own end"; return; fi
   verdict=$(decide)
   if [[ "$verdict" != run* ]]; then say "reason=${reason:-other} $verdict"; return; fi
   if (( $1 )); then
@@ -109,6 +126,7 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp out sha
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+  unset CLAUDE_TOOLING_UNATTENDED
   export SESSION_END_LOG="$tmp/log" SESSION_END_EXPORT_STATE="$tmp/state"
   export SESSION_END_EXPORT_CMD="$tmp/export" SESSION_END_EXPORT_JOURNAL="$tmp/journal"
   export DOTCLAUDE_SRC="$tmp/src" DOTCLAUDE_CLONE="$tmp/clone"
@@ -170,11 +188,18 @@ self_test() {
   (run "$sha")
   check "a failed push opens a note" "dotclaude push failed — ~/.claude $sha" \
     "$(grep '^dotclaude push' "$tmp/notes")"
+  check "and leaves its commit to run again" "run $sha" "$(decide)"
+  (run "$sha")
+  check "a second failed push of that commit opens no second note" "1" "$(grep -c '^dotclaude push' "$tmp/notes")"
+  check "and is logged as failing again" "1" "$(grep -c "$sha push failed again" "$LOG")"
 
   g "$SRC" commit -q --allow-empty -m four
   sha=$(git -C "$SRC" rev-parse --short HEAD)
   out=$(printf '{"reason":"clear"}' | bash "$0" --dry-run)
   check "the dry run names the commit it would export" "would export $sha" "$out"
+  out=$(printf '{"reason":"clear"}' | CLAUDE_TOOLING_UNATTENDED=1 bash "$0" --dry-run)
+  check "an unattended run's own end exports nothing" "" "$out"
+  check "and says so in the log" "skip: an unattended run's own end" "$(tail -1 "$LOG" | sed 's/.*reason=clear //')"
   out=$(printf 'not json' | bash "$0" --dry-run; echo "rc=$?")
   check "a payload that is not JSON still decides" "would export $sha" "$out"
   git init -q --bare "$tmp/origin.git"
@@ -182,6 +207,8 @@ self_test() {
   for _ in $(seq 50); do grep -q "$sha run finished" "$LOG" && break; sleep 0.1; done
   check "the hook detaches a run that reaches the log" "1" \
     "$(grep -c "$sha run finished" "$LOG")"
+  check "a push that succeeds forgets the failed one" "gone" \
+    "$([[ -e "$STATE/dotclaude_export.push_failed" ]] || echo gone)"
 }
 
 case "${1:-}" in

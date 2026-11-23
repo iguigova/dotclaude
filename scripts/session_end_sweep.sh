@@ -34,10 +34,12 @@
 # output follows its start line. Read it with
 # `tail ~/.claude/logs/session_end.log`.
 #
-# A run also rewrites <project>/.claude/git_sweep.last, read at the start of
-# the next session: its start line, the sweep's TSV lines and its exit
-# status. A record with no `run finished` line is a run that was killed.
+# A run also adds its record to <project>/.claude/git_sweep.last, which the
+# next session start shows and moves aside: its start line, the sweep's TSV
+# lines and its exit status. A record with no `run finished` line is a run
+# that was killed.
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG="${SESSION_END_LOG:-$HOME/.claude/logs/session_end.log}"
@@ -97,9 +99,9 @@ report_of() {  # <project> -> the record the next session reads
   printf '%s/.claude/git_sweep.last' "$1"
 }
 
-report() {  # <project> <what> — starts the record afresh
-  printf 'git_sweep %s: %s %s\n' "$(date -u '+%Y-%m-%d %H:%M')" "$1" "$2" \
-    >"$(report_of "$1")"
+report() {  # <project> <what> — starts this run's record, after any unread one
+  local f; f=$(report_of "$1")
+  { [[ -s "$f" ]] && echo; printf 'git_sweep %s: %s %s\n' "$(date -u '+%Y-%m-%d %H:%M')" "$1" "$2"; } >>"$f"
 }
 
 hook() {  # <dry> — reads the payload on stdin
@@ -107,6 +109,7 @@ hook() {  # <dry> — reads the payload on stdin
   payload=$(cat)
   cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
   reason=$(jq -r '.reason // "other"' <<<"$payload" 2>/dev/null)
+  if [[ -n "${CLAUDE_TOOLING_UNATTENDED:-}" ]]; then say "reason=${reason:-other} skip: an unattended run's own end"; return; fi
   verdict=$(decide "$cwd")
   if [[ "$verdict" != run* ]]; then say "reason=${reason:-other} $verdict"; return; fi
   if (( $1 )); then
@@ -124,6 +127,7 @@ self_test() {
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
   local tmp out p
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
+  unset CLAUDE_TOOLING_UNATTENDED
   export SESSION_END_LOG="$tmp/log" SESSION_END_SWEEP_STATE="$tmp/state"
   export SESSION_END_SWEEP_CMD="$tmp/sweep"
   LOG="$tmp/log" STATE="$tmp/state" SWEEP="$tmp/sweep"
@@ -164,6 +168,9 @@ self_test() {
     "$(grep -c "^SWEPT $p --apply" "$p/.claude/git_sweep.last")"
   check "and its exit status last" "run finished rc=1" \
     "$(tail -1 "$p/.claude/git_sweep.last")"
+  report "$p" again
+  check "a later run's record is added after the unread one" "2" \
+    "$(grep -c '^git_sweep ' "$p/.claude/git_sweep.last")"
   check "and stamps the project, failure included" "skip: $p swept" \
     "$(decide "$p")"
   (run "$p")
@@ -173,6 +180,9 @@ self_test() {
   rm "$(stamp_of "$p")"
   out=$(printf '{"cwd":"%s","reason":"clear"}' "$p" | bash "$0" --dry-run)
   check "the hook reads cwd from the payload" "would run: $SWEEP $p --apply" "$out"
+  out=$(printf '{"cwd":"%s","reason":"clear"}' "$p" | CLAUDE_TOOLING_UNATTENDED=1 bash "$0" --dry-run)
+  check "an unattended run's own end sweeps nothing" "" "$out"
+  check "and says so in the log" "skip: an unattended run's own end" "$(tail -1 "$LOG" | sed 's/.*reason=clear //')"
   out=$(printf 'not json' | bash "$0"; echo "rc=$?")
   check "a payload that is not JSON exits 0" "rc=0" "$out"
   rm -f "$(stamp_of "$p")"

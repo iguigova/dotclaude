@@ -13,6 +13,7 @@
 #   selftest.sh [--copy] [--root DIR]
 #   selftest.sh --self-test
 set -uo pipefail
+case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # → ~/.claude/scripts
 # shellcheck source=gate_lib.sh
 . "$here/gate_lib.sh"
@@ -22,6 +23,7 @@ if [ "${1:-}" = --self-test ]; then
   # script again. Each case breaks one thing, and the gate must fail naming it.
   fx=$(mktemp -d); trap 'rm -rf "$fx"' EXIT
   mkdir -p "$fx/scripts"; echo '{}' > "$fx/settings.json"
+  printf '<!-- hooks:begin -->\n<!-- hooks:end -->\n' > "$fx/ARCHITECTURE.md"
   printf '#!/usr/bin/env bash\n# offers --self-test\nprintf "ok 1 - x\\n1..1\\n"\n' > "$fx/scripts/clean.sh"
   git -C "$fx" init -q
   git -C "$fx" add -A && git -C "$fx" -c user.email=t@t -c user.name=t commit -qm base
@@ -69,6 +71,9 @@ gate_shellcheck ./*.sh
 echo "== 3. every script the tree tracks offers --self-test, and the TAP it prints =="
 gate_tracked_self_tests ..
 
+echo "== 3b. every executable script the tree tracks answers --help =="
+gate_help_handlers ..
+
 echo "== 4. skill and command frontmatter, and their allowed-tools =="
 # The census reads frontmatter leniently so it can describe a malformed file.
 # This reads it strictly, so a block that is absent, unparseable, or silently the
@@ -82,6 +87,9 @@ echo "== 5. permission rules =="
 # A rule that matches nothing still prompts, and one that matches everything
 # never does; both are silent.
 gate_run "$GATE_SCRIPTS/settings_lint.py" ../settings.json
+
+echo "== 5b. ARCHITECTURE.md lists the hooks settings.json runs, in their own headers' words =="
+gate_run "$GATE_SCRIPTS/hook_list.py" --check ../ARCHITECTURE.md
 
 echo "== 6. names in changed prose still resolve =="
 # Global prose names project-side scripts this tree cannot see, which is why the

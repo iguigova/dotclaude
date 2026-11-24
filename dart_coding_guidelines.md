@@ -487,7 +487,7 @@ For a golden test:
 > *Source: `~/.claude/scripts/change_gate.py`, [mutation_test](https://pub.dev/packages/mutation_test), builtin rules printed by `dart pub global run mutation_test -g`*
 
 - No function is above cyclomatic complexity 10. `~/.claude/scripts/change_gate.py` measures every changed `.dart` file with lizard.
-- Every mutant on a changed line is killed. `change_gate.py` runs the `mutation_test` package over the changed lines. Install it with `dart pub global activate mutation_test`. It tests with the command given as `--test 'dart=<command>'`, which is the one CI runs, else with `flutter test` in a Flutter package (a `<package>/pubspec.yaml` that names `flutter:`) and with `dart test` otherwise.
+- Every mutant on a changed line is killed. `change_gate.py` runs the `mutation_test` package over the changed lines. Install it with `dart pub global activate mutation_test`. It tests with the command given as `--test 'dart=<command>'`, which is CI's over the tests the change touches, else with `flutter test` in a Flutter package (a `<package>/pubspec.yaml` that names `flutter:`) and with `dart test` otherwise.
 - The builtin rules don't mutate a bare `<` or `>`. They mutate only `<=` and `>=` (to `==` and to the strict form), `==`, `!=`, `&&`, `||`, arithmetic, compound assignment, number literals, argument order and void calls. The rule that negates a whole `if` condition (`builtin.if`) matches only an `if` whose condition is followed by `{`. So write every `if` with braces, and test every boundary yourself, because nothing will mutate it for you.
 - An undetected mutant fails the gate.
 - A mutant that no test can tell apart from the original is accepted only when its line carries `// mutation: equivalent — <reason>`.

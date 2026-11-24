@@ -1136,8 +1136,8 @@ Docstring format above is the Python-specific mechanics. What a comment or docst
   string, a docstring and a comment are never mutated. The repo's test
   command runs once with per-test coverage, so the suite needs `pytest-cov`;
   each mutant then runs only the tests whose coverage ran its line, or every
-  test for a line run only at import. The command is the one CI runs, test
-  paths included, given as
+  test for a line run only at import. The command is CI's, over the test
+  paths the change touches, given as
   `--test 'python=.venv/bin/python -m pytest tests'`; with none it is
   `<repo>/.venv/bin/python -m pytest`. When CI's own run already recorded
   per-test coverage (`--cov-context=test`), `--coverage <file>` hands that

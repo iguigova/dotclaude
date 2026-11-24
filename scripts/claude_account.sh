@@ -19,14 +19,16 @@
 #   directory and prints it, for the caller to export as CLAUDE_CONFIG_DIR. The
 #   `claude` function in ~/.claude/shell/memcap.sh is that caller. It prints nothing
 #   with no such file, or with CLAUDE_CONFIG_DIR already set, which is how a
-#   nested `claude -p` keeps its parent's account. A sync conflict goes to
+#   nested `claude -p` keeps its parent's account. `claude-me` (also in
+#   memcap.sh) skips this call to run a project under the default account. A sync conflict goes to
 #   stderr and the dir is still printed: drift never stops a launch. A blank
 #   `config_dir` is refused (exit 1) and prints nothing.
 # check — the SessionStart hook. The account a session should run under is the
 #   one its project names, else ~/.claude; when CLAUDE_CONFIG_DIR says another,
 #   it prints a systemMessage naming both, which the user sees. A session
 #   started by anything but the `claude` function (the desktop app, an IDE,
-#   `command claude`) is how that happens.
+#   `command claude`) is how that happens. It stays quiet when
+#   CLAUDE_DEFAULT_ACCOUNT is set, the choice `claude-me` makes.
 # sync — links each entry of ~/.claude into <dir> except the account-bound ones
 #   (ACCOUNT_BOUND below), removes a link of <dir> whose target is gone, and
 #   never replaces a real file: one in the way is reported, and the exit is 1.
@@ -141,6 +143,7 @@ ca_dir() {
 # The hook payload's cwd is the session's; $PWD stands in without one.
 ca_check() {
   local cwd want have
+  [[ -z "${CLAUDE_DEFAULT_ACCOUNT:-}" ]] || return 0
   cwd=$(python3 -c 'import json,sys
 try: print(json.load(sys.stdin).get("cwd",""))
 except Exception: print("")' 2>/dev/null)
@@ -161,7 +164,7 @@ self_test() {
   local d self out
   self="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   d=$(mktemp -d); trap 'rm -rf "$d"' RETURN
-  unset CLAUDE_CONFIG_DIR  # a session under an account runs this test too
+  unset CLAUDE_CONFIG_DIR CLAUDE_DEFAULT_ACCOUNT  # a session under an account runs this test too
   mkdir -p "$d/home/.claude/skills" "$d/home/.claude/projects" "$d/proj/.claude" "$d/proj/api/x" "$d/other"
   echo rules > "$d/home/.claude/CLAUDE.md"
   echo secret > "$d/home/.claude/.credentials.json"
@@ -250,6 +253,7 @@ J
   out=$(CLAUDE_CONFIG_DIR="$acct" hook "$d/other")
   tap_is "check names a plain dir run on a project's account" "$([[ "$out" == *"runs on $acct"*"uses $d/home/.claude"* ]] && echo 0 || echo 1)" \
     0
+  tap_is "check is quiet and clean for a session that chose the default account" "$(CLAUDE_DEFAULT_ACCOUNT=1 hook "$d/proj"; echo "rc=$?")" "rc=0"
   tap_is "check emits JSON the harness can read" "$(python3 -c 'import json,sys;json.loads(sys.argv[1])' "$out" >/dev/null 2>&1 && echo 0 || echo 1)" \
     0
 }

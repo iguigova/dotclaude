@@ -270,6 +270,8 @@ flowchart TB
   `.claude/config_dir` names. That account's directory links every shared
   entry back to `~/.claude`, so one copy of the tooling serves every account.
   A SessionStart hook says when a session runs under the wrong one.
+  `claude-me`, from `shell/memcap.sh`, runs a session in any project under the
+  default `~/.claude` account instead.
 - `scripts/dev_setup.sh` reports a clone's branch, its drift and its
   uncommitted work.
 - `scripts/git_sweep.sh`, run once a day from a SessionEnd hook

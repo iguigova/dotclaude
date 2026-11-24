@@ -193,17 +193,20 @@ Anything that fails these is dead weight: delete it rather than trim it.
 
 ## Verification
 
-A change is ready to commit when the checks its CI runs pass locally,
-every source file it changed is fully covered by tests, no function in
-those files is above cyclomatic complexity 10, and no mutant on a changed
-line survives its tests. `~/.claude/scripts/change_gate.py` runs the last
-two; each language's guide names the tool it calls there.
+A change is ready to commit when its CI's lint and the tests it touches
+pass locally, every source file it changed is fully covered by tests, no
+function in those files is above cyclomatic complexity 10, and no mutant
+on a changed line survives its tests. `~/.claude/scripts/change_gate.py`
+runs the last two; each language's guide names the tool it calls there.
 
-- **Run what CI runs.** Take the lint and test commands from the
-  repository's CI workflow, and run them over the tree CI runs them on,
-  at the tool version CI resolves. A clean check on the files you touched
-  is no evidence that a whole-tree gate passes, and a whole-tree failure
-  blocks every open change in the repository.
+- **Run what CI runs, on what the change touches.** Take the lint and
+  test commands from the repository's CI workflow, at the tool version CI
+  resolves. Lint the tree CI lints: a clean check on the files you touched
+  is no evidence that a whole-tree lint passes, and a whole-tree failure
+  blocks every open change in the repository. Run the tests the change
+  touches, each test that ran a changed file and each changed test, and
+  every test when the change reaches what any test may read, such as a
+  fixture, a conftest, a dependency or a tool's config. CI runs the rest.
 - **100% line coverage of every changed source file** — the whole file,
   not only the changed lines. A file no test loads is at 0%. Add tests
   until it holds.

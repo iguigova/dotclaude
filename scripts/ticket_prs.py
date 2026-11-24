@@ -590,7 +590,10 @@ def run(args):
 def main():
     args = parse()
     if args.self_test:
-        return self_test()
+        sys.path.insert(0, os.path.expanduser('~/.claude/scripts'))
+        from tap import scratch
+        with scratch():
+            return self_test()
     try:
         return run(args)
     except subprocess.CalledProcessError as failed:

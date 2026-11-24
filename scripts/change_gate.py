@@ -95,6 +95,7 @@ import os
 import re
 import shlex
 import shutil
+import signal
 import sqlite3
 import subprocess
 import sys
@@ -516,18 +517,51 @@ TAP_PLAN = re.compile(r"^1\.\.\d+$", re.M)
 BASELINE_TAIL = 15
 
 
+def kill_group(pid: int) -> None:
+    with contextlib.suppress(ProcessLookupError):
+        os.killpg(pid, signal.SIGKILL)
+
+
+def group_run(command: list[str], cwd: Path, timeout: float | None, out, err) -> int | None:
+    """The command's status, or None when it overran timeout. It runs as its own process group,
+    killed once it ends, and with a TMPDIR removed once it ends: a mutant can start a process
+    that never ends, or break the cleanup of a folder its test made, and a test runs once per
+    mutant."""
+    with tempfile.TemporaryDirectory() as tmp:
+        env = {**os.environ, "TMPDIR": tmp}
+        child = subprocess.Popen(command, cwd=cwd, stdout=out, stderr=err, env=env, start_new_session=True)
+        return reaped(child, timeout)
+
+
+def reaped(child: subprocess.Popen, timeout: float | None) -> int | None:
+    try:
+        return child.wait(timeout)
+    except subprocess.TimeoutExpired:
+        return None
+    finally:
+        kill_group(child.pid)
+        child.wait()
+
+
+def read_back(f) -> str:
+    f.seek(0)
+    return f.read()
+
+
 def run_tests(command: list[str], cwd: Path, timeout: float | None, tap: bool) -> tuple[bool, str]:
     """Whether the tests passed, and what they printed. They pass by exiting 0, and with tap also by
-    printing a TAP plan and no failed case: a self-test that stopped printing has not passed."""
-    try:
-        run = subprocess.run(command, cwd=cwd, capture_output=True, text=True, timeout=timeout)
-    except subprocess.TimeoutExpired:
+    printing a TAP plan and no failed case: a self-test that stopped printing has not passed. What
+    they print goes to files, not pipes, so a process holding a pipe open cannot stall the read."""
+    with tempfile.TemporaryFile("w+") as out, tempfile.TemporaryFile("w+") as err:
+        try:
+            status = group_run(command, cwd, timeout, out, err)
+        except OSError as e:
+            return False, str(e)
+        stdout, stderr = read_back(out), read_back(err)
+    if status is None:
         return False, f"timed out after {timeout:.0f}s"
-    except OSError as e:
-        return False, str(e)
-    printed = run.stdout + run.stderr
-    tap_held = bool(TAP_PLAN.search(run.stdout)) and "not ok" not in run.stdout
-    return run.returncode == 0 and (not tap or tap_held), printed
+    tap_held = bool(TAP_PLAN.search(stdout)) and "not ok" not in stdout
+    return status == 0 and (not tap or tap_held), stdout + stderr
 
 
 def passes(command: list[str], cwd: Path, timeout: float, tap: bool) -> bool:
@@ -1098,6 +1132,29 @@ def self_test_masks(t: Tap) -> None:
             str(test_region(py_lines, "python")))
 
 
+def self_test_groups(t: Tap) -> None:
+    def dead(stat: Path) -> bool:
+        return not stat.exists() or stat.read_text().split(") ")[1].startswith("Z")
+
+    def gone(pid_file: Path) -> bool:
+        """A kill lands a moment after it is sent, so the process gets five seconds to die."""
+        stat, deadline = Path(f"/proc/{int(pid_file.read_text())}/stat"), time.monotonic() + 5
+        while not dead(stat) and time.monotonic() < deadline:
+            time.sleep(0.02)
+        return dead(stat)
+
+    with tempfile.TemporaryDirectory() as tmp:
+        for timeout, script in ((10, "sleep 300 & echo $! > pid; echo out; echo err >&2"), (0.5, "sleep 300 & echo $! > pid; wait")):
+            passed, printed = run_tests(["bash", "-c", script], Path(tmp), timeout, tap=False)
+            t.check(gone(Path(tmp) / "pid") and passed == (timeout == 10),
+                    f"a process the tests started dies with them, timeout {timeout}s", f"{passed} {printed!r}")
+        t.check(run_tests(["bash", "-c", "sleep 300 & echo out; echo err >&2"], Path(tmp), 10, tap=False) == (True, "out\nerr\n"),
+                "a process holding the output open does not stall the read, and both streams are read back")
+        left = run_tests(["mktemp", "-d"], Path(tmp), 10, tap=False)[1].strip()
+        t.check(left.startswith("/") and not Path(left).exists() and Path(left).parent != Path(tempfile.gettempdir()),
+                "a folder the tests leave in their TMPDIR is removed with it", left)
+
+
 def self_test_edges(t: Tap) -> None:
     with tempfile.TemporaryDirectory() as tmp:
         for name, body, want in (("a.py", "x\n", "python3"), ("b.sh", "#!/usr/bin/env python3\n", "python3"), ("c.sh", "#!/bin/sh\n", "bash")):
@@ -1106,6 +1163,7 @@ def self_test_edges(t: Tap) -> None:
     t.check(code_part("# a == b\n", "shell") == "" and code_part("a == b  # c\n", "ruby") == "a == b  ", "a line that opens with a hash is all comment")
     t.check(not passes(["/nonexistent/x"], Path("."), 10, tap=False) and not passes(["sleep", "5"], Path("."), 0.1, tap=False),
             "a command that cannot start or overruns its timeout has not passed")
+    self_test_groups(t)
     t.check(test_region(["x=1", "self_test() { echo; }", "y=2"], "shell") == {2}, "a one-line shell self_test is test code alone")
     t.check(test_region(["x=1", "self_test_e2e() {", "  echo", "}", "y=2"], "shell") == {2, 3, 4},
             "a shell self_test_ helper is test code, as a Python one is")
@@ -1396,7 +1454,7 @@ self_test() {
 COLLIDES_SH = """#!/usr/bin/env bash
 big() { [ "$1" -gt 9 ]; }
 self_test() {
-  local d="${TMPDIR:-/tmp}/change_gate_collides.$PPID"
+  local d="/tmp/change_gate_collides.$PPID"  # a fixed path, outside the TMPDIR each run has
   mkdir "$d" 2>/dev/null || { echo 'not ok 1 - alone'; echo 1..1; return; }
   sleep 0.2
   big 10 && ! big 9 && echo 'ok 1 - big' || echo 'not ok 1 - big'

@@ -65,7 +65,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from tap import Tap
+from tap import Tap, scratch
 
 HERE = Path(__file__).resolve().parent
 KEY = re.compile(r'^[A-Z][A-Z0-9]*-[0-9]+$')
@@ -634,7 +634,8 @@ def parse(argv):
 
 def main(argv):
     if argv == ['--self-test']:
-        return self_test()
+        with scratch():
+            return self_test()
     if argv and argv[0] in ('-h', '--help'):
         print(__doc__)
         return 0

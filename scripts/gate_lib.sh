@@ -99,11 +99,14 @@ gate_shellcheck() {  # <file…>
 # self_test_of — one script's self-test, run in its own folder as ./<name>, so
 # a test that calls "$0" finds it. Its TAP and stderr land in $work, sweep's. SIGPIPE
 # is ignored, as GitHub's runners ignore it, so a writer cut off by a reader
-# that quit early fails here with "Broken pipe", not first on a push.
+# that quit early fails here with "Broken pipe", not first on a push. One that
+# overruns 120s is stopped with its whole process group, TERM and then KILL.
+# TMPDIR is a folder of its own, which verdict_of holds empty once it ends.
 self_test_of() {  # <script>
   local name=${1##*/} runner=bash
   is_python "$1" && runner=python3
-  (trap '' PIPE; cd "${1%/*}" && timeout 120 "$runner" "./$name" --self-test) \
+  mkdir "$work/$name.tmp" || return 1
+  (trap '' PIPE; cd "${1%/*}" && TMPDIR="$work/$name.tmp" timeout -k 5 120 "$runner" "./$name" --self-test) \
     >"$work/$name.tap" 2>"$work/$name.err"
 }
 
@@ -140,14 +143,19 @@ swept() {  # <file>
 
 # verdict_of — one script's line from its TAP and exit status in <work>, and
 # under a failure its failed cases and the end of its stderr; 1 on a failure.
+# A self-test that leaves anything in its TMPDIR fails: run once per mutant, a
+# leaked folder becomes thousands.
 verdict_of() {  # <file> <work>
-  local f=$1 work=$2 name=${1##*/} st wrong missed cases
+  local f=$1 work=$2 name=${1##*/} st wrong missed cases left
   st=$(cat "$work/${f//\//_}.st")
   wrong=$(tap_verify "$work/$name.tap")
   missed=$(grep -c '^not ok' "$work/$name.tap")
   cases=$(grep -cE '^(not )?ok' "$work/$name.tap")
+  left=$(ls -A "$work/$name.tmp" 2>&1 | head -3 | paste -sd' ')
   if [ -n "$wrong" ]; then
     echo "  FAIL $f --self-test does not print TAP: $wrong"
+  elif [ -n "$left" ]; then
+    echo "  FAIL $f --self-test left its temp folder holding: $left"
   elif [ "$st" -eq 0 ] && [ "$missed" -eq 0 ]; then
     echo "  ok  $f (cases: $cases)"; return 0
   elif [ "$st" -ne 0 ] && [ "$missed" -ne 0 ]; then
@@ -311,6 +319,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   fixture untap.sh   'echo PASS; echo boom >&2'
   fixture pipe.sh    '[ -n "$(trap -p PIPE)" ] && printf "ok 1 - deaf\n1..1\n"'
   fixture selftest.sh 'printf "ok 1 - gate\n1..1\n"'
+  fixture leak.sh    'mktemp -d >/dev/null; printf "ok 1 - x\n1..1\n"'
+  fixture tidy.sh    'd=$(mktemp -d); rm -r "$d"; printf "ok 1 - x\n1..1\n"'
   printf '#!/usr/bin/env bash\necho PASS\n' > "$fx/s/quiet.sh"
   printf '#!/usr/bin/env python3\n# --self-test\nprint("ok 1 - snake\\n1..1")\n' > "$fx/s/snake.sh"
   printf '# --self-test\nprint("ok 1 - py\\n1..1")\n' > "$fx/s/plain.py"
@@ -334,6 +344,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a self-test runs with SIGPIPE ignored, as on GitHub's runners" \
     "$(line pipe.sh)" "  ok  s/pipe.sh (cases: 1)"
   tap_is "a script that offers no --self-test is not run" "$(line quiet.sh)" ""
+  tap_like "a self-test that leaves a temp folder behind fails the sweep, naming it" \
+    "$(line leak.sh)" "  FAIL s/leak.sh --self-test left its temp folder holding: tmp.*"
+  tap_is "a self-test that removes its temp folder passes" "$(line tidy.sh)" "  ok  s/tidy.sh (cases: 1)"
   tap_is "selftest.sh, the gate itself, is swept" \
     "$(line selftest.sh)" "  ok  s/selftest.sh (cases: 1)"
   tap_is "selftest.sh is not swept inside a gate's own self-test" \
@@ -343,7 +356,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a .py script runs under python3" "$(line plain.py)" "  ok  s/plain.py (cases: 1)"
   tap_is "verdicts print in file order, whatever finishes first" \
     "$(sed -n 's/^  [A-Z ok]* s\/\([^ ]*\) .*/\1/p' <<<"$out" | paste -sd' ')" \
-    "a_slow.sh gloom.sh good.sh liar.sh pipe.sh red.sh selftest.sh snake.sh untap.sh plain.py"
+    "a_slow.sh gloom.sh good.sh leak.sh liar.sh pipe.sh red.sh selftest.sh snake.sh tidy.sh untap.sh plain.py"
   tap_is "a passing self-test's stderr is not shown" "$(grep -c noise <<<"$out")" 0
   tap_is "a sweep with any failure fails" "$st" 1
   cp s/good.sh s/snake.sh green/

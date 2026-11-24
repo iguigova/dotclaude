@@ -422,7 +422,7 @@ Every script offers `--self-test`, which runs its cases and prints TAP through `
 - **A library guards its block** with `[[ "${BASH_SOURCE[0]}" == "$0" ]]`, so sourcing it never runs the tests.
 - **Names.** A case's name says what holds — "a path absent at the ref learns nothing" — is unique in its script, and holds no `#` (`tap.sh`).
 - **Stdout is TAP alone.** What the code under test prints goes to stderr; `tap_run` and `tap_fails` send it there.
-- **Fixtures** are built in a `mktemp -d` folder that the self-test removes, and a case that needs a repository makes a real one with `git init -q`. A Python self-test runs inside `tap.py`'s `scratch()`, which removes every temp folder it makes.
+- **Fixtures** are built in a `mktemp -d` folder that the self-test removes, and a case that needs a repository makes a real one with `git init -q`.
 - **The script runs as a child** when the test is of its exit code or output: `run() { "$self" "$@" >/dev/null 2>&1; echo $?; }`.
 
 ```bash

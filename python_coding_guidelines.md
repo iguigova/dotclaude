@@ -1145,7 +1145,9 @@ Docstring format above is the Python-specific mechanics. What a comment or docst
   instead of the whole suite.
 - **A script that offers `--self-test` is tested by it.** Its `self_test`
   functions are test code and are not mutated, so the self-test's helpers
-  belong inside them.
+  belong inside them. It runs inside `tap.py`'s `scratch()`, which removes
+  every temp folder it makes; the self-test sweep fails one that leaves any
+  behind.
 - **An equivalent mutant is marked on its line:**
   `# mutation: equivalent — <reason>`.
 

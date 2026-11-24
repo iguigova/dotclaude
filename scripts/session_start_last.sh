@@ -18,18 +18,21 @@
 # and then moves each to ~/.claude/state/last/<project>/, so each is shown once.
 # Their writers add to an unread report rather than replace it.
 #
-# It also prints ~/.claude/memory_check.last: the stores the nightly check
-# skipped or failed on and the facts it left unchecked, each since the night it
-# was first left so. That is the checker's current state, which it reads back
-# and removes once nothing is left to report, so it is shown while it exists and
-# never moved.
+# It also prints two reports of current state, which their writers remove
+# once nothing is left to report, so each is shown while it exists and never
+# moved:
+#   ~/.claude/memory_check.last  the stores the nightly check skipped or failed
+#                      on and the facts it left unchecked, each since the night
+#                      it was first left so
+#   ~/.claude/stray_sweep.last   what this user left running or lying around on
+#                      the machine, as the daily sweep last found it
 #
 # The project is the one the payload's cwd lies in (project_file.sh --root),
 # found by its history. It exits 0 on every path, since a session starts
 # whether or not a report is readable, and prints nothing for an unattended run
 # (CLAUDE_TOOLING_UNATTENDED), which is nobody's session.
 # SESSION_START_LAST_STATE names another folder for the moved reports, and
-# SESSION_START_LAST_GLOBAL another global report.
+# SESSION_START_LAST_GLOBAL and SESSION_START_LAST_STRAYS the other two.
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
@@ -39,6 +42,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPORTS=(memory_check.last session_end.last git_sweep.last)
 STATE="${SESSION_START_LAST_STATE:-$HOME/.claude/state/last}"
 GLOBAL="${SESSION_START_LAST_GLOBAL:-$HOME/.claude/memory_check.last}"
+STRAYS="${SESSION_START_LAST_STRAYS:-$HOME/.claude/stray_sweep.last}"
 HEADING="What ran while nobody was here. Tell the user what each report says before other work."
 
 show() { printf '== %s%s ==\n%s\n\n' "$1" "$2" "$(<"$1")"; }  # <file> <note>
@@ -53,11 +57,12 @@ project_reports() {
   done
 }
 
-# reports — every report for the project at $PWD, then the global one.
+# reports — every report for the project at $PWD, then the two of current state.
 reports() {
   local hist
   hist=$(journal_hist session_start_last.sh 2>/dev/null) && project_reports "$(dirname "$hist")"
   [[ -s "$GLOBAL" ]] && show "$GLOBAL" " (the nightly check's current state, shown until it clears)"
+  [[ -s "$STRAYS" ]] && show "$STRAYS" " (the daily stray sweep's last finding, shown until it clears)"
 }
 
 # main — the reports under one heading, or nothing at all. Its status is
@@ -90,7 +95,8 @@ self_test() {
   hook() {  # <cwd> [<env>…] — the hook, as the harness invokes it
     local cwd=$1; shift
     printf '{"cwd":"%s","source":"startup"}' "$cwd" \
-      | env SESSION_START_LAST_STATE="$fx/state" SESSION_START_LAST_GLOBAL="$fx/global" "$@" "$self"
+      | env SESSION_START_LAST_STATE="$fx/state" SESSION_START_LAST_GLOBAL="$fx/global" \
+        SESSION_START_LAST_STRAYS="$fx/strays" "$@" "$self"
   }
 
   out=$(hook "$fx/p/sub")
@@ -104,6 +110,10 @@ self_test() {
     "$([[ ! -e "$fx/p/.claude/memory_check.last" && -s "$fx/state/${fx//\//_}_p_.claude/memory_check.last" && -s "$fx/global" ]] && echo moved)" moved
   tap_is "so the next start shows only the global one" "$(hook "$fx/p" | grep -c '^== ')" 1
   rm "$fx/global"
+  printf 'orphan 7\n' > "$fx/strays"
+  tap_is "the stray report is shown as the sweep's last finding, and stays" \
+    "$(hook "$fx/p" | grep -c -e "^== $fx/strays (the daily stray sweep" -e '^orphan 7$') $([[ -s "$fx/strays" ]] && echo kept)" "2 kept"
+  rm "$fx/strays"
   tap_is "with nothing to show it prints nothing" "$(hook "$fx/p")" ""
   printf 'deleted z\n' > "$fx/q/.claude/memory_check.last"
   tap_is "an unattended run's start prints nothing and moves nothing" \

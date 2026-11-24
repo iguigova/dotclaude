@@ -176,7 +176,7 @@ list, and `selftest.sh` refuses one out of step with the hooks or the headers.
 
 <!-- hooks:begin -->
 - `scripts/session_end_notes.sh` (SessionEnd): SessionEnd hook: place what the ending session noticed, unattended.
-- `scripts/session_end_sweep.sh` (SessionEnd): SessionEnd hook: sweep the project's git clones, at most once a day.
+- `scripts/session_end_sweep.sh` (SessionEnd): SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day.
 - `scripts/session_end_export.sh` (SessionEnd): SessionEnd hook: publish ~/.claude's public part whenever it has moved.
 - `scripts/block_gate.py` (SessionEnd clear; PermissionDenied denied; PreToolUse gate; PostToolUse[AskUserQuestion] clear; UserPromptSubmit clear): once auto mode blocks a call, no other tool runs until the user answers.
 - `scripts/guideline_gate.py` (SessionEnd clear; PreToolUse[Edit|Write|NotebookEdit] edit; PostToolUse[Read] read; SessionStart[compact] clear): no code is edited with the edit tools before its guidelines are read in that session.
@@ -228,8 +228,9 @@ What a session did and learned outlives it.
 - **Reports.** Each unattended run adds a report to the project's `.claude/`:
   `memory_check.last`, `session_end.last` or `git_sweep.last`. A SessionStart
   hook (`scripts/session_start_last.sh`) shows each once, whole, and moves it
-  aside; it shows `~/.claude/memory_check.last`, the nightly check's current
-  state, while it exists.
+  aside. Two reports of current state, `~/.claude/memory_check.last` from the
+  nightly check and `~/.claude/stray_sweep.last` from the daily sweep, are
+  shown while they exist; each writer removes its own once nothing is left.
 - **Memory.** `scripts/memory_fact.sh` writes a fact only when its `verify`
   command passes. `scripts/memory_check.sh --all` re-runs every command each
   night, on the timer `scripts/memory_schedule.sh` installs, and deletes a
@@ -276,7 +277,9 @@ flowchart TB
   uncommitted work.
 - `scripts/git_sweep.sh`, run once a day from a SessionEnd hook
   (`scripts/session_end_sweep.sh`), removes git state that is proven finished
-  and writes `.claude/git_sweep.last`.
+  and writes `.claude/git_sweep.last`. The same run then runs
+  `scripts/stray_sweep.py --apply`, which removes the stale temp folders and
+  reports the processes and files this user left on the machine.
 
 ### Service verbs
 

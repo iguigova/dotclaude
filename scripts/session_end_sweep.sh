@@ -1,10 +1,13 @@
 #!/usr/bin/env bash
-# SessionEnd hook: sweep the project's git clones, at most once a day.
+# SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day.
 #
 # The harness runs this with the hook payload on stdin — session_id, cwd and
 # reason — when a session ends. It decides whether a sweep is due and, if so,
 # starts a detached `git_sweep.sh <project> --apply`, which deletes what is
-# proven finished and opens a note for the rest.
+# proven finished and opens a note for the rest, and then
+# `stray_sweep.py --apply --write ~/.claude/stray_sweep.last`, which removes
+# the stale temp folders and reports what else this user left running or
+# lying around, the report removed once nothing is.
 #
 # Usage:
 #   session_end_sweep.sh            # reads the hook payload on stdin
@@ -45,6 +48,8 @@ SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 LOG="${SESSION_END_LOG:-$HOME/.claude/logs/session_end.log}"
 STATE="${SESSION_END_SWEEP_STATE:-$HOME/.claude/state}"
 SWEEP="${SESSION_END_SWEEP_CMD:-$SCRIPTS_DIR/git_sweep.sh}"
+STRAYS="${SESSION_END_STRAYS_CMD:-$SCRIPTS_DIR/stray_sweep.py}"
+STRAY_REPORT="${SESSION_END_STRAY_REPORT:-$HOME/.claude/stray_sweep.last}"
 SWEEP_HOURS=24
 # shellcheck source=journal_lib.sh
 . "$SCRIPTS_DIR/journal_lib.sh"
@@ -93,6 +98,8 @@ run() {  # <project> — the detached half
   rc=${PIPESTATUS[0]}
   say "$1 run finished rc=$rc"
   printf 'run finished rc=%s\n' "$rc" >>"$(report_of "$1")"
+  "$STRAYS" --apply --write "$STRAY_REPORT" >>"$LOG" 2>&1
+  say "strays rc=$? (0 none, 1 reported in $STRAY_REPORT)"
 }
 
 report_of() {  # <project> -> the record the next session reads
@@ -129,12 +136,15 @@ self_test() {
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   unset CLAUDE_TOOLING_UNATTENDED
   export SESSION_END_LOG="$tmp/log" SESSION_END_SWEEP_STATE="$tmp/state"
-  export SESSION_END_SWEEP_CMD="$tmp/sweep"
-  LOG="$tmp/log" STATE="$tmp/state" SWEEP="$tmp/sweep"
+  export SESSION_END_SWEEP_CMD="$tmp/sweep" SESSION_END_STRAYS_CMD="$tmp/strays"
+  export SESSION_END_STRAY_REPORT="$tmp/strays.last"
+  LOG="$tmp/log" STATE="$tmp/state" SWEEP="$tmp/sweep" STRAYS="$tmp/strays" STRAY_REPORT="$tmp/strays.last"
   mkdir -p "$STATE"; : >"$LOG"
   # shellcheck disable=SC2016  # the fake sweep expands its own arguments
   printf '#!/usr/bin/env bash\necho "SWEPT $1 $2 sid=${CLAUDE_CODE_SESSION_ID-unset}"; exit 1\n' >"$SWEEP"
-  chmod +x "$SWEEP"
+  # shellcheck disable=SC2016  # the fake expands its own arguments
+  printf '#!/usr/bin/env bash\necho "STRAYS $*"; echo stray > "$3"; exit 1\n' >"$STRAYS"
+  chmod +x "$SWEEP" "$STRAYS"
   check() {  # <description> <want prefix> <got>
     if [[ "$3" == "$2"* ]]; then tap_ok "$1"
     else tap_not_ok "$1" "want: $2" "got:  $3"; fi
@@ -168,6 +178,10 @@ self_test() {
     "$(grep -c "^SWEPT $p --apply" "$p/.claude/git_sweep.last")"
   check "and its exit status last" "run finished rc=1" \
     "$(tail -1 "$p/.claude/git_sweep.last")"
+  check "then sweeps the machine's strays, removing the stale temp and writing the report" \
+    "STRAYS --apply --write $STRAY_REPORT" "$(grep '^STRAYS' "$LOG")"
+  check "which the next session reads" "stray" "$(cat "$STRAY_REPORT")"
+  check "and logs that sweep's exit status" "1" "$(grep -c 'strays rc=1 ' "$LOG")"
   report "$p" again
   check "a later run's record is added after the unread one" "2" \
     "$(grep -c '^git_sweep ' "$p/.claude/git_sweep.last")"

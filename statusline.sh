@@ -1,6 +1,9 @@
 #!/bin/bash
 # Claude Code Status Line — single line
-# Fields: context bar, directory, git branch, lines changed, cost, model, version, effort
+# Fields: context bar, directory, git branch, lines changed, cost, model, version, effort, account
+#
+# The account is the emailAddress of the login in $CLAUDE_CONFIG_DIR/.claude.json
+# (~/.claude.json when unset), – when there is none.
 #
 # Usage:
 #   statusline.sh               # reads the status JSON Claude Code sends on stdin
@@ -23,11 +26,13 @@ if [[ "${1:-}" == --self-test ]]; then
   raw() { (cd "$fx" && printf '%s' "$1" | HOME="$fx" TMPDIR="$fx" bash "$self"); }  # <json>
   git init -q -b feat "$fx/repo"
   now=$(date +%s)
+  login() { printf '{"oauthAccount":{"emailAddress":"%s"}}' "$1" > "$2/.claude.json"; }  # <email> <dir>
+  login me@example.test "$fx"
   full='{"model":{"display_name":"Opus"},"version":"2.1","context_window":{"used_percentage":35},
     "cost":{"total_cost_usd":0.12345,"total_lines_added":7,"total_lines_removed":3},"session_id":"s1",
     "workspace":{"current_dir":"'"$fx"'/repo"},"effort_level":"high"}'
   out=$(line "$full")
-  tap_like "every field is shown, in order" "$out" "████░░░░░░  35%  ~/repo  feat  +7/-3  \$0.1235  ⏱ *Opus v2.1 \[high\]"
+  tap_like "every field is shown, in order" "$out" "████░░░░░░  35%  ~/repo  feat  +7/-3  \$0.1235  ⏱ *Opus v2.1 \[high\]  me@example.test"
   tap_like "the git and start caches go to TMPDIR" "$(ls "$fx")" "*claude-statusline-git-s1*claude-statusline-start-s1*"
   printf 'cached' > "$fx/claude-statusline-git-s1"
   tap_like "a branch cached under 5s ago is reused" "$(line "$full")" "*  cached  *"
@@ -38,9 +43,16 @@ if [[ "${1:-}" == --self-test ]]; then
   tap_like "a session over an hour old shows hours and minutes" "$(line '{"session_id":"s2"}')" "*⏱ 1h01m *"
   echo $((now - 75)) > "$fx/claude-statusline-start-s3"
   tap_like "a session over a minute old shows minutes and seconds" "$(line '{"session_id":"s3"}')" "*⏱ 1m1?s *"
-  tap_like "missing fields fall back, and effort to – with no settings" "$(line '{}')" "░░░░░░░░░░   0%  .  –  +0/-0  \$0.0000  ⏱ *s    unknown v? \[–\]"
+  tap_like "missing fields fall back, and effort to – with no settings" "$(line '{}')" "░░░░░░░░░░   0%  .  –  +0/-0  \$0.0000  ⏱ *s    unknown v? \[–\]  me@example.test"
   mkdir -p "$fx/.claude"; printf '{"effortLevel":"low"}' > "$fx/.claude/settings.json"
-  tap_like "with no effort in the input, settings.json's is shown" "$(line '{}')" "* \[low\]"
+  tap_like "with no effort in the input, settings.json's is shown" "$(line '{}')" "* \[low\]  me@example.test"
+  mkdir "$fx/other"; login other@example.test "$fx/other"
+  tap_like "CLAUDE_CONFIG_DIR names the account's login" "$(CLAUDE_CONFIG_DIR="$fx/other" line '{}')" "* \[low\]  other@example.test"
+  printf 'not json' > "$fx/other/.claude.json"
+  tap_like "an unreadable login file shows –" "$(CLAUDE_CONFIG_DIR="$fx/other" line '{}')" "* \[low\]  –"
+  printf '{}' > "$fx/other/.claude.json"
+  tap_like "a login file with no account shows –" "$(CLAUDE_CONFIG_DIR="$fx/other" line '{}')" "* \[low\]  –"
+  tap_like "a config dir with no login file shows –" "$(CLAUDE_CONFIG_DIR="$fx/none" line '{}')" "* \[low\]  –"
   tap_like "the 5-hour window shows what is left and when it resets" \
     "$(line '{"rate_limits":{"five_hour":{"used_percentage":30,"resets_at":'$((now + 7290))'}}}')" "*  5h:70%/2h01m  *"
   tap_like "a 5-hour window with no reset time shows what is left" \
@@ -77,6 +89,10 @@ effort=$(echo "$input" | jq -r '.effort_level // empty' 2>/dev/null)
 if [[ -z "$effort" ]]; then
   effort=$(jq -r '.effortLevel // "–"' ~/.claude/settings.json 2>/dev/null || echo "–")
 fi
+
+# Account: the login of the config dir this session runs under
+account=$(jq -r '.oauthAccount.emailAddress // empty' "${CLAUDE_CONFIG_DIR:-$HOME}/.claude.json" 2>/dev/null) || account=""
+[[ -n "$account" ]] || account="–"
 
 # --- Context bar (10 chars wide) ---
 filled=$(awk "BEGIN { printf \"%.0f\", $used_pct / 10 }")
@@ -171,6 +187,6 @@ if ((${#short_dir} > 30)); then
 fi
 
 # --- Output single line ---
-# Order: context, dir, branch, lines, cost, duration, model, version, effort
-printf "${ctx_color}%s %3.0f%%${reset}  ${dim}%s${reset}  ${cyan}%s${reset}  ${green}+%s${reset}/${magenta}-%s${reset}  ${yellow}\$%.4f${reset}  ${dim}⏱ %s${reset}  %b  ${cyan}%s${reset} ${dim}v%s${reset} ${blue}[%s]${reset}\n" \
-  "$bar" "$used_pct" "$short_dir" "$branch" "$lines_add" "$lines_rm" "$cost" "$duration" "$session_seg" "$model" "$version" "$effort"
+# Order: context, dir, branch, lines, cost, duration, model, version, effort, account
+printf "${ctx_color}%s %3.0f%%${reset}  ${dim}%s${reset}  ${cyan}%s${reset}  ${green}+%s${reset}/${magenta}-%s${reset}  ${yellow}\$%.4f${reset}  ${dim}⏱ %s${reset}  %b  ${cyan}%s${reset} ${dim}v%s${reset} ${blue}[%s]${reset}  ${dim}%s${reset}\n" \
+  "$bar" "$used_pct" "$short_dir" "$branch" "$lines_add" "$lines_rm" "$cost" "$duration" "$session_seg" "$model" "$version" "$effort" "$account"

@@ -12,7 +12,8 @@
 # what is true instead, so there is nothing to rewrite it to. Deleting is the
 # only thing this script writes. A fact that holds is left exactly as it was, and
 # a fact whose check could not run, got no answer, or has no `verify:` for the
-# lint to reject, is left alone and reported.
+# lint to reject, is left alone and reported. The report quotes the last line
+# the check wrote to stderr, so a fact left unchecked says why.
 #
 # It runs unattended, so it says no on anything it is unsure of:
 #   * a fact reading a repository is checked only against a ref just fetched,
@@ -70,23 +71,48 @@ ALL_REPORT="$HOME/.claude/memory_check.last"
 
 # --- Evidence ---------------------------------------------------------------
 
-# mc_run_one FILE — exit status of one run of the fact's verify command.
-mc_run_one() { mem_verify "$(mem_field "$1" verify)"; }
+# The longest reason a report line quotes from a verify's stderr.
+MC_WHY_MAX=200
 
-# mc_verify FILE — ok | unrun | unanswered | contradicted.
+# mc_run_one FILE ERRFILE — exit status of one run of the fact's verify command,
+# its stderr written to ERRFILE.
+mc_run_one() { mem_verify "$(mem_field "$1" verify)" "$2"; }
+
+# mc_why ERRFILE — the last non-blank line a verify wrote to stderr, cut short:
+# a verify states there why it learned nothing.
+mc_why() {
+  local line
+  line=$(grep -v '^[[:space:]]*$' "$1" | tail -n 1)
+  printf '%s' "${line:0:MC_WHY_MAX}"
+}
+
+# mc_said WHY — WHY as the tail of a report line, or nothing when it is empty.
+mc_said() { [[ -n "$1" ]] && printf ': %s' "$1"; }
+
+# mc_verify FILE — the verdict on one line and, on the next, what the verify's
+# last run said on stderr.
+mc_verify() {
+  local err verdict
+  err=$(mktemp) || { printf 'unrun\nno temporary file for its stderr\n'; return; }
+  verdict=$(mc_verdict "$1" "$err")
+  printf '%s\n%s\n' "$verdict" "$(mc_why "$err")"
+  rm -f "$err"
+}
+
+# mc_verdict FILE ERRFILE — ok | unrun | unanswered | flaky | contradicted.
 # 126 and 127 mean the shell never reached the command, and 75 means the command
 # ran but got no answer about the claim, so none of the three says anything about
 # it. Every other non-zero exit does — once it has said so twice, because a
 # verdict that does not repeat is not evidence and this run deletes on it.
-mc_verify() {
+mc_verdict() {
   local rc
-  mc_run_one "$1"; rc=$?
+  mc_run_one "$1" "$2"; rc=$?
   case "$rc" in
     0)       echo ok; return ;;
     75)      echo unanswered; return ;;
     126|127) echo unrun; return ;;
   esac
-  mc_run_one "$1"; rc=$?
+  mc_run_one "$1" "$2"; rc=$?
   case "$rc" in
     0)       echo flaky ;;
     75)      echo unanswered ;;
@@ -332,7 +358,7 @@ mc_held() {
 
 mc_run() {
   held=0; shallow=0; deleted=0; unchecked=0; deleted_text=""
-  local f name stale
+  local f name stale verdict why
   while IFS= read -r f; do
     [[ -n "$f" ]] || continue
     name=$(basename "$f" .md)
@@ -348,10 +374,12 @@ mc_run() {
       unchecked=$((unchecked + 1)); continue
     fi
 
-    case "$(mc_verify "$f")" in
+    { IFS= read -r verdict; IFS= read -r why; } < <(mc_verify "$f")
+    case "$verdict" in
       ok)    mc_held "$f" "$name" ;;
-      unrun) echo "  unchecked  $name — its verify never ran"; unchecked=$((unchecked + 1)) ;;
-      unanswered) echo "  unchecked  $name — its verify got no answer, so nothing was learned"
+      unrun) echo "  unchecked  $name — its verify never ran$(mc_said "$why")"
+             unchecked=$((unchecked + 1)) ;;
+      unanswered) echo "  unchecked  $name — its verify got no answer, so nothing was learned$(mc_said "$why")"
              unchecked=$((unchecked + 1)) ;;
       flaky) echo "  unchecked  $name — its verify failed once and passed once; not evidence"
              unchecked=$((unchecked + 1)) ;;
@@ -385,7 +413,8 @@ mc_self_test() {
   mc_fixture "$d" holds        'true'
   mc_fixture "$d" contradicted 'false'
   mc_fixture "$d" unrunnable   'no-such-command-e3f1a'
-  mc_fixture "$d" unanswered   'exit 75'
+  mc_fixture "$d" unanswered   'echo no answer zzq >&2; exit 75'
+  mc_fixture "$d" silent       'exit 75'
   mc_fixture "$d" noverify
   # Fails, then passes: the verdict that must never delete anything.
   mc_fixture "$d" flaky        "n=\$(cat $d/n 2>/dev/null || echo 0); echo \$((n+1)) > $d/n; [ \$((n%2)) -eq 1 ]"
@@ -416,6 +445,16 @@ mc_self_test() {
   check "a check that never ran deletes nothing" '[[ -f "$d/unrunnable.md" ]]'
   check "a check that got no answer deletes nothing" '[[ -f "$d/unanswered.md" ]]'
   check "a check that got no answer is not counted as held" 'grep -q "unanswered — its verify got no answer" <<<"$out"'
+  check "and its line quotes what the verify said on stderr" \
+    'grep -qx "  unchecked  unanswered — its verify got no answer, so nothing was learned: no answer zzq" <<<"$out"'
+  check "a verify that said nothing ends its line at the reason" \
+    'grep -qx "  unchecked  silent — its verify got no answer, so nothing was learned" <<<"$out"'
+  check "a check that never ran quotes the shell" \
+    'grep -q "unrunnable — its verify never ran: .*command not found$" <<<"$out"'
+  printf 'first\nlast\n\n  \n' > "$d/err"
+  check "the reason is the last non-blank line" '[[ "$(mc_why "$d/err")" == last ]]'
+  printf "%$((MC_WHY_MAX + 5))s\n" x > "$d/err"
+  check "and is cut to its longest" '[[ "$(mc_why "$d/err" | wc -c)" -eq "$MC_WHY_MAX" ]]'
   check "a fact with no verify is never run"     '[[ -f "$d/noverify.md" ]]'
   check "a contradiction that does not repeat deletes nothing" '[[ -f "$d/flaky.md" ]]'
   check "a fact whose repository was not fetched is left alone" '[[ -f "$d/needsfetch.md" ]]'
@@ -470,7 +509,7 @@ mc_self_test() {
     '[[ "$(MEM_DIR="$d"; mc_repos_of "$d/factfetch.md") $(MEM_DIR="$d"; mc_repos_of "$d/needsfetch.md")" == "api/zzq-fixture api/zzq-fixture" ]]'
   check "a producer killed by SIGPIPE is not a contradiction" '[[ -f "$d/sigpipe.md" ]]'
   check "an empty store reads as a missing store" '! ( MEM_DIR="$d/none"; mc_store_present )'
-  check "the counts are 2 held, 1 deleted, 6 unchecked" 'grep -q "COUNTS 2 1 6" <<<"$out"'
+  check "the counts are 2 held, 1 deleted, 7 unchecked" 'grep -q "COUNTS 2 1 7" <<<"$out"'
 
   rm -rf "$d"
   return $rc

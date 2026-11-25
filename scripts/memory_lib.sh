@@ -62,14 +62,15 @@ MEM_DIR="$(dirname "$MEMORY_FILE")"
 MEM_VERIFY_PATH=$(sed -n 's/^PATH="\{0,1\}\([^"]*\)"\{0,1\}$/\1/p' /etc/environment 2>/dev/null)
 MEM_VERIFY_PATH=${MEM_VERIFY_PATH:-/usr/local/bin:/usr/bin:/bin}
 
-# mem_verify CMD — exit status of CMD run once from the project root in that
-# environment. Without pipefail: a verify is written as `git show … | grep -q …`,
-# whose verdict is grep's, and grep -q exiting on its first match kills the
-# producer with SIGPIPE, which pipefail would report as the claim being false.
+# mem_verify CMD [ERRFILE] — exit status of CMD run once from the project root in
+# that environment, its stderr written to ERRFILE, else discarded. Without
+# pipefail: a verify is written as `git show … | grep -q …`, whose verdict is
+# grep's, and grep -q exiting on its first match kills the producer with
+# SIGPIPE, which pipefail would report as the claim being false.
 mem_verify() {
   ( cd "$MEM_PROJECT_ROOT" \
     && env -i HOME="$HOME" LOGNAME="${LOGNAME:-$(id -un)}" PATH="$MEM_VERIFY_PATH" LANG=C.UTF-8 \
-         bash -c "$1" ) >/dev/null 2>&1
+         bash -c "$1" ) >/dev/null 2>"${2:-/dev/null}"
 }
 
 # mem_shallow CMD — true when CMD checks only that a file is there or that a
@@ -243,6 +244,9 @@ FACT
   mem_verify "test \"\$PATH\" = '$MEM_VERIFY_PATH' && test \"\$PWD\" = '$MEM_PROJECT_ROOT'"
   tap_is 'mem_verify runs on the declared PATH from the project root' "$?" 0
   mem_verify 'exit 75'; tap_is 'mem_verify returns the exit status' "$?" 75
+  mem_verify 'echo out; echo said >&2' "$fx/err"
+  tap_is 'mem_verify writes stderr alone to the file it is given' "$(cat "$fx/err")" said
+  tap_is 'and discards it with none given' "$(mem_verify 'echo said >&2' 2>&1)" ''
   mem_verify 'yes | head -1 | grep -q y'; tap_is 'mem_verify runs without pipefail' "$?" 0
   tap_is 'mem_shallow names a presence or self-test chain, and nothing that reads a source' \
     "$(for c in 'test -s .secrets/a && test -f b' 'X=1 .claude/scripts/a.sh --self-test' 'test -e a && b.sh --self-test' \

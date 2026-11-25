@@ -8,9 +8,9 @@
 #
 # The clone is the git repository named after the repo, at most three levels
 # under the source root, whose origin is the PR's owner/repo. The root is
-# $GH_PR_SRC_ROOT, else the project: the directory whose .claude/ holds the
-# session history nearest $PWD (project_file.sh session_history.md). The origin decides, not the path: a directory of the same name
-# cloned from another org is not the PR's repo.
+# $GH_PR_SRC_ROOT, else the project's folder (project_file.sh --root). The
+# origin decides, not the path: a directory of the same name cloned from
+# another org is not the PR's repo.
 #
 # A clone has no linked worktrees, so the branch is checked out in the clone
 # or nowhere.
@@ -117,7 +117,6 @@ if [[ "${1:-}" == "--self-test" ]]; then
   stub gh_pr_ref.py 1
   tap_is "a ref gh_pr_ref.py refuses is unresolved, exit 1" "$(stubbed o/r#1)" "1 gh_pr_ref.py o/r#1"
   stub gh_pr_ref.py 0 '{"owner":"o","repo":"r","number":1,"slug":"o/r"}'; tap_stub "$sfx/bin/gh" "$sfx/calls" 0 $'b\tabc'
-  : > "$sfx/.claude/session_history.md"
   tap_like "with no root given, the project above \$PWD is searched" "$(stubbed o/r#1)" "4 *"
   rm -rf "$sfx"
   tap_end
@@ -133,7 +132,7 @@ head=$(gh pr view "$(jq -er .number <<<"$refjson")" --repo "$(jq -er .slug <<<"$
   --json headRefName,headRefOid --jq '[.headRefName, .headRefOid] | @tsv') || exit 1
 IFS=$'\t' read -r branch sha <<<"$head"
 if [[ -n "${GH_PR_SRC_ROOT:-}" ]]; then root=$GH_PR_SRC_ROOT
-else hist=$("$PF" session_history.md) || exit 1; root=$(dirname "$(dirname "$hist")")
+else root=$("$PF" --root) || exit 1
 fi
 locate "$root" \
   "$(jq -er .owner <<<"$refjson")" "$(jq -er .repo <<<"$refjson")" "$branch" "$sha"

@@ -14,10 +14,17 @@
 #                    A value is never read from the global layer.
 #   --script <name>  the project's .claude/scripts/<name>, else
 #                    ~/.claude/scripts/<name>
+#   --clones         each clone the project's .claude/clones lists, one per
+#                    line: <name>, its folder and its remote, tab-separated.
+#                    The manifest holds `<name> <path> <remote>` a line, the
+#                    path from the project's folder; a line in any other
+#                    shape, or a name listed twice, is refused.
+#   --clone <name>   that clone's folder, once its origin is the listed remote
 #
 #   0   printed
-#   1   no project, not found, or the value file holds no value; stderr names
-#       where it looked. With no project, --script finds the global script alone.
+#   1   no project, not found, the value file holds no value, or a clone is
+#       unlisted or not at its folder; stderr names where it looked. With no
+#       project, --script finds the global script alone.
 #   2   usage
 #
 # Usage:
@@ -25,6 +32,8 @@
 #   project_file.sh <name>
 #   project_file.sh --value <name>
 #   project_file.sh --script <name>
+#   project_file.sh --clones
+#   project_file.sh --clone <name>
 #   project_file.sh --self-test
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
@@ -66,6 +75,31 @@ script_of() {  # <name>
   [[ -e "$global" ]] && { printf '%s\n' "$global"; return 0; }
   echo "project_file.sh: no ${mine:-project at or above $PWD}, and no $global" >&2
   return 1
+}
+
+# clones_of — every listed clone as <name>\t<folder>\t<remote>.
+clones_of() {
+  local r lines line name path remote extra
+  local -A seen=()
+  r=$(root) && lines=$(value_of clones) || return 1
+  while IFS= read -r line; do
+    read -r name path remote extra <<<"$line"
+    [[ -n "$remote" && -z "$extra" && "$path" != /* && -z "${seen[$name]:-}" ]] \
+      || { echo "project_file.sh: $r/.claude/clones: not a <name> <path> <remote> line of a new name: $line" >&2; return 1; }
+    seen[$name]=1
+    printf '%s\t%s\t%s\n' "$name" "$r/$path" "$remote"
+  done <<<"$lines"
+}
+
+clone_of() {  # <name>
+  local all line dir remote
+  all=$(clones_of) || return 1
+  line=$(awk -F'\t' -v n="$1" '$1 == n' <<<"$all")
+  [[ -n "$line" ]] || { echo "project_file.sh: $(root)/.claude/clones lists no $1" >&2; return 1; }
+  IFS=$'\t' read -r _ dir remote <<<"$line"
+  [[ "$(git -C "$dir" remote get-url origin 2>/dev/null)" == "$remote" ]] \
+    || { echo "project_file.sh: $dir is no clone of $remote, as $(root)/.claude/clones lists for $1" >&2; return 1; }
+  printf '%s\n' "$dir"
 }
 
 if [[ "${1:-}" == "--self-test" ]]; then
@@ -117,15 +151,46 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tap_is "a name with a slash is a usage error" "$(at "$fx/p" --script a/b.sh 2>/dev/null; echo $?)" 2
   tap_is "a bare flag is a usage error" "$(at "$fx/p" --value 2>/dev/null; echo $?)" 2
   tap_is "--root takes no name" "$(at "$fx/p" --root x 2>/dev/null; echo $?)" 2
+  # p lists its clone api/repo, a missing one and one whose folder has another origin.
+  git init -q "$fx/p/api/repo"; git -C "$fx/p/api/repo" remote add origin git@h:o/repo.git
+  printf '# clones\nrepo api/repo git@h:o/repo.git\n\ngone api/gone git@h:o/gone.git\nother api/repo git@h:o/other.git\n' \
+    > "$fx/p/.claude/clones"
+  tap_is "every listed clone is printed with its folder and remote" "$(at "$fx/p" --clones)" \
+    "$(printf 'repo\t%s\tgit@h:o/repo.git\ngone\t%s\tgit@h:o/gone.git\nother\t%s\tgit@h:o/other.git' \
+      "$fx/p/api/repo" "$fx/p/api/gone" "$fx/p/api/repo")"
+  tap_is "a clone resolves to its folder from anywhere in the project" \
+    "$(at "$fx/p/api/repo/src" --clone repo)" "$fx/p/api/repo"
+  tap_is "an unlisted clone names the manifest" "$(at "$fx/p" --clone nonesuch 2>&1)" \
+    "project_file.sh: $fx/p/.claude/clones lists no nonesuch"
+  tap_fails "an unlisted clone is not found" at "$fx/p" --clone nonesuch
+  tap_fails "a missing clone is not found" at "$fx/p" --clone gone
+  tap_like "a folder with another origin is refused, naming the remote" "$(at "$fx/p" --clone other 2>&1)" \
+    "*$fx/p/api/repo is no clone of git@h:o/other.git*"
+  tap_fails "a project with no manifest has no clones" at "$fx/p/n" --clones
+  printf 'repo api/repo\n' > "$fx/p/n/.claude/clones"
+  tap_fails "a line without its remote is refused" at "$fx/p/n" --clones
+  printf 'repo api/repo r extra\n' > "$fx/p/n/.claude/clones"
+  tap_fails "a line with a fourth field is refused" at "$fx/p/n" --clones
+  printf 'repo /abs r\n' > "$fx/p/n/.claude/clones"
+  tap_fails "an absolute path is refused" at "$fx/p/n" --clones
+  printf 'repo a r\nrepo b r\n' > "$fx/p/n/.claude/clones"
+  tap_is "a name listed twice is refused, for that reason alone" "$(at "$fx/p/n" --clone repo 2>&1)" \
+    "project_file.sh: $fx/p/n/.claude/clones: not a <name> <path> <remote> line of a new name: repo b r"
+  tap_fails "and the clone is not found" at "$fx/p/n" --clone repo
+  tap_is "--clones takes no name" "$(at "$fx/p" --clones x 2>/dev/null; echo $?)" 2
   tap_end
 fi
 
-usage() { echo "Usage: project_file.sh --root | [--value|--script] <name> | --self-test" >&2; exit 2; }
-if [[ "${1:-}" == --root ]]; then [[ $# -eq 1 ]] || usage; root; exit; fi
-case "${1:-}" in --value|--script) mode=$1; shift ;; *) mode=--path ;; esac
+usage() { echo "Usage: project_file.sh --root | --clones | [--value|--script|--clone] <name> | --self-test" >&2; exit 2; }
+case "${1:-}" in
+  --root)   [[ $# -eq 1 ]] || usage; root; exit ;;
+  --clones) [[ $# -eq 1 ]] || usage; clones_of; exit ;;
+esac
+case "${1:-}" in --value|--script|--clone) mode=$1; shift ;; *) mode=--path ;; esac
 [[ $# -eq 1 && -n "$1" && "$1" != */* ]] || usage
 case "$mode" in
   --value)  value_of "$1" ;;
   --script) script_of "$1" ;;
+  --clone)  clone_of "$1" ;;
   *)        path_of "$1" ;;
 esac

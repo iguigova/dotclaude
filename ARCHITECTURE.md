@@ -20,12 +20,13 @@ A folder is one of three things to the tooling:
 
 - **Project**: a folder whose `.claude/project` names it, written by
   `scripts/project_init.sh`. It holds the project layer and the records.
-- **Clone**: a git repository the project works in. A clone's own `.claude/`
+- **Clone**: a git repository the project works in, listed in the project's
+  `.claude/clones`. A clone's own `.claude/`
   belongs to the clone's repository and is never a layer. A clone that is
   itself a project carries its own `.claude/project`, and inside it that
   nearer project is the layer.
 - **Root**: a folder that holds projects, such as `~/src`. It has no project
-  layer: its values, secrets and records stop with exit 1, and scripts
+  layer: its values, secrets, clones and records stop with exit 1, and scripts
   resolve in the global layer alone. A session starts in a project's
   folder: Claude Code keeps a session's transcript under the folder it
   starts in, and a SessionStart hook,
@@ -47,6 +48,7 @@ to a default.
 |---|---|---|
 | value | One setting, one file, such as `atlassian_site` | Project only; no global defaults |
 | secret | One credential, one file in `<project>/.secrets/`, never versioned | Project only |
+| clone | A git repository the project works in: one line of `<project>/.claude/clones` | Project only |
 | script | One verb: its contract in `--help`, proven by `--self-test` | Both; a project script overrides the global one of the same name and keeps its contract |
 | skill | A method: the order of steps, the judgement, the claim each step proves | Global for shared workflows, project for domain work; never overridden |
 | rule | A `CLAUDE.md` line, loaded every turn | Both, by Claude Code's own layering |
@@ -62,6 +64,21 @@ holds no value. `scripts/secret_file.sh <name>` prints the path of
 `project_file.sh --root` prints the project's folder. A script reads every
 value and credential, and finds the project, through these, never from a path
 of its own or from where the script itself sits.
+
+### Clone
+
+`<project>/.claude/clones` lists one clone a line, `<name> <path>
+<remote>`, whitespace-separated, with blank and `#` lines ignored. The path
+is from the project's folder, and the remote is the clone's `git remote
+get-url origin`. `scripts/clones.sh --add <path>` writes the line from the
+clone itself. `project_file.sh --clones` prints every listed clone, and
+refuses a line in another shape or a name listed twice. `project_file.sh
+--clone <name>` prints the clone's folder, and exits 1 naming the manifest
+when the name is not listed or the folder's origin is not that remote.
+`clones.sh` reports every clone through `dev_setup.sh`, and `--sync` clones
+the missing ones. A script reaches a clone only by its name. A self-test
+reads a clone and never writes to one: `change_gate.py` links each listed
+clone into the copy it tests in.
 
 ### Script
 
@@ -92,7 +109,8 @@ hold.
 
 Skills call scripts, and scripts call scripts, each by name through
 `project_file.sh --script`; a sourced library such as `atlassian-auth.sh` is
-found the same way, and a Python script resolves through `scripts/resolve.py`.
+found the same way, and a Python script resolves through `scripts/resolve.py`,
+whose `module()` imports a Python library such as `group_run.py` the same way.
 The two resolvers are reached at `~/.claude/scripts`, and a self-test sources
 `tap.sh` or imports `tap.py` from beside itself. A step that differs between projects is a verb the project
 provides. Its contract is the claim it proves. For example, `pr_env` takes a
@@ -148,6 +166,7 @@ flowchart TB
     project["<b>Project layer</b><br>[Files]<br>&lt;project&gt;/.claude: values, verbs, skills;<br>&lt;project&gt;/.secrets"]
     records["<b>Records</b><br>[Markdown]<br>session history, notes, memory facts"]
   end
+  clones["<b>Clones</b><br>[git repositories]<br>listed in &lt;project&gt;/.claude/clones"]
   cc -- "loads every turn" --> rules
   cc -- "reads before a code edit; guideline_gate.py refuses until then" --> guides
   cc -- "fires on session and tool events" --> hooks
@@ -156,6 +175,7 @@ flowchart TB
   skills -- "call by name through project_file.sh --script" --> scripts
   scripts -- "read values, secrets and project verbs" --> project
   scripts -- "write and recheck" --> records
+  scripts -- "reach by name through project_file.sh --clone" --> clones
   timer -- "memory_check.sh --all" --> scripts
   scripts -- "one verb per action" --> ext
 ```
@@ -176,7 +196,7 @@ list, and `selftest.sh` refuses one out of step with the hooks or the headers.
 
 <!-- hooks:begin -->
 - `scripts/session_end_notes.sh` (SessionEnd): SessionEnd hook: place what the ending session noticed, unattended.
-- `scripts/session_end_sweep.sh` (SessionEnd): SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day.
+- `scripts/session_end_sweep.sh` (SessionEnd): SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day, and report what the ending session leaves running.
 - `scripts/session_end_export.sh` (SessionEnd): SessionEnd hook: publish ~/.claude's public part whenever it has moved.
 - `scripts/block_gate.py` (SessionEnd clear; PermissionDenied denied; PreToolUse gate; PostToolUse[AskUserQuestion] clear; UserPromptSubmit clear): once auto mode blocks a call, no other tool runs until the user answers.
 - `scripts/guideline_gate.py` (SessionEnd clear; PreToolUse[Edit|Write|NotebookEdit] edit; PostToolUse[Read] read; SessionStart[compact] clear): no code is edited with the edit tools before its guidelines are read in that session.
@@ -229,7 +249,7 @@ What a session did and learned outlives it.
   `memory_check.last`, `session_end.last` or `git_sweep.last`. A SessionStart
   hook (`scripts/session_start_last.sh`) shows each once, whole, and moves it
   aside. Two reports of current state, `~/.claude/memory_check.last` from the
-  nightly check and `~/.claude/stray_sweep.last` from the daily sweep, are
+  nightly check and `~/.claude/stray_sweep.last` from the stray sweep, are
   shown while they exist; each writer removes its own once nothing is left.
 - **Memory.** `scripts/memory_fact.sh` writes a fact only when its `verify`
   command passes. `scripts/memory_check.sh --all` re-runs every command each
@@ -266,7 +286,10 @@ flowchart TB
   `<project>/.claude-project-data/`, where Claude Code then keeps the
   project's sessions and memory. A second run has nothing to do.
 - `scripts/project_file.sh` and `scripts/secret_file.sh` resolve a project's
-  folder, values, scripts and secrets; `scripts/resolve.py` reads them for Python.
+  folder, values, scripts, clones and secrets; `scripts/resolve.py` reads them
+  for Python.
+- `scripts/clones.sh` lists, reports and clones the repositories a project
+  works in.
 - `scripts/claude_account.sh` runs a project under the account its
   `.claude/config_dir` names. That account's directory links every shared
   entry back to `~/.claude`, so one copy of the tooling serves every account.
@@ -279,7 +302,9 @@ flowchart TB
   (`scripts/session_end_sweep.sh`), removes git state that is proven finished
   and writes `.claude/git_sweep.last`. The same run then runs
   `scripts/stray_sweep.py --apply`, which removes the stale temp folders and
-  reports the processes and files this user left on the machine.
+  reports the processes and files this user left on the machine. Every
+  session end also runs it once that session's Claude Code process has
+  exited, so the next session sees what the last one left running.
 
 ### Service verbs
 
@@ -340,7 +365,9 @@ the same way.
 ### Add a project
 
 Run `scripts/project_init.sh` in the repository, with `--account <config
-dir>` when it runs under its own account. Then add the project's
+dir>` when it runs under its own account. List the repositories it works
+in with `scripts/clones.sh --add <path>`, which `scripts/clones.sh --sync`
+clones on another machine. Then add the project's
 `scripts/selftest.sh`, sourcing `gate_lib.sh` and running `gate_layer_names`.
 
 ### Change a part

@@ -34,7 +34,7 @@
 #   - a binary file, which the checks above read as text and cannot see into.
 # A hit is reported as path:line and its reason, never the line, since the hit
 # may be the secret itself. The copy's own `scripts/selftest.sh --copy` must
-# then pass on it.
+# then pass on it; a refusal there prints the copy's FAIL and `not ok` lines.
 #
 # --scan runs the same scan on the allowlist as committed at the source's
 # HEAD, with no target, and exits 1 on any hit. tooling_commit.sh runs it
@@ -201,7 +201,7 @@ clear_target() {
 }
 
 export_to() {  # <src> <target> <message>
-  local src=$1 dst=$2 msg=$3 sha
+  local src=$1 dst=$2 msg=$3 sha log
   check_ends "$src" "$dst"
   sha=$(git -C "$src" rev-parse --short HEAD)
   clear_target "$dst"
@@ -212,7 +212,9 @@ export_to() {  # <src> <target> <message>
   # Staged before the selftest runs, so what the selftest leaves in the tree,
   # bytecode or a scratch file, is put back out and never committed.
   git -C "$dst" add -A
-  "$dst/scripts/selftest.sh" --copy >/dev/null 2>&1 || refuse "$dst" "scripts/selftest.sh fails on the copy"
+  # The copy is scanned already, so its failing checks are safe to show.
+  log=$("$dst/scripts/selftest.sh" --copy 2>&1) \
+    || { grep -E 'FAIL|not ok' <<<"$log" >&2; refuse "$dst" "scripts/selftest.sh fails on the copy, at the checks above"; }
   git -C "$dst" checkout -q -- .; git -C "$dst" clean -qfd
 
   git -C "$dst" diff --cached --quiet && { echo "nothing to commit: the target matches $sha"; return 0; }
@@ -308,9 +310,11 @@ self_test() {
   [[ -f "$fx/dst/NOTES.md" && "$(tail -1 "$fx/dst/README.md")" == edited ]] && tap_ok "and its uncommitted work is untouched" || tap_not_ok "and its uncommitted work is untouched" "dirty: work lost"
   rm "$fx/dst/NOTES.md"; g "$fx/dst" checkout -q -- README.md
 
-  printf '#!/usr/bin/env bash\nexit 1\n' > "$fx/src/scripts/selftest.sh"; g "$fx/src" commit -qam red
+  printf '#!/usr/bin/env bash\necho "  ok  fine.sh"; echo "  FAIL scripts/red.sh --self-test"; exit 1\n' > "$fx/src/scripts/selftest.sh"; g "$fx/src" commit -qam red
   head=$(git -C "$fx/dst" rev-parse HEAD)
   out=$(run "red") && tap_not_ok "a failing selftest is refused" "a failing selftest exported" || { grep -q "selftest.sh fails" <<<"$out" && tap_ok "a failing selftest is refused" || tap_not_ok "a failing selftest is refused" "red: $out"; }
+  grep -q "FAIL scripts/red.sh" <<<"$out" && ! grep -q "fine.sh" <<<"$out" \
+    && tap_ok "the refusal names only the failing checks" || tap_not_ok "the refusal names only the failing checks" "red: $out"
   [[ "$(git -C "$fx/dst" rev-parse HEAD)" == "$head" ]] && tap_ok "a failing selftest commits nothing" || tap_not_ok "a failing selftest commits nothing"
   [[ -z "$(git -C "$fx/dst" status --porcelain)" ]] && tap_ok "a refusal after staging leaves nothing staged" || tap_not_ok "a refusal after staging leaves nothing staged" "red: the copy is left staged"
 }

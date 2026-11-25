@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
-# SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day.
+# SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day, and report what the ending session leaves running.
 #
 # The harness runs this with the hook payload on stdin — session_id, cwd and
-# reason — when a session ends. It decides whether a sweep is due and, if so,
+# reason — when a session ends. Every time, it starts a detached
+# `stray_sweep.py --after <pid> --write ~/.claude/stray_sweep.last`, the pid
+# being the Claude Code process it runs under: once that process has exited,
+# whatever the session left running is re-parented, and the next session start
+# shows it. It then decides whether a daily sweep is due and, if so,
 # starts a detached `git_sweep.sh <project> --apply`, which deletes what is
 # proven finished and opens a note for the rest, and then
 # `stray_sweep.py --apply --write ~/.claude/stray_sweep.last`, which removes
@@ -50,6 +54,7 @@ STATE="${SESSION_END_SWEEP_STATE:-$HOME/.claude/state}"
 SWEEP="${SESSION_END_SWEEP_CMD:-$SCRIPTS_DIR/git_sweep.sh}"
 STRAYS="${SESSION_END_STRAYS_CMD:-$SCRIPTS_DIR/stray_sweep.py}"
 STRAY_REPORT="${SESSION_END_STRAY_REPORT:-$HOME/.claude/stray_sweep.last}"
+CLAUDE_COMM="${SESSION_END_CLAUDE_COMM:-claude}"
 SWEEP_HOURS=24
 # shellcheck source=journal_lib.sh
 . "$SCRIPTS_DIR/journal_lib.sh"
@@ -111,12 +116,31 @@ report() {  # <project> <what> — starts this run's record, after any unread on
   { [[ -s "$f" ]] && echo; printf 'git_sweep %s: %s %s\n' "$(date -u '+%Y-%m-%d %H:%M')" "$1" "$2"; } >>"$f"
 }
 
+claude_pid() {  # -> the nearest ancestor that is Claude Code
+  local p=$PPID comm
+  while [[ "$p" -gt 1 ]]; do  # mutation: equivalent — pid 1 is init, never Claude Code
+    comm=$(cat "/proc/$p/comm" 2>/dev/null) || break
+    [[ "$comm" == "$CLAUDE_COMM" ]] && { echo "$p"; return 0; }
+    p=$(ps -o ppid= -p "$p" | tr -d ' ')
+  done
+  return 1
+}
+
+watch_session() {  # <dry> — sweep the strays once the session's process has exited
+  local pid
+  pid=$(claude_pid) || { say "strays: no $CLAUDE_COMM process above the hook"; return; }
+  if (( $1 )); then say "strays: dry-run, would watch $pid"; return; fi
+  "$SCRIPTS_DIR/detach.sh" "$STRAYS" --after "$pid" --write "$STRAY_REPORT"
+  say "strays: watching $pid"
+}
+
 hook() {  # <dry> — reads the payload on stdin
   local payload cwd reason verdict
   payload=$(cat)
   cwd=$(jq -r '.cwd // empty' <<<"$payload" 2>/dev/null)
   reason=$(jq -r '.reason // "other"' <<<"$payload" 2>/dev/null)
   if [[ -n "${CLAUDE_TOOLING_UNATTENDED:-}" ]]; then say "reason=${reason:-other} skip: an unattended run's own end"; return; fi
+  watch_session "$1"
   verdict=$(decide "$cwd")
   if [[ "$verdict" != run* ]]; then say "reason=${reason:-other} $verdict"; return; fi
   if (( $1 )); then
@@ -132,18 +156,18 @@ hook() {  # <dry> — reads the payload on stdin
 self_test() {
   # shellcheck source=tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/tap.sh"
-  local tmp out p
+  local tmp out p watched
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' RETURN
   unset CLAUDE_TOOLING_UNATTENDED
   export SESSION_END_LOG="$tmp/log" SESSION_END_SWEEP_STATE="$tmp/state"
   export SESSION_END_SWEEP_CMD="$tmp/sweep" SESSION_END_STRAYS_CMD="$tmp/strays"
-  export SESSION_END_STRAY_REPORT="$tmp/strays.last"
+  export SESSION_END_STRAY_REPORT="$tmp/strays.last" SESSION_END_CLAUDE_COMM=bash
   LOG="$tmp/log" STATE="$tmp/state" SWEEP="$tmp/sweep" STRAYS="$tmp/strays" STRAY_REPORT="$tmp/strays.last"
   mkdir -p "$STATE"; : >"$LOG"
   # shellcheck disable=SC2016  # the fake sweep expands its own arguments
   printf '#!/usr/bin/env bash\necho "SWEPT $1 $2 sid=${CLAUDE_CODE_SESSION_ID-unset}"; exit 1\n' >"$SWEEP"
   # shellcheck disable=SC2016  # the fake expands its own arguments
-  printf '#!/usr/bin/env bash\necho "STRAYS $*"; echo stray > "$3"; exit 1\n' >"$STRAYS"
+  printf '#!/usr/bin/env bash\necho "STRAYS $*"; echo "$*" >> %s/strays.args; echo stray > "${@: -1}"; exit 1\n' "$tmp" >"$STRAYS"
   chmod +x "$SWEEP" "$STRAYS"
   check() {  # <description> <want prefix> <got>
     if [[ "$3" == "$2"* ]]; then tap_ok "$1"
@@ -194,8 +218,14 @@ self_test() {
   rm "$(stamp_of "$p")"
   out=$(printf '{"cwd":"%s","reason":"clear"}' "$p" | bash "$0" --dry-run)
   check "the hook reads cwd from the payload" "would run: $SWEEP $p --apply" "$out"
+  check "and would watch the Claude Code process it runs under" "1" "$(grep -cE 'strays: dry-run, would watch [0-9]+$' "$LOG")"
+  out=$(printf '{"cwd":"%s"}' "$p" | SESSION_END_CLAUDE_COMM=none bash "$0" --dry-run)
+  check "with none above it, the hook says so and still sweeps" "would run: $SWEEP $p --apply" "$out"
+  check "in the log" "1" "$(grep -c 'strays: no none process above the hook' "$LOG")"
+  watched=$(grep -c 'would watch' "$LOG")
   out=$(printf '{"cwd":"%s","reason":"clear"}' "$p" | CLAUDE_TOOLING_UNATTENDED=1 bash "$0" --dry-run)
   check "an unattended run's own end sweeps nothing" "" "$out"
+  check "and watches no session" "$watched" "$(grep -c 'would watch' "$LOG")"
   check "and says so in the log" "skip: an unattended run's own end" "$(tail -1 "$LOG" | sed 's/.*reason=clear //')"
   out=$(printf 'not json' | bash "$0"; echo "rc=$?")
   check "a payload that is not JSON exits 0" "rc=0" "$out"
@@ -205,6 +235,9 @@ self_test() {
     [[ "$(grep -c 'run finished' "$LOG")" -ge 2 ]] && break; sleep 0.1; done
   check "the hook detaches a run that reaches the log" "2" \
     "$(grep -c '^SWEPT' "$LOG")"
+  for _ in $(seq 50); do grep -q -- '--after' "$tmp/strays.args" 2>/dev/null && break; sleep 0.1; done
+  check "and a stray sweep after the session's process, into the report" "1" \
+    "$(grep -cx -- "--after $$ --write $STRAY_REPORT" "$tmp/strays.args")"
 }
 
 case "${1:-}" in

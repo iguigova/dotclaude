@@ -25,7 +25,8 @@
 #                      on and the facts it left unchecked, each since the night
 #                      it was first left so
 #   ~/.claude/stray_sweep.last   what this user left running or lying around on
-#                      the machine, as the daily sweep last found it
+#                      the machine, as the stray sweep last found it: once a
+#                      day, and after each session's Claude Code process exits
 #
 # The project is the one the payload's cwd lies in (project_file.sh --root),
 # found by its history. It exits 0 on every path, since a session starts
@@ -62,7 +63,7 @@ reports() {
   local hist
   hist=$(journal_hist session_start_last.sh 2>/dev/null) && project_reports "$(dirname "$hist")"
   [[ -s "$GLOBAL" ]] && show "$GLOBAL" " (the nightly check's current state, shown until it clears)"
-  [[ -s "$STRAYS" ]] && show "$STRAYS" " (the daily stray sweep's last finding, shown until it clears)"
+  [[ -s "$STRAYS" ]] && show "$STRAYS" " (the stray sweep's last finding, shown until it clears)"
 }
 
 # main — the reports under one heading, or nothing at all. Its status is
@@ -92,11 +93,13 @@ self_test() {
   printf 'git_sweep 2026: p\nrun finished rc=0\n' > "$fx/p/.claude/git_sweep.last"
   : > "$fx/p/.claude/session_end.last"
   printf 'skipped store y\n' > "$fx/global"
+  fixed() {  # [<env>…] — the hook, reading only the fixture's reports; the payload is stdin
+    env SESSION_START_LAST_STATE="$fx/state" SESSION_START_LAST_GLOBAL="$fx/global" \
+      SESSION_START_LAST_STRAYS="$fx/strays" "$@" "$self"
+  }
   hook() {  # <cwd> [<env>…] — the hook, as the harness invokes it
     local cwd=$1; shift
-    printf '{"cwd":"%s","source":"startup"}' "$cwd" \
-      | env SESSION_START_LAST_STATE="$fx/state" SESSION_START_LAST_GLOBAL="$fx/global" \
-        SESSION_START_LAST_STRAYS="$fx/strays" "$@" "$self"
+    printf '{"cwd":"%s","source":"startup"}' "$cwd" | fixed "$@"
   }
 
   out=$(hook "$fx/p/sub")
@@ -112,7 +115,7 @@ self_test() {
   rm "$fx/global"
   printf 'orphan 7\n' > "$fx/strays"
   tap_is "the stray report is shown as the sweep's last finding, and stays" \
-    "$(hook "$fx/p" | grep -c -e "^== $fx/strays (the daily stray sweep" -e '^orphan 7$') $([[ -s "$fx/strays" ]] && echo kept)" "2 kept"
+    "$(hook "$fx/p" | grep -c -e "^== $fx/strays (the stray sweep's last finding" -e '^orphan 7$') $([[ -s "$fx/strays" ]] && echo kept)" "2 kept"
   rm "$fx/strays"
   tap_is "with nothing to show it prints nothing" "$(hook "$fx/p")" ""
   printf 'deleted z\n' > "$fx/q/.claude/memory_check.last"
@@ -120,7 +123,7 @@ self_test() {
     "$(hook "$fx/q" CLAUDE_TOOLING_UNATTENDED=1)$([[ -s "$fx/q/.claude/memory_check.last" ]] && echo kept)" kept
   tap_is "a folder in no project, or a cwd that is gone, prints nothing and exits 0" \
     "$(hook /; echo "rc=$?")$(hook "$fx/gone"; echo "rc=$?")" "rc=0rc=0"
-  tap_is "a payload that is not JSON exits 0" "$(printf 'nope' | "$self"; echo "rc=$?")" "rc=0"
+  tap_is "a payload that is not JSON exits 0" "$(printf 'nope' | fixed; echo "rc=$?")" "rc=0"
   tap_is "--help prints the header" "$("$self" --help | head -1)" \
     "session_start_last.sh — SessionStart hook: show what ran while nobody was here."
 }

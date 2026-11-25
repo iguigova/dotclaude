@@ -4,7 +4,6 @@
   draft_gate.py loaded                # PostToolUse(Skill): record the skill loaded
   draft_gate.py clear                 # SessionStart(compact), SessionEnd: forget the loads
   draft_gate.py check <skill>...      # a writer, before it sends
-  draft_gate.py post                  # retired PreToolUse(Bash) mode: exits 0
   draft_gate.py --self-test           # offline
 
 Text a person reads is written with the draft skill, a reference page with
@@ -20,9 +19,7 @@ has loaded one of the skills named, or when no Claude session is running the
 writer. Otherwise it exits 1 and says on stderr which skill to load.
 
 ``loaded`` and ``clear`` read the hook payload on stdin and exit 0; a
-payload they cannot read records nothing. ``post`` exits 0 without reading:
-a session started while settings.json still ran it keeps that hook until it
-ends, and a failing hook would block its every Bash call. DRAFT_GATE_DIR names another
+payload they cannot read records nothing. DRAFT_GATE_DIR names another
 directory for the records.
 """
 import json
@@ -159,7 +156,6 @@ def self_test_main(t):
         return subprocess.run([sys.executable, __file__, *args], input=stdin, env=env,
                               capture_output=True, text=True).returncode
     t.check(status('loaded') == 0 and status('clear') == 0, 'a hook mode reads its payload and exits 0')
-    t.check(status('post') == 0 and status('post', 'x') == 2, 'the retired post mode exits 0 and takes no arguments')
     t.check(status('check', 'draft') == 1 and status('check', 'draft', session='') == 0,
             'check exits 1 when refused and 0 when it may send')
     t.check(status() == 2 and status('nope') == 2 and status('loaded', 'x') == 2 and status('check') == 2,
@@ -177,8 +173,6 @@ def main(argv):
         return check(rest)
     if mode in HOOKS and not rest:
         run_hook(mode, sys.stdin.read())
-        return 0
-    if mode == 'post' and not rest:
         return 0
     print(__doc__.split('\n\n')[0], file=sys.stderr)
     return 2

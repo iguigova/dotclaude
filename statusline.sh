@@ -16,6 +16,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 if [[ "${1:-}" == --self-test ]]; then
   set +e
+  # The account comes from the fixture's login unless a case names another config dir.
+  unset CLAUDE_CONFIG_DIR
   # shellcheck source=scripts/tap.sh
   . "$(dirname "${BASH_SOURCE[0]}")/scripts/tap.sh"
   fx=$(mktemp -d) || exit 2; trap 'rm -rf "$fx"' EXIT

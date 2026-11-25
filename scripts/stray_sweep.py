@@ -27,35 +27,39 @@ Exit 0 nothing is stray, 1 something is and the report names it, 2 usage.
 Usage:
   stray_sweep.py                  print what is stray now
   stray_sweep.py --apply          remove the removable temp entries, then print
-  stray_sweep.py [--apply] --write FILE
+  stray_sweep.py [--apply] [--after PID] --write FILE
                                   the report into FILE instead, which is
-                                  removed when nothing is stray
+                                  removed when nothing is stray; --after first
+                                  waits, up to AFTER_LIMIT seconds, for that
+                                  process to end, so what it leaves running is
+                                  judged once it is re-parented
   stray_sweep.py --self-test
+
+This sweep's own process is never judged.
 """
 
 from __future__ import annotations
 
 import os
 import re
-import shutil
 import sys
 import time
 from collections import defaultdict
-from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from stray_temps import DAY, STALE_DAYS, Entry, remove, stale_temps  # noqa: E402
 
 LONG_TEST = re.compile(
     r"pytest|rspec|jest|vitest|flutter_tester|dart test|--self-test|ci_gate|change_gate"
     r"|selftest\.sh|tooling_commit"
 )
 LONG_HOURS = 1
-STALE_DAYS = 7
-MADE_BY_TEMP_MAKER = re.compile(r"tmp[a-z0-9_]{8}(?:\.[\w.-]+)?|tmp\.[A-Za-z0-9]{10}")
 SYSTEMD_USER = "/usr/lib/systemd/systemd --user"
 COMMAND_WIDTH = 100
 LISTED = 5
-DAY = 86400
+AFTER_LIMIT = 600
 
 
 @dataclass(frozen=True)
@@ -69,14 +73,6 @@ class Proc:
     cpu: float
     age: float
     cmd: str
-
-
-@dataclass(frozen=True)
-class Entry:
-    path: Path
-    size: int
-    newest: float
-    removable: bool
 
 
 # ---------------------------------------------------------------- processes
@@ -151,67 +147,6 @@ def long_tests(procs: dict[int, Proc], uid: int) -> list[Proc]:
     ]
 
 
-# ---------------------------------------------------------------- temp
-
-
-def held_paths(procs: Iterable[Proc]) -> set[str]:
-    """Every folder a process works in and every file it holds open, of the processes given."""
-    held = set()
-    for p in procs:
-        d = Path(f"/proc/{p.pid}")
-        try:
-            held.add(os.readlink(d / "cwd"))
-            held.update(os.readlink(d / "fd" / fd) for fd in os.listdir(d / "fd"))
-        except OSError:
-            continue
-    return held
-
-
-def measure(path: Path) -> tuple[int, float]:
-    """Bytes on disk under path, itself included, and the newest change to anything in it."""
-    top = path.lstat()
-    size, newest = top.st_blocks * 512, top.st_mtime
-    for root, dirs, files in os.walk(path):
-        for name in dirs + files:
-            s = os.lstat(os.path.join(root, name))
-            size, newest = size + s.st_blocks * 512, max(newest, s.st_mtime)
-    return size, newest
-
-
-def in_use(path: Path, held: set[str]) -> bool:
-    return any(h == str(path) or h.startswith(f"{path}/") for h in held)
-
-
-def judged(path: Path, held: set[str], now: float) -> Entry | None:
-    """The entry when it is stale: something to reclaim, unchanged for a week, held by none."""
-    try:
-        size, newest = measure(path)
-    except OSError:
-        return None
-    if size and now - newest >= STALE_DAYS * DAY and not in_use(path, held):
-        return Entry(path, size, newest, bool(MADE_BY_TEMP_MAKER.fullmatch(path.name)))
-    return None
-
-
-def stale_temps(root: Path, uid: int, procs: dict[int, Proc], now: float) -> list[Entry]:
-    """The user's stale entries under root, largest first; a hidden one is a convention's."""
-    held = held_paths(p for p in procs.values() if p.uid == uid)
-    owned = (p for p in root.iterdir() if p.lstat().st_uid == uid and not p.name.startswith("."))
-    return sorted(filter(None, (judged(p, held, now) for p in owned)), key=lambda e: -e.size)
-
-
-def remove(entries: Iterable[Entry]) -> list[Entry]:
-    """The removable entries, each removed; the rest are kept."""
-    gone = []
-    for e in (e for e in entries if e.removable):
-        if e.path.is_dir() and not e.path.is_symlink():
-            shutil.rmtree(e.path)
-        else:
-            e.path.unlink()
-        gone.append(e)
-    return gone
-
-
 # ---------------------------------------------------------------- report
 
 
@@ -283,16 +218,65 @@ def write(text: str, out: Path | None) -> None:
         out.unlink(missing_ok=True)
 
 
+def started(pid: int) -> str | None:
+    """When the process began, in clock ticks since boot; None once it is gone or a zombie."""
+    try:
+        f = Path(f"/proc/{pid}/stat").read_text().rsplit(") ", 1)[1].split()
+    except OSError:
+        return None
+    return None if f[0] == "Z" else f[19]
+
+
+def wait_gone(pid: int, limit: float) -> bool:
+    """Whether the process ended within limit seconds; a new process under its pid is not it."""
+    began, deadline = started(pid), time.monotonic() + limit
+    while began is not None and started(pid) == began and time.monotonic() < deadline:  # mutation: equivalent — no run lands on the deadline's exact float
+        time.sleep(0.2)
+    return began is None or started(pid) != began
+
+
+def awaited(after: int | None, limit: float) -> str:
+    """Wait for the --after process; a warning when it still runs at the limit, else nothing."""
+    if after is None or wait_gone(after, limit):
+        return ""
+    return f"stray_sweep: process {after} still runs after {limit:.0f}s"
+
+
+def own(procs: dict[int, Proc], uid: int) -> list[int]:
+    return [p.pid for p in procs.values() if p.uid == uid]
+
+
+def parse(argv: list[str]) -> tuple[bool, Path | None, int | None] | None:
+    """--apply, the --write file and the --after pid; None for a usage error."""
+    flags, rest, out, after = {"--apply": False}, list(argv), None, None
+    while rest:
+        arg = rest.pop(0)
+        if arg == "--apply":
+            flags[arg] = True
+        elif arg in ("--write", "--after") and rest:
+            value = rest.pop(0)
+            if arg == "--write":
+                out = Path(value)
+            elif value.isdigit():
+                after = int(value)
+            else:
+                return None
+        else:
+            return None
+    return (flags["--apply"], out, after) if out or after is None else None
+
+
 def main(argv: list[str]) -> int:
-    apply, out = "--apply" in argv, None
-    rest = [a for a in argv if a != "--apply"]
-    if rest[:1] == ["--write"] and len(rest) == 2:
-        out = Path(rest[1])
-    elif rest:
+    parsed = parse(argv)
+    if parsed is None:
         print(__doc__, file=sys.stderr)
         return 2
+    apply, out, after = parsed
+    if late := awaited(after, AFTER_LIMIT):
+        print(late, file=sys.stderr)
     procs, uid = read_procs(), os.getuid()
-    stale = stale_temps(Path("/tmp"), uid, procs, time.time())
+    procs.pop(os.getpid(), None)
+    stale = stale_temps(Path("/tmp"), uid, own(procs, uid), time.time())
     gone = remove(stale) if apply else []
     text = report(procs, uid, stale, gone)
     write(text, out)
@@ -310,7 +294,7 @@ def self_test() -> int:
     with scratch() as d:
         self_test_procs(t, self_test_table())
         self_test_lines(t, self_test_table())
-        self_test_temps(t, Path(d), self_test_tree(Path(d) / "tmp"))
+        self_test_temps(t, Path(d))
         self_test_live(t, Path(d))
     return t.end()
 
@@ -347,6 +331,7 @@ def self_test_procs(t, procs: dict[int, Proc]) -> None:
         repr([q.pid for q in orphans(procs, 1000)]),
     )
     t.check([q.pid for q in zombies(procs, 1000)] == [70], "a zombie is reported")
+    t.check(60 not in own(procs, 1000) and 30 in own(procs, 1000), "only the user's own processes hold a temp entry")
     t.check(
         [q.pid for q in long_tests(procs, 1000)] == [80],
         "a test past an hour is reported, one at the hour and a long editor are not",
@@ -377,61 +362,21 @@ def self_test_lines(t, procs: dict[int, Proc]) -> None:
     )
 
 
-def self_test_tree(root: Path) -> int:
-    """Temp entries a week stale, fresh, held, hidden and empty; the clock they were judged by."""
-    now = int(time.time())
-    old = now - STALE_DAYS * DAY
-    stale = ("tmpab_12cd9", "tmp.AbCdEfGh12", "work", "tmpfresh0_1", "tmpheld0__1", "tmp.Recent0000")
-    for name in (*stale, ".X0-lock", "tmpq_8rt0ax.ci_gate", "tmpshort"):
-        (root / name / "sub").mkdir(parents=True)
-        (root / name / "sub" / "f").write_text("x" * 5000)
-    (root / "tmploose0_1").write_text("y")
-    (root / "uv-0a.lock").write_text("")
-    for path in root.rglob("*"):
-        os.utime(path, (old, old))
-    os.utime(root / "tmp.Recent0000" / "sub" / "f", (old + 1, old + 1))
-    os.utime(root / "tmpfresh0_1", (now, now))
-    return now
+def self_test_temps(t, d: Path) -> None:
+    from stray_temps import self_test_tree
 
-
-def self_test_temps(t, d: Path, now: int) -> None:
-    root, procs = d / "tmp", read_procs()
-    with open(root / "tmpheld0__1" / "sub" / "f"):
-        stale = stale_temps(root, os.getuid(), procs, now)
-    t.check(
-        sorted(e.path.name for e in stale)
-        == ["tmp.AbCdEfGh12", "tmpab_12cd9", "tmploose0_1", "tmpq_8rt0ax.ci_gate", "tmpshort", "work"],
-        "an entry is stale once nothing in it changed for a week and none of this user's processes"
-        " holds it; a hidden one and an empty file are not",
-        repr(sorted(e.path.name for e in stale)),
-    )
-    t.check(
-        sorted(e.path.name for e in stale if e.removable)
-        == ["tmp.AbCdEfGh12", "tmpab_12cd9", "tmploose0_1", "tmpq_8rt0ax.ci_gate"],
-        "only a name a temp maker gives is removable, a suffix included",
-    )
-    t.check(stale[0].size >= 5000 and stale[-1].path.name == "tmploose0_1", "largest first, sized on disk")
+    root = d / "tmp"
+    stale = stale_temps(root, os.getuid(), [], self_test_tree(root))
     self_test_report(t, stale, report({}, 1000, stale, []))
-    gone = remove(stale)
-    t.check(
-        sorted(p.name for p in root.iterdir())
-        == [".X0-lock", "tmp.Recent0000", "tmpfresh0_1", "tmpheld0__1", "tmpshort", "uv-0a.lock", "work"],
-        "--apply removes the removable, folders and files, and keeps the rest",
-    )
-    self_test_report(t, stale, report({}, 1000, stale, gone))
-    t.check(not in_use(root / "tmpab", {str(root / "tmpab_12cd9")}), "a held path's prefix is not the path")
-    try:
-        stale[0].__setattr__("size", 0)
-        t.check(False, "an entry judged is never changed")
-    except AttributeError:
-        t.check(True, "an entry judged is never changed")
+    self_test_report(t, stale, report({}, 1000, stale, remove(stale)))
 
 
 def self_test_report(t, stale: list[Entry], text: str) -> None:
-    applied = "removed 4," in text
+    removable = sum(e.removable for e in stale)
+    applied = f"removed {removable}," in text
     t.check(
-        "temp    6 entries" in text and f"{stale[0].path.parent}/work" in text
-        and ("removable by --apply" not in text) == applied,
+        f"temp    {len(stale)} entries" in text and f"{stale[0].path.parent}/work" in text
+        and (f"removable by --apply: {removable}," in text) != applied,
         "the report counts the stale, names what is kept, and says what --apply "
         + ("removed" if applied else "would remove"),
         text,
@@ -454,11 +399,36 @@ def self_test_live(t, d: Path) -> None:
     write("x\n", out)
     t.check(out.read_text() == "x\n", "--write writes the report when something is")
     self_path = os.path.abspath(__file__)
-    for bad in (["--nope"], ["--write"], ["--apply", "a", "b"]):
+    t.check(
+        parse([]) == (False, None, None)
+        and parse(["--apply", "--write", "r", "--after", "7"]) == (True, Path("r"), 7),
+        "the options parse in any order",
+    )
+    for bad in (["--nope"], ["--write"], ["--apply", "a", "b"], ["--after", "7"], ["--write", "r", "--after", "x"]):
         usage = subprocess.run([sys.executable, self_path, *bad], capture_output=True, text=True)
         t.check(usage.returncode == 2 and "Usage:" in usage.stderr, f"{' '.join(bad)} is a usage error")
     run = subprocess.run([sys.executable, self_path, "--write", str(out)], capture_output=True, text=True)
     t.check(run.returncode in (0, 1) and run.stdout == "", "a run with --write prints nothing", run.stderr)
+    self_test_after(t, d)
+
+
+def self_test_after(t, d: Path) -> None:
+    import subprocess
+
+    brief = subprocess.Popen(["sleep", "0.5"])
+    begun = time.monotonic()
+    t.check(wait_gone(brief.pid, 10) and time.monotonic() - begun >= 0.4, "--after waits for the process to end")
+    brief.wait()
+    t.check(started(brief.pid) is None and wait_gone(brief.pid, 10), "a process already gone is not waited for")
+    lasting = subprocess.Popen(["sleep", "30"])
+    t.check(not wait_gone(lasting.pid, 0.3), "a process still running at the limit is not gone")
+    t.check(
+        awaited(None, 0) == "" and awaited(brief.pid, 1) == ""
+        and awaited(lasting.pid, 0.2) == f"stray_sweep: process {lasting.pid} still runs after 0s",
+        "without --after nothing is awaited, and one still running at the limit is warned of",
+    )
+    lasting.kill()
+    lasting.wait()
 
 
 if __name__ == "__main__":

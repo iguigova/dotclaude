@@ -99,14 +99,16 @@ gate_shellcheck() {  # <file…>
 # self_test_of — one script's self-test, run in its own folder as ./<name>, so
 # a test that calls "$0" finds it. Its TAP and stderr land in $work, sweep's. SIGPIPE
 # is ignored, as GitHub's runners ignore it, so a writer cut off by a reader
-# that quit early fails here with "Broken pipe", not first on a push. One that
-# overruns 120s is stopped with its whole process group, TERM and then KILL.
-# TMPDIR is a folder of its own, which verdict_of holds empty once it ends.
+# that quit early fails here with "Broken pipe", not first on a push. It runs
+# under group_run.py, so whatever it starts is stopped once it ends, or once it
+# overruns 120s. TMPDIR is a folder of its own, which verdict_of holds empty.
 self_test_of() {  # <script>
   local name=${1##*/} runner=bash
   is_python "$1" && runner=python3
   mkdir "$work/$name.tmp" || return 1
-  (trap '' PIPE; cd "${1%/*}" && TMPDIR="$work/$name.tmp" timeout -k 5 120 "$runner" "./$name" --self-test) \
+  # shellcheck disable=SC2016  # the inner shell expands its own arguments
+  (cd "${1%/*}" && TMPDIR="$work/$name.tmp" "$GATE_SCRIPTS/group_run.py" --timeout 120 -- \
+    bash -c 'trap "" PIPE; exec "$@"' _ "$runner" "./$name" --self-test) \
     >"$work/$name.tap" 2>"$work/$name.err"
 }
 
@@ -321,6 +323,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   fixture selftest.sh 'printf "ok 1 - gate\n1..1\n"'
   fixture leak.sh    'mktemp -d >/dev/null; printf "ok 1 - x\n1..1\n"'
   fixture tidy.sh    'd=$(mktemp -d); rm -r "$d"; printf "ok 1 - x\n1..1\n"'
+  fixture bg.sh      "sleep 300 >/dev/null 2>&1 & echo \$! > $fx/bg.pid; printf 'ok 1 - x\\n1..1\\n'"
   printf '#!/usr/bin/env bash\necho PASS\n' > "$fx/s/quiet.sh"
   printf '#!/usr/bin/env python3\n# --self-test\nprint("ok 1 - snake\\n1..1")\n' > "$fx/s/snake.sh"
   printf '# --self-test\nprint("ok 1 - py\\n1..1")\n' > "$fx/s/plain.py"
@@ -347,6 +350,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_like "a self-test that leaves a temp folder behind fails the sweep, naming it" \
     "$(line leak.sh)" "  FAIL s/leak.sh --self-test left its temp folder holding: tmp.*"
   tap_is "a self-test that removes its temp folder passes" "$(line tidy.sh)" "  ok  s/tidy.sh (cases: 1)"
+  for _ in $(seq 100); do kill -0 "$(cat "$fx/bg.pid")" 2>/dev/null || break; sleep 0.05; done
+  tap_is "a process a passing self-test leaves behind is stopped with it" \
+    "$(line bg.sh) $(kill -0 "$(cat "$fx/bg.pid")" 2>/dev/null && echo alive || echo gone)" "  ok  s/bg.sh (cases: 1) gone"
   tap_is "selftest.sh, the gate itself, is swept" \
     "$(line selftest.sh)" "  ok  s/selftest.sh (cases: 1)"
   tap_is "selftest.sh is not swept inside a gate's own self-test" \
@@ -356,7 +362,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a .py script runs under python3" "$(line plain.py)" "  ok  s/plain.py (cases: 1)"
   tap_is "verdicts print in file order, whatever finishes first" \
     "$(sed -n 's/^  [A-Z ok]* s\/\([^ ]*\) .*/\1/p' <<<"$out" | paste -sd' ')" \
-    "a_slow.sh gloom.sh good.sh leak.sh liar.sh pipe.sh red.sh selftest.sh snake.sh tidy.sh untap.sh plain.py"
+    "a_slow.sh bg.sh gloom.sh good.sh leak.sh liar.sh pipe.sh red.sh selftest.sh snake.sh tidy.sh untap.sh plain.py"
   tap_is "a passing self-test's stderr is not shown" "$(grep -c noise <<<"$out")" 0
   tap_is "a sweep with any failure fails" "$st" 1
   cp s/good.sh s/snake.sh green/

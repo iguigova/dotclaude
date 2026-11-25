@@ -14,9 +14,9 @@ script's own header, less a leading "<script> — ". The doc holds the list betw
 <!-- hooks:begin --> and <!-- hooks:end -->, so what a page says a gate does is
 what the gate says it does, and selftest.sh refuses a page that has drifted.
 
-The tree is the doc's folder: its settings.json and its scripts/. With no
-doc, it is the folder above this script. A command that names no script under
-$HOME/.claude/scripts/ is listed as it is written.
+The tree is the doc's folder: its settings.json and the scripts under it, each
+named by its path in the tree. With no doc, it is the folder above this script.
+A command that names no script under $HOME/.claude/ is listed as it is written.
 
 Exit 0 listed, written or in step; 1 the doc has drifted, or holds no markers;
 2 usage.
@@ -33,7 +33,7 @@ from tap import Tap
 
 TREE = Path(__file__).resolve().parent.parent
 BEGIN, END = '<!-- hooks:begin -->', '<!-- hooks:end -->'
-SCRIPT_RE = re.compile(r'^\$HOME/\.claude/scripts/(\S+)\s*(.*)$')
+SCRIPT_RE = re.compile(r'^\$HOME/\.claude/(\S+)\s*(.*)$')
 
 
 def runs(settings):
@@ -81,9 +81,9 @@ def listing(tree):
         events[script].append(when(event, matcher, args))
     lines = []
     for script in order:
-        path = tree / 'scripts' / script
+        path = tree / script
         said = summary(path) if path.is_file() else 'no such script'
-        lines.append(f'- `scripts/{script}` ({"; ".join(events[script])}): {said}')
+        lines.append(f'- `{script}` ({"; ".join(events[script])}): {said}')
     return '\n'.join(lines)
 
 
@@ -148,15 +148,18 @@ def self_test():
         (tree / 'scripts').mkdir()
         (tree / 'scripts' / 'g.py').write_text('"""g.py — no step runs\nunread. Ever.\n\nMore.\n"""\n')
         (tree / 'scripts' / 'h.sh').write_text('#!/usr/bin/env bash\n# SessionEnd hook: the end hook\n# for each session\n#\n# More.\nset -u\n')
+        (tree / 's.sh').write_text('#!/usr/bin/env bash\n# s.sh — a script beside scripts/.\nset -u\n')
         settings = {'hooks': {
             'PreToolUse': [{'matcher': 'Edit', 'hooks': [{'command': '$HOME/.claude/scripts/g.py edit'}]}],
             'SessionEnd': [{'hooks': [{'command': '$HOME/.claude/scripts/h.sh'},
                                       {'command': '$HOME/.claude/scripts/g.py clear'},
+                                      {'command': '$HOME/.claude/s.sh --end'},
                                       {'command': 'echo other'}]}]}}
         (tree / 'settings.json').write_text(json.dumps(settings))
         want = ('- `scripts/g.py` (PreToolUse[Edit] edit; SessionEnd clear): no step runs unread.\n'
                 '- `scripts/h.sh` (SessionEnd): SessionEnd hook: the end hook for each session\n'
-                '- `scripts/echo other` (SessionEnd): no such script')
+                '- `s.sh` (SessionEnd --end): a script beside scripts/.\n'
+                '- `echo other` (SessionEnd): no such script')
         t.check(listing(tree) == want,
                 'each script is one line: its events with matcher and arguments, then its header\'s first sentence',
                 listing(tree))

@@ -201,6 +201,7 @@ list, and `selftest.sh` refuses one out of step with the hooks or the headers.
 <!-- hooks:begin -->
 - `scripts/session_end_notes.sh` (SessionEnd): SessionEnd hook: place what the ending session noticed, unattended.
 - `scripts/session_end_sweep.sh` (SessionEnd): SessionEnd hook: sweep the project's git clones and the machine's strays, at most once a day, and report what the ending session leaves running.
+- `statusline.sh` (SessionEnd --end): the status line, and the SessionEnd hook that removes its caches.
 - `scripts/session_end_export.sh` (SessionEnd): SessionEnd hook: publish ~/.claude's public part whenever it has moved.
 - `scripts/block_gate.py` (SessionEnd clear; PermissionDenied denied; PreToolUse gate; PostToolUse[AskUserQuestion] clear; UserPromptSubmit clear): once auto mode blocks a call, no other tool runs until the user answers.
 - `scripts/guideline_gate.py` (SessionEnd clear; PreToolUse[Edit|Write|NotebookEdit] edit; PostToolUse[Read] read; SessionStart[compact] clear): no code is edited with the edit tools before its guidelines are read in that session.

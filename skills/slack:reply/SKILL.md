@@ -47,7 +47,7 @@ Write the reply with the `draft` skill, to `<scratchpad>/reply.md`. The asker kn
 
 ## 5. Confirm, then post
 
-Confirm and post as `draft`'s "Check, then post" says, beside the evidence for each claim, with
+A claim about the present (today, now, currently, every) rests on a measurement of the last few hours, and is measured again just before posting: a figure aggregated over earlier days describes those days. Confirm and post as `draft`'s "Check, then post" says, beside the evidence for each claim, with
 
 ```bash
 "$(~/.claude/scripts/project_file.sh --script slack_post.py)" post <channel> <scratchpad>/reply.md --thread <thread-ts>

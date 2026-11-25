@@ -1,15 +1,20 @@
 #!/bin/bash
-# Claude Code Status Line — single line
-# Fields: context bar, directory, git branch, lines changed, cost, model, version, effort, account
+# statusline.sh — the status line, and the SessionEnd hook that removes its caches.
+#
+# One line of: context bar, directory, git branch, lines changed, cost, model,
+# version, effort and account.
 #
 # The account is the emailAddress of the login in $CLAUDE_CONFIG_DIR/.claude.json
 # (~/.claude.json when unset), – when there is none.
 #
 # Usage:
 #   statusline.sh               # reads the status JSON Claude Code sends on stdin
+#   statusline.sh --end         # SessionEnd hook: removes the ending session's caches
 #   statusline.sh --self-test
 #
-# Its git and start-time caches live in TMPDIR, /tmp when unset.
+# Its git and start-time caches live in TMPDIR, /tmp when unset, one pair per
+# session. --end reads the hook payload on stdin and exits 1 on a session id
+# that is not a plain name.
 
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
@@ -68,7 +73,24 @@ if [[ "${1:-}" == --self-test ]]; then
     "$(line '{"session_id":"s4","workspace":{"current_dir":"'"$fx"'/repo"}}')" "*  ~/repo  –  +0/-0 *"
   tap_like "a long directory keeps its last two parts" \
     "$(line '{"workspace":{"current_dir":"/aaaaaaaaaa/bbbbbbbbbb/cccccccccc/dddd"}}')" "*  …/cccccccccc/dddd  *"
+  end() { printf '%s' "$1" | TMPDIR="$fx" bash "$self" --end; }  # <json>
+  touch "$fx/claude-statusline-start-s1" "$fx/claude-statusline-git-s9" "$fx/claude-statusline-start-s9"
+  end '{"session_id":"s1"}'
+  tap_is "--end removes the ending session's caches and no other" \
+    "$(cd "$fx" && ls -d claude-statusline-*-s[19])" $'claude-statusline-git-s9\nclaude-statusline-start-s9'
+  before=$(ls "$fx"); end '{}'
+  tap_is "--end with no session id removes nothing" "$(ls "$fx")" "$before"
+  tap_fails "--end refuses a session id that is not a plain name" end '{"session_id":"../s9"}'
   tap_end
+fi
+
+# --- SessionEnd: remove this session's caches ---
+if [[ "${1:-}" == --end ]]; then
+  sid=$(jq -r '.session_id // ""')
+  [[ -n "$sid" ]] || exit 0
+  [[ "$sid" =~ ^[A-Za-z0-9-]+$ ]] || { echo "statusline: session id is not a plain name: $sid" >&2; exit 1; }
+  rm -f -- "${TMPDIR:-/tmp}/claude-statusline-git-$sid" "${TMPDIR:-/tmp}/claude-statusline-start-$sid"
+  exit 0
 fi
 
 # Read JSON from stdin

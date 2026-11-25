@@ -20,6 +20,10 @@ A folder is one of three things to the tooling:
 
 - **Project**: a folder whose `.claude/project` names it, written by
   `scripts/project_init.sh`. It holds the project layer and the records.
+  Its `.claude/` is versioned in the project's own repository, or, when the
+  project spans several repositories, in a local-only repository at the
+  project's folder that ignores the clones beneath it. A public
+  repository ignores the records, which stay on this machine.
 - **Clone**: a git repository the project works in, listed in the project's
   `.claude/clones`. A clone's own `.claude/`
   belongs to the clone's repository and is never a layer. A clone that is

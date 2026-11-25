@@ -16,7 +16,8 @@
 # coding_guidelines.md and style_guidelines.md apply to every change, so both
 # are always emitted (~/.claude/CLAUDE.md requires both of every session).
 # .rb, .rake and the root Gemfile/Rakefile/config.ru reach the Ruby guidelines.
-# .yml maps to nothing beyond the pair.
+# .ts/.tsx/.js/.jsx reach the JavaScript and TypeScript guidelines and the
+# accessibility guidelines. .yml maps to nothing beyond the pair.
 # .haml/.erb/.slim are Rails markup and reach the accessibility guidelines the
 # same way .html does. .clj/.cljs/.cljc/.edn reach the Clojure guidelines.
 # .hs, .go and the Clojure extensions are mapped and currently unexercised — no
@@ -30,27 +31,28 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 GLOBAL="${GUIDELINES_DIR:-$HOME/.claude}"
 
+# guidelines_of — the language and markup guideline basenames one changed path
+# reaches, one per line; none for a path no guideline covers.
+guidelines_of() {  # <path>
+  case "$1" in
+    *.py) echo python_coding_guidelines.md ;;
+    *.rb|*.rake|Gemfile|*/Gemfile|Rakefile|*/Rakefile|config.ru|*/config.ru) echo ruby_coding_guidelines.md ;;
+    *.ts|*.tsx|*.js|*.jsx) echo javascript_coding_guidelines.md; echo accessibility_guidelines.md ;;
+    *.html|*.css|*.haml|*.erb|*.slim) echo accessibility_guidelines.md ;;
+    *.clj|*.cljs|*.cljc|*.edn) echo clojure_coding_guidelines.md ;;
+    *.hs) echo haskell_coding_guidelines.md ;;
+    *.go) echo go_coding_guidelines.md ;;
+  esac
+}
+
 select_guidelines() {  # paths on stdin, one per line -> guideline paths on stdout
   declare -A want=()
   want["$GLOBAL/coding_guidelines.md"]=1   # general principles — every change
   want["$GLOBAL/style_guidelines.md"]=1    # style and formatting — every change
 
-  local p
+  local p g
   while IFS= read -r p; do
-    case "$p" in
-      *.py)
-        want["$GLOBAL/python_coding_guidelines.md"]=1 ;;
-      *.rb|*.rake|Gemfile|*/Gemfile|Rakefile|*/Rakefile|config.ru|*/config.ru)
-        want["$GLOBAL/ruby_coding_guidelines.md"]=1 ;;
-      *.ts|*.tsx|*.js|*.jsx|*.html|*.css|*.haml|*.erb|*.slim)
-        want["$GLOBAL/accessibility_guidelines.md"]=1 ;;
-      *.clj|*.cljs|*.cljc|*.edn)
-        want["$GLOBAL/clojure_coding_guidelines.md"]=1 ;;
-      *.hs)
-        want["$GLOBAL/haskell_coding_guidelines.md"]=1 ;;
-      *.go)
-        want["$GLOBAL/go_coding_guidelines.md"]=1 ;;
-    esac
+    while IFS= read -r g; do want["$GLOBAL/$g"]=1; done < <(guidelines_of "$p")
   done
 
   # `|| continue`, not `&& echo`: under `set -o pipefail` a trailing false test
@@ -67,7 +69,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
   for g in coding_guidelines style_guidelines python_coding_guidelines \
            accessibility_guidelines haskell_coding_guidelines go_coding_guidelines \
-           clojure_coding_guidelines ruby_coding_guidelines; do
+           clojure_coding_guidelines ruby_coding_guidelines javascript_coding_guidelines; do
     : > "$tmp/$g.md"
   done
   GLOBAL="$tmp"
@@ -92,7 +94,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "a Python file reaches the Python guidelines" "app/x.py" "coding_guidelines.md python_coding_guidelines.md style_guidelines.md"
   check "a haml file reaches accessibility" "app/views/x.html.haml" "accessibility_guidelines.md $base"
   check "an erb file reaches accessibility" "app/views/x.erb" "accessibility_guidelines.md $base"
-  check "a tsx file reaches accessibility" "src/X.tsx" "accessibility_guidelines.md $base"
+  check "a tsx file reaches the JavaScript guidelines and accessibility" "src/X.tsx" \
+        "accessibility_guidelines.md coding_guidelines.md javascript_coding_guidelines.md style_guidelines.md"
+  check "a ts file reaches the JavaScript guidelines and accessibility" "src/x.ts" \
+        "accessibility_guidelines.md coding_guidelines.md javascript_coding_guidelines.md style_guidelines.md"
+  check "a css file is markup, not JavaScript" "src/x.css" "accessibility_guidelines.md $base"
   check "a Clojure file reaches the Clojure guidelines" "src/core.clj" "clojure_coding_guidelines.md $base"
   check "cljs and edn reach the Clojure guidelines too" "$(printf 'src/app.cljs\nresources/config.edn')" \
         "clojure_coding_guidelines.md $base"
@@ -114,7 +120,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   # word, so that language's PRs get reviewed against the general pair only.
   for f in python_coding_guidelines.md clojure_coding_guidelines.md \
            go_coding_guidelines.md haskell_coding_guidelines.md \
-           accessibility_guidelines.md ruby_coding_guidelines.md; do
+           accessibility_guidelines.md ruby_coding_guidelines.md \
+           javascript_coding_guidelines.md; do
     tap_run "the mapped $f exists where it is resolved" test -f "$HOME/.claude/$f"
   done
 

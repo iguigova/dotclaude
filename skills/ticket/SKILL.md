@@ -56,13 +56,14 @@ A ticket whose record says `type: Triage` asks a question, and its answer is the
 - When an open PR touches the same code, branch from its head, say so on its ticket, and retarget after it merges.
 - When the change spans PRs in several repos, post the merge order on the ticket. Name each step between merges, such as a package tag the next PR must pin, and open a note for each.
 - Pass the gate: `"$(~/.claude/scripts/project_file.sh --script ci_gate.py)" <repo>`.
-- When the PRs are open for review: `"$(~/.claude/scripts/project_file.sh --script jira-progress.sh)" <KEY> review --pr <url>…` (§Throughout), then `/request:review <KEY>` to ask the team in the review channel. It keeps one thread per ticket, so a later PR or a re-review is a reply in that thread.
+- When the PRs are open for review: `"$(~/.claude/scripts/project_file.sh --script jira-progress.sh)" <KEY> review --pr <url>…` (§Throughout).
 - Review, once the PR settles (`"$(~/.claude/scripts/project_file.sh --script gh-pr-bot-fetch.sh)" --wait` exits 0 and `.gate.checks.pending` is empty in what `gh-pr-fetch.sh` writes): `/review:pr` on every PR, the author's own included, then `/review:bot` to answer the bot and that review together. On a colleague's PR, `/review:pr` alone.
 - Once `/review:bot` has answered a colleague's review: `/request:review <KEY>` asks them, in the ticket's thread, to take another look.
 
 ## 4. Test
 
-- QA: `/qa <KEY>`.
+- QA: `/qa <KEY>`, after §3's reviews, so the evidence is for the head the team will review.
+- Once QA's evidence is posted: `/request:review <KEY>` asks the team in the review channel. It keeps one thread per ticket, so a later PR or a re-review is a reply in that thread.
 - Acceptance: fixtures and replies for the tester, through `/draft`.
 
 ## 5. Close

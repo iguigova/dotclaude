@@ -83,7 +83,7 @@ A companion PR in another repo (a fix that belongs where the behaviour is decide
 
 **Inline threads** — `$D/bot.json` → `threads[]`. Act only on those with `already_replied == false`.
 
-**Out-of-diff findings** — `$D/score.json` → `outside_diff[]`. The bot raises these on lines the diff does not cover and posts them as prose in an issue comment. They are **not** review threads: they never appear in `threads[]` and never count towards `open_count`. **`open_count == 0` therefore does not mean the PR is clear** — check `outside_diff_count` and the gate before saying there is nothing to do. Read the `summary[]` bodies too, for context the inline comments assume.
+**Out-of-diff findings** — `$D/score.json` → `outside_diff[]`, which `gh_pr_bot_score.py --help` describes. **`open_count == 0` does not mean the PR is clear** — check `outside_diff_count` and the gate before saying there is nothing to do. Read the `summary[]` bodies too, for context the inline comments assume.
 
 An out-of-diff finding is a worklist entry, not a blocker. Reconcile `outside_diff[]` against the replies you have already posted, not against its length, and do not re-fix an entry you have already answered; `gh_pr_bot_score.py --help` says why one can stay listed after its fix.
 

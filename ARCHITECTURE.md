@@ -56,7 +56,7 @@ to a default.
 | script | One verb: its contract in `--help`, proven by `--self-test` | Both; a project script overrides the global one of the same name and keeps its contract |
 | skill | A method: the order of steps, the judgement, the claim each step proves | Global for shared workflows, project for domain work; never overridden |
 | rule | A `CLAUDE.md` line, loaded every turn | Both, by Claude Code's own layering |
-| setting | Permissions, plugins and hooks in `settings.json` and `<project>/.claude/settings.local.json` | Both; a project's settings are not inherited from parent directories |
+| setting | Permissions, plugins and hooks in `settings.json`, and in `<project>/.claude/settings.json`, versioned with the project. The approvals Claude Code's prompts save go to `<project>/.claude/settings.local.json`, which it keeps out of git itself | Both; a project's settings are not inherited from parent directories |
 | record | Session history, notes and memory facts | Project only |
 
 ### Value and secret

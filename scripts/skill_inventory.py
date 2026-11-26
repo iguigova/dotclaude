@@ -25,7 +25,8 @@ Every field is measured; nothing is judged:
              commands only
   upkeep     commits, first commit, last edit, edits in 90 days,
              uncommitted -- a script's bundled files included
-  integrity  scripts named in the body (exist, offer --self-test),
+  integrity  scripts named in the body (exist, offer --self-test, are a
+             project verb),
              bundled files (a skill's beside SKILL.md; the files beside a
              script that are no script and that it names, such as
              inventory_kinds.txt), the other items that name this script,
@@ -37,7 +38,9 @@ Every field is measured; nothing is judged:
              the one-item report
 
 The census is a row for each fact with a remedy -- an untracked or
-uncommitted file, a missing script, a script with no --self-test, a script
+uncommitted file (but for settings.local.json, which Claude Code writes from
+its approval prompts and adds to the global git ignore itself, so that it
+stays out of every repo), a missing script, a script with no --self-test, a script
 nothing names and nothing has run, a probe hit, an item that restates, a
 run's messages with no list price -- then one table, a row per item: runs per month, runs, last run, the
 cost columns, commits, last edit, how many items name a script, and what the
@@ -75,8 +78,9 @@ item, so the other two would otherwise be missing without a word.
 A script's own source is not read for references or probes: a path-shaped
 string in code may be a usage example or a fixture rather than a call. So
 `named by` counts the other items whose text contains the file name -- which
-a script calling another script does, whatever spelling it uses -- and a
-script named by nothing is named by nothing anywhere in the tree. A global
+a script calling another script does, whatever spelling it uses -- or, for a
+Python module, imports it by its bare name, and a script named by nothing is
+named by nothing anywhere in the tree. A global
 script serves every project, so the items of every other project name it
 too, shown as <project folder>/<item>; a project that has a script of the
 same name means its own, so its items are not read for that name. Another
@@ -84,6 +88,10 @@ project is a folder of ~/.claude/projects other than this one's, rooted
 where its first session started. A reference
 ends at a colon, so a cited line `tool.py:417` names tool.py, and one followed
 by a glob character names a pattern and no script.
+
+A script called by name that project_verbs.txt lists is a project verb. A
+project without it stops at that step by design, so a verb this project lacks
+is no missing script; the one-item report says the item calls it.
 
 A description is the frontmatter `description` for a markdown item, the
 first docstring line for a .py, and the leading comment block for a .sh.
@@ -233,6 +241,7 @@ RECENT_DAYS = 90
 BLURB_CHARS = 40
 NOTE_ORDER = ("open", "no id", "drained", "placed")
 NAMERS_SHOWN = 3
+LOCAL_SETTINGS = "settings.local.json"
 UNTRACKED = {"ignored": "ignored by git: no history and no backup",
              "no repo": "in no git repository: no history and no backup"}
 AGENT_TOOLS = frozenset({"Agent", "Task"})
@@ -241,7 +250,14 @@ PROCEDURE = frozenset({"skill", "command"})
 # take, and a copy here would be a second source of truth.
 KINDS = tuple(ln for ln in (SCRIPTS / "inventory_kinds.txt").read_text().splitlines()
               if ln and not ln.startswith("#"))
+# Read, not restated: project_verbs.txt is the one list of the verbs a project
+# provides, each line its name, a tab and its contract.
+VERBS = frozenset(ln.split("\t")[0] for ln in
+                  (SCRIPTS / "project_verbs.txt").read_text().splitlines()
+                  if ln and not ln.startswith("#"))
 SCRIPT_SUFFIX = frozenset({".sh", ".py"})
+# A Python module is named by an import of its bare name, which holds no `.py`.
+PY_IMPORT = r"^\s*(?:from\s+{0}\s+import|import\s+{0})\b"
 FRONTMATTER = re.compile(r"\A---\n(.*?)\n---\n", re.S)
 FM_LINE = re.compile(r"^([A-Za-z_-]+):\s*(.*)$")
 TYPED = re.compile(r"<command-name>/([\w:-]+)</command-name>")
@@ -913,10 +929,11 @@ def tested(path: Path) -> bool:
         encoding="utf-8", errors="replace")
 
 
-def script_fact(ref: tuple, home: Path, project: Path) -> dict:
+def script_fact(ref: tuple, home: Path, project: Path,
+                verbs: frozenset = frozenset()) -> dict:
     path = script_path(*ref, home, project)
     return {"script": str(path), "exists": path.is_file(),
-            "tested": tested(path)}
+            "tested": tested(path), "verb": path.name in verbs}
 
 
 def bundled(it: dict) -> list[str]:
@@ -936,15 +953,17 @@ def bundled(it: dict) -> list[str]:
 
 def scripts_named(it: dict, home: Path, project: Path) -> list[dict]:
     """The scripts an item's text names, each with whether it exists and is
-    tested. A path under a `<placeholder>` prefix, such as
-    `<project>/.claude/scripts/x.sh`, names no file of this project."""
+    tested, and whether it is a project verb. A path under a `<placeholder>`
+    prefix, such as `<project>/.claude/scripts/x.sh`, names no file of this
+    project. Only a call by name reaches a verb: a path is that file alone."""
     text = Path(it["path"]).read_text(encoding="utf-8", errors="replace")
-    refs = [r for r in SCRIPT_REF.findall(text) if "<" not in r[0]]
-    refs += [("" if (project / ".claude/scripts" / n).is_file() else "~/",
-              "scripts", n) for n in SCRIPT_BY_NAME.findall(text)]
+    paths = [r for r in SCRIPT_REF.findall(text) if "<" not in r[0]]
+    by_name = [("" if (project / ".claude/scripts" / n).is_file() else "~/",
+                "scripts", n) for n in SCRIPT_BY_NAME.findall(text)]
     facts = {}
-    for ref in dict.fromkeys(refs):
-        fact = script_fact(ref, home, project)
+    for ref in dict.fromkeys(paths + by_name):
+        verbs = VERBS if ref in by_name else frozenset()
+        fact = script_fact(ref, home, project, verbs)
         facts[fact["script"]] = fact
     return list(facts.values())
 
@@ -1426,7 +1445,15 @@ def fill_named_by(rows: list[dict], away: list[dict]) -> None:
                          if row["scope"] == "global" else [])
         row["named_by"] = sorted(
             r["name"] for r in namers if r["path"] != row["path"]
-            and row["name"] in texts[r["path"]])
+            and names(row["name"], texts[r["path"]]))
+
+
+def names(script: str, text: str) -> bool:
+    """Whether a text names the script: its file name, or an import of its
+    bare name when it is a Python module."""
+    stem = Path(script).stem
+    imported = re.search(PY_IMPORT.format(re.escape(stem)), text, re.M)
+    return script in text or (script.endswith(".py") and bool(imported))
 
 
 def namers_away(name: str, away: list[dict]) -> list[dict]:
@@ -1553,8 +1580,8 @@ def named_by(names: list[str]) -> str:
 def attention(items) -> list[list[str]]:
     """The facts that each have a remedy, one row apiece.
 
-    Untracked and uncommitted files, a script a body names that does not exist,
-    a script with no --self-test, a script nothing names and nothing has run,
+    Untracked and uncommitted files, a script a body names that does not exist
+    and is no project verb, a script with no --self-test, a script nothing names and nothing has run,
     a probe hit, a procedure that restates -- one row, the one-item report
     listing the lines -- and a procedure's messages with no list price, the
     remedy being the price added to PRICES. Each is stated once: an untested
@@ -1569,7 +1596,7 @@ def upkeep_rows(items, label) -> list[list[str]]:
     rows = []
     for i in items:
         u = i["upkeep"]
-        if u["tracked"] in UNTRACKED:
+        if u["tracked"] in UNTRACKED and not kept_local(i):
             rows.append(["untracked", label(i), UNTRACKED[u["tracked"]]])
         elif u.get("uncommitted"):
             rows.append(["uncommitted", label(i),
@@ -1577,11 +1604,18 @@ def upkeep_rows(items, label) -> list[list[str]]:
     return rows
 
 
+def kept_local(i: dict) -> bool:
+    """Whether git ignores the item because Claude Code wants it so: the file
+    its approval prompts write, which it adds to the global git ignore."""
+    return i["name"] == LOCAL_SETTINGS and i["upkeep"]["tracked"] == "ignored"
+
+
 def script_rows(items, label) -> list[list[str]]:
-    """A script a body names that does not exist, one with no --self-test,
-    and one nothing names and nothing has run."""
+    """A script a body names that does not exist and is no project verb, one
+    with no --self-test, and one nothing names and nothing has run."""
     return ([["missing script", label(i), short(s["script"])]
-             for i in items for s in i["scripts"] if not s["exists"]]
+             for i in items for s in i["scripts"]
+             if not (s["exists"] or s["verb"])]
             + [["no self-test", label(i), named_by(i["named_by"])]
                for i in items if i["kind"] == "script" and not i["tested"]]
             + [["unused", label(i), "named by nothing, no run in any project"]
@@ -1654,7 +1688,8 @@ def upkeep_line(k: dict) -> str:
 
 
 def script_line(s: dict) -> str:
-    state = ("missing" if not s["exists"]
+    state = ("project verb, absent here" if not s["exists"] and s["verb"]
+             else "missing" if not s["exists"]
              else "self-test" if s["tested"] else "no self-test")
     return f"names       {short(s['script'])} — {state}"
 
@@ -1847,7 +1882,9 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
     # A /tmp path in a script's source is a usage line or a fixture, not a probe.
     write(home / "scripts/gated.sh",
           "#!/bin/sh\n# Gated.\n--self-test\necho /tmp/out\n")
-    write(home / "scripts/tool.py", '"""Tool."""\nx = 1\n')
+    write(home / "scripts/tool.py", '"""Tool."""\nfrom lib import x\n')
+    # Named only by tool.py's import, which holds no `.py`.
+    write(home / "scripts/lib.py", '"""Lib."""\n# --self-test\n')
     write(home / "CLAUDE.md", "# Global Preferences\n")
     write(home / "credo.md", "# Credo\n")
     # A guideline's bash block is an example of code, not a step: no probe.
@@ -1860,11 +1897,15 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
           " and .claude/scripts/gone.sh\n"
           # A cited line names the script; a glob names no script at all.
           "See .claude/scripts/probe.sh:12 and .claude/scripts/jira-*.sh\n"
+          # A verb named by path is that file alone, and missing.
+          f"Read ~/.claude/scripts/{max(VERBS)}\n"
           # A <placeholder> prefix names a script some other project may keep.
           "Gate with <project>/.claude/scripts/ci_gate.sh where it has one\n"
           # By name, a script resolves in the project first, then globally.
-          "Call project_file.sh --script tool.py and"
-          " project_file.sh --script probe.sh\n")
+          # A verb this project lacks stops that step by design: no row.
+          "Call project_file.sh --script tool.py,"
+          " project_file.sh --script probe.sh and"
+          f" project_file.sh --script {min(VERBS)}\n")
     write(project / ".claude/skills/alpha/scripts/local.sh", "echo\n")
     # A data file the script names beside it is the script's bundled file.
     write(project / ".claude/scripts/probe.sh", "echo no flag < probe.list\n")
@@ -1886,7 +1927,11 @@ def fixture(tmp: Path) -> tuple[Path, Path, Path]:
     write(project / ".claude/commands/env.sh", "FROM_ENV=1\n")
     write(project / ".claude/settings.local.json", "{}\n")
     write(project / "CLAUDE.md", "# Project rules\n\n" + SAID + "\n")
-    write(project / ".gitignore", ".claude/settings.local.json\n")
+    # Claude Code ignores its approvals file on purpose; any other ignored
+    # item is still one with no history.
+    write(project / ".claude/commands/kept.md", "---\ndescription: Kept.\n---\nx\n")
+    write(project / ".gitignore",
+          ".claude/settings.local.json\n.claude/commands/kept.md\n")
     commit(project)
     journal_fixture(project / ".claude/session_history.md")
     transcripts = tmp / "transcripts"
@@ -2074,12 +2119,14 @@ EXPECTED = {
     "census": [("command", "global", "mine"),
                ("command", "global", "quoted"),
                ("command", "project", "beta"),
+               ("command", "project", "kept"),
                ("memory", "project", "fact.md"),
                ("rules", "global", "CLAUDE.md"),
                ("rules", "global", "credo.md"),
                ("rules", "global", "x_guidelines.md"),
                ("rules", "project", "CLAUDE.md"),
                ("script", "global", "gated.sh"),
+               ("script", "global", "lib.py"),
                ("script", "global", "named_there.sh"),
                ("script", "global", "run_there.sh"),
                ("script", "global", "selftest.sh"),
@@ -2103,7 +2150,7 @@ EXPECTED = {
              "global:CLAUDE.md": "Global Preferences",
              "global:quoted": "Scope: it's quoted.",
              "project:fact.md": "A fact."},
-    "named_by": {"gated.sh": ["alpha"],
+    "named_by": {"gated.sh": ["alpha"], "lib.py": ["tool.py"],
                  "named_there.sh": ["other/w"],
                  "probe.sh": ["alpha"], "run_there.sh": [],
                  "selftest.sh": [], "shadowed.sh": [],
@@ -2132,15 +2179,16 @@ EXPECTED = {
     "mine.upkeep": {"tracked": "no repo"},
     "ignored.upkeep": {"tracked": "ignored"},
     "attention.untracked": ["CLAUDE.md (global)", "credo.md", "fact.md", "gated.sh",
-                            "mine", "named_there.sh", "quoted",
-                            "run_there.sh", "selftest.sh", "settings.json",
-                            "settings.local.json", "shadowed.sh", "tool.py",
+                            "kept", "lib.py", "mine", "named_there.sh",
+                            "quoted", "run_there.sh", "selftest.sh",
+                            "settings.json", "shadowed.sh", "tool.py",
                             "x_guidelines.md"],
-    "attention.missing": ["gone.sh"],
+    "attention.missing": ["gone.sh", max(VERBS)],
     "attention.untested": ["probe.sh", "tool.py"],
     "attention.unused": ["selftest.sh", "shadowed.sh"],
     "unused.once_run": [],
     "script.runs": {"gated.sh": (1, 1, "2026-05-13"),
+                    "lib.py": (0, 0, None),
                     "named_there.sh": (0, 0, None),
                     "probe.sh": (1, 1, "2026-05-12"),
                     "run_there.sh": (0, 0, None),
@@ -2163,10 +2211,12 @@ EXPECTED = {
     "gated.probes": [],
     "guide.probes": [],
     "emit.piped": 141,
-    "alpha.scripts": [("probe.sh", True, False),
-                      ("gated.sh", True, True),
-                      ("gone.sh", False, False),
-                      ("tool.py", True, False)],
+    "alpha.scripts": [("probe.sh", True, False, False),
+                      ("gated.sh", True, True, False),
+                      ("gone.sh", False, False, False),
+                      (max(VERBS), False, False, False),
+                      ("tool.py", True, False, False),
+                      (min(VERBS), False, False, True)],
     "alpha.bundled": ["scripts/local.sh"],
     "probe.bundled": (["probe.list"], 1),
     "probe.bundle_edit": True,
@@ -2200,7 +2250,8 @@ EXPECTED = {
     "scoped": 1,
     "missing": "skill_inventory: no item named gamma",
     "view": True,
-    "view.state": ["missing", "no self-test", "no self-test", "self-test"],
+    "view.state": ["missing", "missing", "no self-test", "no self-test",
+                   "project verb, absent here", "self-test"],
     "blurb": ["x" * BLURB_CHARS, "one…",
               "Log billable time to Jira for work that…"],
 }
@@ -2388,7 +2439,7 @@ def self_test_items(inv: dict, by: dict) -> dict:
         "ignored.upkeep": by["settings.local.json"]["upkeep"],
         "emit.piped": piped_away(),
         "alpha.scripts": [(Path(s["script"]).name, s["exists"],
-                           s["tested"]) for s in a["scripts"]],
+                           s["tested"], s["verb"]) for s in a["scripts"]],
         "alpha.bundled": a["bundled"],
         "probe.bundled": (by["probe.sh"]["bundled"],
                           by["probe.sh"]["upkeep"]["commits"]),

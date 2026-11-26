@@ -1,6 +1,6 @@
 ---
 name: review:pr
-description: Review a GitHub PR — read the merge gate and your own review history, fetch the diff, check against coding standards, the team's security incident classes, codebase consistency, and import boundaries, produce educational insights, and (on confirmation) post the review with selected Critical/Medium inline findings back to GitHub. Marks the review on the PR's ticket — first reviewer and code-review status, then testing or back to in progress by the verdict — and tells the team's review thread the outcome.
+description: Review a GitHub PR — read the merge gate and your own review history, fetch the diff, check against coding standards, the team's security incident classes, codebase consistency, and import boundaries, produce educational insights, and (on confirmation) post the review with selected Critical/Medium inline findings back to GitHub. Marks the review on the PR's ticket — first reviewer and code-review status, then testing or back to in progress by the verdict — comments the outcome on the ticket every time, and reacts to the team's review thread with ✅ or 💬, never a text reply.
 argument-hint: <PR-URL or REPO#NUMBER>
 ---
 
@@ -14,7 +14,7 @@ This is a change-oriented review. Focus on the diff, not the entire file. Do not
 
 ## 1. Start
 
-**Where the writes are.** §1–§5 read GitHub and write scratch into the PR's private working directory, with two exceptions in §1: naming the session appends a title record to this session's transcript, and **The ticket** writes the ticket. §6 (review, thread reply) and §7 (ticket status, worklog, journal, title) are the only other steps that change anything outside the directory. Under plan mode, a read-only invocation, or any instruction to make no changes, pass `--no-name`, skip **The ticket**, and stop at §6 with the review delivered in chat. That is a complete deliverable, and §7 bills it once the session can write again.
+**Where the writes are.** §1–§5 read GitHub and write scratch into the PR's private working directory, with two exceptions in §1: naming the session appends a title record to this session's transcript, and **The ticket** writes the ticket. §6 (review, thread reaction) and §7 (ticket status, ticket comment, worklog, journal, title) are the only other steps that change anything outside the directory. Under plan mode, a read-only invocation, or any instruction to make no changes, pass `--no-name`, skip **The ticket**, and stop at §6 with the review delivered in chat. That is a complete deliverable, and §7 bills it once the session can write again.
 
 ```bash
 "$(~/.claude/scripts/project_file.sh --script gh-pr-start.sh)" [<pr-ref>]
@@ -328,14 +328,14 @@ A finding you cannot place after these four is an **Open question**, not a guess
 Posting is **never automatic** — a PR review is public and addressed to a colleague. Default flow:
 
 1. **Show the full review** (§5) in chat first.
-2. **Ask the user** which Medium findings to post inline, the overall **event** (`COMMENT` / `APPROVE`), and confirm they want it posted. If they decline, stop — the chat review is the deliverable.
+2. **Ask the user** which Medium findings to post inline, the overall **event** (`COMMENT` / `APPROVE`), and confirm they want it posted. If they decline, nothing goes to GitHub or Slack and the chat review is the deliverable; §7 still runs.
    - **Every Critical finding is posted inline**, not offered as a choice. A Critical anchored on no diff line goes in the body instead, and says why.
    - **Medium findings are the user's choice** — offer each as an inline candidate. One not chosen gets a line under **Should fix** in the body.
    - **Low/Nit findings are never posted inline** and never offered as inline candidates.
    - **A finding that confirms another reviewer's thread is offered as a reply there**, never as a new inline comment (§4, **Acknowledge, don't duplicate**).
    - **The summary body ends with one `**Nits:**` line** — each Low/Nit finding in a few words with its `file:line`. Omit it when there are none.
    - On a second pass, note that an `APPROVE` replaces your own standing `CHANGES_REQUESTED` but leaves anyone else's in place (§2).
-   - **The reply in the review thread** (§6, **The review thread**) is offered in the same question.
+   - **The reaction on the review thread** (§6, **The review thread**) is offered in the same question.
    - On a PR the `gh` user authored, GitHub accepts only `COMMENT`. The helper posts an `APPROVE` there as `COMMENT`, and its dry run shows `requested_event`, `event` and `event_note`. Tell the user before posting that the verdict will appear in the body only and will not count toward the merge gate.
 3. On confirmation, write the **summary body** to `"$D/review-body.md"` and the **selected inline findings** to `"$D/review-findings.json"` as a JSON array `[{path, line, side, body}]`, `line` and `side` as §4 states, `side` defaulting to `RIGHT`. A reply to another reviewer's thread is `{in_reply_to, body}`, where `in_reply_to` is the thread's `id` from `others_threads`. Both follow **Posted text** below. Then post **one atomic review**:
 
@@ -353,25 +353,26 @@ D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 
 ### The review thread
 
-Where the review was asked for in the team's review channel, the outcome is told there too. Read the threads that link the PR before step 2's question, so the reply is approved in the same dialog as the review:
+Where the review was asked for in the team's review channel, the outcome is shown there by one reaction on the thread's root message: `white_check_mark` (✅) for an `APPROVE`, `speech_balloon` (💬) for a `COMMENT`. **Nothing is ever written to Slack as text** — no reply, no post; the review and the ticket comment carry the words. Read the threads that link the PR before step 2's question, so the reaction is approved in the same dialog as the review:
 
 ```bash
 D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 "$(~/.claude/scripts/project_file.sh --script review_request_state.py)" pr-thread <pr-url> > "$D/thread.json"
 ```
 
-`--help` states the fields. A null `thread` means nothing is posted: say so. Otherwise show the thread's `permalink`, its `parent` text and each permalink in `earlier`, and offer the reply for the thread the user picks; a thread asking for something other than review (testing, a question) is named as such. The reply is two lines at most, under **Posted text**: the verdict and the review's link, and on a `COMMENT` the one headline must-fix. Once the GitHub review is up, write it to `"$D/thread-reply.md"` with that review's URL and post it in the chosen thread only, never to the channel:
+`--help` states the fields. A null `thread` means there is nothing to react to: say so. Otherwise show the thread's `permalink`, its `parent` text and each permalink in `earlier`, and offer the reaction for the thread the user picks; a thread asking for something other than review (testing, a question) is named as such. Once the GitHub review is up, react on the chosen thread's root, never on a reply in it, and take off your other emoji, so a second pass that approves leaves ✅ alone and never beside an earlier 💬:
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script slack_post.py)" post "$(jq -r .channel "$D/thread.json")" \
-  "$D/thread-reply.md" --thread <ts>
+CHANNEL=$(jq -r .channel "$D/thread.json")
+"$(~/.claude/scripts/project_file.sh --script slack_post.py)" react "$CHANNEL" <ts> <emoji>
+"$(~/.claude/scripts/project_file.sh --script slack_post.py)" unreact "$CHANNEL" <ts> <the other emoji>
 ```
 
-The `ts` is the chosen thread's, from `thread` or `earlier`. Give the user the permalink it prints.
+The `ts` is the chosen thread's, from `thread` or `earlier`. The emoji follows the event GitHub recorded, so an `APPROVE` the helper posted as `COMMENT` on your own PR gets 💬. Show the lines they print. When §6 posted nothing, there is no reaction.
 
 ### Posted text
 
-Load the `draft` skill before writing any of it: the summary body, each inline comment and each reply. `draft_gate.py` refuses the post until it is loaded. What gets posted is an executive summary written fresh for the author. It is never the chat review pasted in: the mechanism walkthroughs, evidence, `★ Insight` blocks and severity codes (C1, M2) stay in chat.
+Load the `draft` skill before writing any of it: the summary body, each inline comment, each reply and the ticket comment (§7). `draft_gate.py` refuses the post until it is loaded. What gets posted is an executive summary written fresh for the author. It is never the chat review pasted in: the mechanism walkthroughs, evidence, `★ Insight` blocks and severity codes (C1, M2) stay in chat.
 
 The **summary body** is one line per finding plus the two sections that tell the author where the review's authority ends — roughly 20–25 lines:
 
@@ -422,6 +423,25 @@ Each needs `review` `APPROVED`. That is GitHub's review decision, so another rev
 ```
 
 Show what it prints. A `kept in` line moved nothing; say so.
+
+### The ticket comment
+
+Every review ends with a comment on the PR's ticket, whatever the verdict, and also when §6 posted nothing or the status step above was skipped. It is skipped only when `.ticket` is empty; say so. It is built after the status step, from the verdict and the ticket's open PRs as they stand once the review is up; the findings' detail lives in the review, which it links. `review_ticket_comment.py --help` states what it says:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script gh-ticket-prs.sh)" <TICKET> \
+  | "$(~/.claude/scripts/project_file.sh --script review_ticket_comment.py)" <pr-ref> <approve|nits|follow-up|comment> \
+      [--review <review url>] [--must-fix "<one line>"]… > "$D/ticket-comment.wiki"
+```
+
+`--review` is left out when §6 posted nothing. Each `--must-fix` is a **Must fix before merge** line of the posted body, written for the ticket's readers under the `draft` skill. Show the comment and ask in the question dialog whether to post it. Once approved, read the ticket again, then post it and show the comment id:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script jira-issue.sh)" <TICKET> | jq '{status, comments: .comments[-3:]}'
+"$(~/.claude/scripts/project_file.sh --script jira-comment.sh)" <TICKET> "$D/ticket-comment.wiki"
+```
+
+A second pass posts a new comment, since the review it links is new.
 
 ### Worklog and journal
 

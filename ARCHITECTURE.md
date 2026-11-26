@@ -285,7 +285,7 @@ flowchart TB
 ### Projects and accounts
 
 - `scripts/project_init.sh` makes a git repository a project: its `.claude/`
-  and the `project` marker, the line that re-includes `.claude/` in a
+  and the `project` marker, an empty journal, the line that re-includes `.claude/` in a
   repository that ignores all it does not name, a private `<project>/.secrets/`, the ignore lines that keep secrets and
   transcripts out of git, and the link from `~/.claude/projects/<slug>` into
   `<project>/.claude-project-data/`, where Claude Code then keeps the

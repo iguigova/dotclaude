@@ -58,8 +58,8 @@ prints {"pr", "channel", "thread", "earlier"}: ``thread`` is the one whose
 latest message linking the PR is newest, with ``parent`` (the first
 message's text) beside ``ts``, ``permalink``, ``last_mine`` and ``replies``;
 null when no message links it. ``earlier`` holds the other threads, newest
-first, in the KEY form's shape. A thread is read, never written: the reply goes
-through slack_post.py to the thread the user approves.
+first, in the KEY form's shape. A thread is read, never written: the outcome
+is a reaction slack_post.py adds to the root the user approves.
 
 Exit 0: done. Exit 1: a usage error, or the project names no review channel.
 Exit 2: Slack, GitHub or Jira could not be read or written. Exit 4: ``send``

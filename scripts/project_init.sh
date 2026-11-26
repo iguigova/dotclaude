@@ -11,7 +11,8 @@
 #                             that ignores everything it does not name
 #   .claude/project           the marker that makes the folder a project,
 #                             holding its name
-#   .secrets/                 mode 700, ignored by git
+#   .claude/session_history.md the journal, holding only its heading
+#   .secrets/                mode 700, ignored by git
 #   .claude-project-data/     ignored by git, all but memory/
 #   ~/.claude/projects/<slug> a link to <project>/.claude-project-data
 #   .claude/config_dir        the account, with --account
@@ -96,6 +97,11 @@ make_marker() {  # <dir>
   basename "$1" > "$1/.claude/project" && say "wrote .claude/project: $(basename "$1")"
 }
 
+make_journal() {  # <dir>
+  [[ -e "$1/.claude/session_history.md" ]] && return 0
+  printf '# Session History\n' > "$1/.claude/session_history.md" && say "made .claude/session_history.md"
+}
+
 make_link() {  # <dir>
   local link
   link=$(link_of "$1")
@@ -113,7 +119,7 @@ init() {  # <dir> <account>
   git -C "$dir" rev-parse --show-toplevel >/dev/null 2>&1 \
     || refuse "$dir is no git repository, so nothing would version its memory; run git init first"
   check_link "$dir"; check_account "$dir" "$2"
-  out=$(make_ignores "$dir" && make_dirs "$dir" && make_marker "$dir" && make_link "$dir" && make_account "$dir" "$2") || exit 1
+  out=$(make_ignores "$dir" && make_dirs "$dir" && make_marker "$dir" && make_journal "$dir" && make_link "$dir" && make_account "$dir" "$2") || exit 1
   [[ -n "$out" ]] && printf '%s\n' "$out" || say "nothing to do in $dir"
 }
 
@@ -128,8 +134,10 @@ if [[ "${1:-}" == --self-test ]]; then
   tap_is "a folder's slug is its path with every other character a dash" "$(slug_of /a/b.c_d-e)" "-a-b-c-d-e"
   tap_is "a fresh repository is made a project" "$(run "$fx/p")" "$(printf 'project_init: %s\n' \
     "added to .gitignore: .secrets/ $DATA/* !$DATA/memory/" "made .claude/" "made .secrets/" \
-    "made $DATA/memory/" "wrote .claude/project: p" "linked $link")"
+    "made $DATA/memory/" "wrote .claude/project: p" "made .claude/session_history.md" "linked $link")"
   tap_is "the marker names the project" "$(cat "$fx/p/.claude/project")" p
+  tap_is "the journal holds only its heading" "$(cat "$fx/p/.claude/session_history.md")" "# Session History"
+  tap_fails "and is versioned" git -C "$fx/p" check-ignore -q .claude/session_history.md
   tap_is "its memory link points into the project" "$(readlink -f "$link")" "$fx/p/$DATA"
   tap_is ".secrets/ is private" "$(stat -c %a "$fx/p/.secrets")" 700
   tap_run "a secret is ignored by git" git -C "$fx/p" check-ignore -q .secrets/token

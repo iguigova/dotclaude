@@ -6,6 +6,7 @@
   slack_post.py edit CHANNEL TS FILE [--dry-run]
   slack_post.py delete CHANNEL TS [--dry-run]
   slack_post.py react CHANNEL TS EMOJI [--dry-run]
+  slack_post.py unreact CHANNEL TS EMOJI [--dry-run]
   slack_post.py --self-test        # offline, no network
 
 FILE is standard Markdown: **bold**, _italic_, `code`, [text](url),
@@ -41,8 +42,12 @@ message that has replies.
 (``white_check_mark``, ``:white_check_mark:``), to the message at TS, a
 thread's parent or a reply, and reads the message back to confirm the
 reaction is on it. A reaction already there counts as added, so a second
-run changes nothing. It needs the ``reactions:write`` scope on the write
-token; without it Slack answers ``missing_scope`` and nothing is added.
+run changes nothing. ``unreact`` removes the write token's own reaction
+EMOJI from the message at TS and reads back to confirm that user's
+reaction is gone; another person's reaction of the same name stays, and
+none to remove counts as removed. Both need the ``reactions:write`` scope
+on the write token; without it Slack answers ``missing_scope`` and
+nothing changes.
 
 Raw ``<``, ``>`` and ``&`` arrive as written, so FILE needs no escaping.
 Slack caps all ``markdown`` blocks in one payload at 12,000 characters
@@ -57,7 +62,7 @@ tags nobody. A tag is ``<@U…>``, the form ``slack_thread.py`` lists for each
 person in its People block; a literal ``@`` goes in backticks.
 A ``post`` or ``edit`` from a Claude session that has not loaded the
 draft skill is refused by ``draft_gate.py`` and exits 1; ``--dry-run``,
-``delete`` and ``react`` are never refused.
+``delete``, ``react`` and ``unreact`` are never refused.
 
 It writes with the project's ``.secrets/slack-token-write`` (chat:write
 only) and reads back with ``.secrets/slack-token``;
@@ -81,8 +86,10 @@ MARKDOWN_LIMIT = 12000
 TIMEOUT = 30
 # conversations.replies answers this for a message that no longer exists.
 GONE = 'thread_not_found'
-# reactions.add answers this when the token's user has that reaction on it.
-ALREADY_REACTED = 'already_reacted'
+# The refusal each reaction method answers when the change is already made:
+# the token's user has that reaction on, or has none to remove.
+SETTLED = {'reactions.add': 'already_reacted',
+           'reactions.remove': 'no_reaction'}
 EMOJI_NAME = re.compile(r'^:?([a-z0-9_+\-]+(?:::skin-tone-[2-6])?):?$')
 
 LIST_ITEM = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+\S')
@@ -300,6 +307,12 @@ def reacted(msg, name):
     return any(r.get('name') == name for r in (msg or {}).get('reactions', []))
 
 
+def mine(msg, name, user):
+    """True when user's own reaction of that name is on the message."""
+    return any(r.get('name') == name and user in r.get('users', [])
+               for r in (msg or {}).get('reactions', []))
+
+
 # ── Slack ────────────────────────────────────────────────────────────
 
 def token_file(env, name):
@@ -465,21 +478,21 @@ def delete(channel, ts, dry_run):
     return 0
 
 
-def tolerated(error):
-    """True for the one refusal that means the reaction is already on."""
-    return error.code == ALREADY_REACTED
+def tolerated(method, error):
+    """True for the one refusal that means the change is already made."""
+    return error.code == SETTLED[method]
 
 
-def reactions_add(payload):
-    return call('reactions.add', write_token(), payload=payload)
+def reaction_sender(method):
+    return lambda payload: call(method, write_token(), payload=payload)
 
 
-def add_reaction(payload, send=reactions_add):
-    """Send the reaction, with a reaction already there taken as added."""
+def change_reaction(method, payload, send=None):
+    """Send the change, with one already made taken as done."""
     try:
-        send(payload)
+        (send or reaction_sender(method))(payload)
     except SlackError as error:
-        if not tolerated(error):
+        if not tolerated(method, error):
             raise
 
 
@@ -489,15 +502,39 @@ def confirm_reaction(msg, name, ts):
         raise SlackError(f':{name}: not on message {ts} after react')
 
 
+def confirm_unreacted(msg, name, ts, user):
+    """SlackError while the read-back message carries user's reaction."""
+    if mine(msg, name, user):
+        raise SlackError(f':{name}: still on message {ts} after unreact')
+
+
+def write_user():
+    return call('auth.test', write_token())['user_id']
+
+
 def react(channel, ts, emoji, dry_run):
     """Add the reaction to the message at ts, then confirm it is on it."""
     payload = react_payload(channel, ts, emoji_name(emoji))
     if dry_run:
         print(json.dumps(payload, indent=2))
         return 0
-    add_reaction(payload)
+    change_reaction('reactions.add', payload)
     confirm_reaction(read_back(channel, ts), payload['name'], ts)
     print(f'reacted :{payload["name"]}: on {channel} {ts}')
+    return 0
+
+
+def unreact(channel, ts, emoji, dry_run):
+    """Remove the write token's reaction from the message at ts, then
+    confirm it is gone."""
+    payload = react_payload(channel, ts, emoji_name(emoji))
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return 0
+    change_reaction('reactions.remove', payload)
+    confirm_unreacted(read_back(channel, ts), payload['name'], ts,
+                      write_user())
+    print(f'unreacted :{payload["name"]}: on {channel} {ts}')
     return 0
 
 
@@ -693,20 +730,43 @@ def self_test_react():
     check('a message with no reactions is not reacted', False,
           reacted({'ts': '1.2'}, 'x'))
     check('a reaction already there counts as added', None,
-          refusal_of(lambda: add_reaction({}, refusing(ALREADY_REACTED))))
+          refusal_of(lambda: change_reaction(
+              'reactions.add', {}, refusing('already_reacted'))))
+    check('no reaction to remove counts as removed', None,
+          refusal_of(lambda: change_reaction(
+              'reactions.remove', {}, refusing('no_reaction'))))
+    check("one method's settled code is raised by the other", 'no_reaction',
+          refusal_of(lambda: change_reaction(
+              'reactions.add', {}, refusing('no_reaction'))))
     check('any other refusal is raised', 'missing_scope',
-          refusal_of(lambda: add_reaction({}, refusing('missing_scope'))))
+          refusal_of(lambda: change_reaction(
+              'reactions.remove', {}, refusing('missing_scope'))))
+    sent = []
+    change_reaction('reactions.add', {'name': 'x'}, sent.append)
+    check('the change is sent once, as given', [{'name': 'x'}], sent)
     check('a read-back carrying the reaction confirms it', None,
           refusal_of(lambda: confirm_reaction(
               {'reactions': [{'name': 'x'}]}, 'x', '1.2')))
     check('a read-back without the reaction is refused', 'not on',
           refusal_of(lambda: confirm_reaction({'ts': '1.2'}, 'x', '1.2')))
+    others = {'reactions': [{'name': 'x', 'users': ['U2']}]}
+    check("another user's reaction is not mine", False, mine(others, 'x', 'U1'))
+    check('my reaction of that name is mine', True,
+          mine({'reactions': [{'name': 'x', 'users': ['U2', 'U1']}]}, 'x', 'U1'))
+    check('my reaction of another name is not mine', False,
+          mine({'reactions': [{'name': 'y', 'users': ['U1']}]}, 'x', 'U1'))
+    check("a read-back with only others' reaction confirms the removal", None,
+          refusal_of(lambda: confirm_unreacted(others, 'x', '1.2', 'U1')))
+    check('a read-back still carrying mine is refused', 'not on',
+          refusal_of(lambda: confirm_unreacted(
+              {'reactions': [{'name': 'x', 'users': ['U1']}]}, 'x', '1.2',
+              'U1')))
 
 
 def refusing(code):
     """A sender that Slack refuses with code."""
     def send(_payload):
-        raise SlackError(f'reactions.add: {code}', code)
+        raise SlackError(f'reactions: {code}', code)
     return send
 
 
@@ -752,9 +812,35 @@ def self_test_gate(tmp):
     check('a react dry run prints the payload and sends nothing',
           (0, {'channel': 'C1', 'timestamp': '1.2', 'name': 'x'}),
           (dry.returncode, json.loads(dry.stdout or 'null')))
+    check('an unreact is never refused by the draft gate', False,
+          'draft_gate:' in run('st', 'unreact', 'C1', '1.2', 'x')[1])
+    undo = subprocess.run([sys.executable, __file__, 'unreact', 'C1', '1.2',
+                           ':x:', '--dry-run'], capture_output=True, text=True)
+    check('an unreact dry run prints the payload and sends nothing',
+          (0, {'channel': 'C1', 'timestamp': '1.2', 'name': 'x'}),
+          (undo.returncode, json.loads(undo.stdout or 'null')))
 
 
-def main():
+COMMANDS = {
+    'post': lambda a: post(a.channel, a.file, a.thread, a.broadcast, a.image,
+                           a.dry_run),
+    'edit': lambda a: edit(a.channel, a.ts, a.file, a.dry_run),
+    'delete': lambda a: delete(a.channel, a.ts, a.dry_run),
+    'react': lambda a: react(a.channel, a.ts, a.emoji, a.dry_run),
+    'unreact': lambda a: unreact(a.channel, a.ts, a.emoji, a.dry_run),
+}
+
+
+def run_command(args):
+    """The command's exit code, with a Slack refusal printed as 1."""
+    try:
+        return COMMANDS[args.command](args)
+    except SlackError as error:
+        print(f'slack_post: {error}', file=sys.stderr)
+        return 1
+
+
+def parser_of():
     parser = argparse.ArgumentParser(
         description=__doc__.splitlines()[0],
         epilog='\n'.join(__doc__.splitlines()[1:]),
@@ -777,34 +863,30 @@ def main():
     d.add_argument('channel')
     d.add_argument('ts')
     d.add_argument('--dry-run', action='store_true')
-    r = sub.add_parser('react')
-    r.add_argument('channel')
-    r.add_argument('ts')
-    r.add_argument('emoji')
-    r.add_argument('--dry-run', action='store_true')
+    for name in ('react', 'unreact'):
+        r = sub.add_parser(name)
+        r.add_argument('channel')
+        r.add_argument('ts')
+        r.add_argument('emoji')
+        r.add_argument('--dry-run', action='store_true')
+    return parser
+
+
+def main():
+    parser = parser_of()
     args = parser.parse_args()
     if args.self_test:
         import tempfile
         with tempfile.TemporaryDirectory() as tmp:
             return self_test(tmp)
+    if args.command is None:
+        parser.error('give post CHANNEL FILE, edit CHANNEL TS FILE, '
+                     'delete CHANNEL TS, react CHANNEL TS EMOJI or '
+                     'unreact CHANNEL TS EMOJI')
     sends_text = args.command in ('post', 'edit') and not args.dry_run
     if sends_text and not drafted():
         return 1
-    try:
-        if args.command == 'post':
-            return post(args.channel, args.file, args.thread,
-                        args.broadcast, args.image, args.dry_run)
-        if args.command == 'edit':
-            return edit(args.channel, args.ts, args.file, args.dry_run)
-        if args.command == 'delete':
-            return delete(args.channel, args.ts, args.dry_run)
-        if args.command == 'react':
-            return react(args.channel, args.ts, args.emoji, args.dry_run)
-    except SlackError as error:
-        print(f'slack_post: {error}', file=sys.stderr)
-        return 1
-    parser.error('give post CHANNEL FILE, edit CHANNEL TS FILE, '
-                 'delete CHANNEL TS or react CHANNEL TS EMOJI')
+    return run_command(args)
 
 
 if __name__ == '__main__':

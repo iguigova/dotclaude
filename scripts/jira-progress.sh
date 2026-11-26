@@ -43,6 +43,8 @@ set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 usage() { echo "jira-progress: $1" >&2; exit 2; }
 
@@ -191,13 +193,13 @@ NOTE="" BY="" OWNER="" UNTIL="" FROM="" QUESTION="" PRS=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run)  DRYRUN=1; shift ;;
-    --note)     NOTE="$2"; shift 2 ;;
-    --by)       BY="$2"; shift 2 ;;
-    --owner)    OWNER="$2"; shift 2 ;;
-    --until)    UNTIL="$2"; shift 2 ;;
-    --from)     FROM="$2"; shift 2 ;;
-    --question) QUESTION="$2"; shift 2 ;;
-    --pr)       PRS+="${PRS:+$'\n'}$2"; shift 2 ;;
+    --note)     flag_value "$@"; NOTE="$2"; shift 2 ;;
+    --by)       flag_value "$@"; BY="$2"; shift 2 ;;
+    --owner)    flag_value "$@"; OWNER="$2"; shift 2 ;;
+    --until)    flag_value "$@"; UNTIL="$2"; shift 2 ;;
+    --from)     flag_value "$@"; FROM="$2"; shift 2 ;;
+    --question) flag_value "$@"; QUESTION="$2"; shift 2 ;;
+    --pr)       flag_value "$@"; PRS+="${PRS:+$'\n'}$2"; shift 2 ;;
     -*)         usage "unknown option '$1'" ;;
     *)  if [[ -z "$KEY" ]]; then KEY="$1"; elif [[ -z "$MOMENT" ]]; then MOMENT="$1"
         else usage "unexpected argument '$1'"; fi; shift ;;

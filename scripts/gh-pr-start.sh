@@ -31,12 +31,14 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 start() {  # [<pr-ref>] [--suffix PR|BOT] [--no-name]
   local ref="" suffix=PR name=1
   while (($#)); do
     case "$1" in
-      --suffix) suffix="${2:?--suffix needs PR or BOT}"; shift 2 ;;
+      --suffix) flag_value "$@"; suffix="$2"; shift 2 ;;
       --no-name) name=0; shift ;;
       -*) echo "gh-pr-start.sh: unknown option $1" >&2; return 1 ;;
       *) [[ -z "$ref" ]] || { echo "gh-pr-start.sh: one PR ref only" >&2; return 1; }

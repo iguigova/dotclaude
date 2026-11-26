@@ -22,7 +22,7 @@ KEY prints one JSON object:
   {"key", "ticket_url", "channel",
    "thread": null | {"ts", "permalink", "recorded", "last_mine": ts | null,
                      "replies": [{"ts", "utc", "user", "name", "text"}]},
-   "earlier": [permalink, …],
+   "earlier": [{"ts", "permalink"}, …],
    "prs": [<gh-ticket-prs.sh object> + {"announced"}],
    "new": [url, …],
    "rereview": [{"url", "reviewers": [{"login", "name", "slack"}]}, …],
@@ -58,7 +58,7 @@ prints {"pr", "channel", "thread", "earlier"}: ``thread`` is the one whose
 latest message linking the PR is newest, with ``parent`` (the first
 message's text) beside ``ts``, ``permalink``, ``last_mine`` and ``replies``;
 null when no message links it. ``earlier`` holds the other threads, newest
-first, each as {"ts", "permalink"}. A thread is read, never written: the reply goes
+first, in the KEY form's shape. A thread is read, never written: the reply goes
 through slack_post.py to the thread the user approves.
 
 Exit 0: done. Exit 1: a usage error, or the project names no review channel.
@@ -283,19 +283,26 @@ def search_threads(world, ch, key, me):
     return threads_of(search(world, f'{key} from:<@{me}> in:<#{ch}>'), ch, world.st.parse_link)
 
 
+def permalink_of(st, ch, ts):
+    return bare(st.call('chat.getPermalink', {'channel': ch, 'message_ts': ts})['permalink'])
+
+
+def thread_refs(st, ch, threads):
+    """Each thread as {"ts", "permalink"}: the ts a call takes, the link a person opens."""
+    return [{'ts': t, 'permalink': permalink_of(st, ch, t)} for t in threads]
+
+
 def read_thread(world, ch, key):
-    """(thread or None, earlier permalinks): the recorded thread, else the newest found."""
+    """(thread or None, earlier threads): the recorded thread, else the newest found."""
     st = world.st
     me = st.call('auth.test', {})['user_id']
     found = search_threads(world, ch, key, me)
     link = world.recorded(key)
     ts = st.parse_link(link)[1] if link else (found[0] if found else None)
-    permalink = lambda t: bare(st.call('chat.getPermalink',
-                                       {'channel': ch, 'message_ts': t})['permalink'])
-    earlier = [permalink(t) for t in found if t != ts]
+    earlier = thread_refs(st, ch, [t for t in found if t != ts])
     if not ts:
         return None, earlier
-    return dict(thread_messages(st, ch, ts, me), ts=ts, permalink=link or permalink(ts),
+    return dict(thread_messages(st, ch, ts, me), ts=ts, permalink=link or permalink_of(st, ch, ts),
                 recorded=bool(link)), earlier
 
 
@@ -363,13 +370,12 @@ def pr_thread(url, world=None):
     world = world or World()
     st, ch = world.st, world.channel()
     roots = threads_linking(search(world, f'"{url.split("://", 1)[1]}" in:<#{ch}>'), ch, url, st.parse_link)
-    permalink = lambda t: bare(st.call('chat.getPermalink', {'channel': ch, 'message_ts': t})['permalink'])
     thread = None
     if roots:
         me = st.call('auth.test', {})['user_id']
-        thread = dict(thread_messages(st, ch, roots[0], me), ts=roots[0], permalink=permalink(roots[0]))
-    return {'pr': url, 'channel': ch, 'thread': thread,
-            'earlier': [{'ts': t, 'permalink': permalink(t)} for t in roots[1:]]}
+        thread = dict(thread_messages(st, ch, roots[0], me), ts=roots[0],
+                      permalink=permalink_of(st, ch, roots[0]))
+    return {'pr': url, 'channel': ch, 'thread': thread, 'earlier': thread_refs(st, ch, roots[1:])}
 
 
 # ── Self-test ────────────────────────────────────────────────────────
@@ -561,7 +567,7 @@ def thread_tests(t):
             {'ts': '4.0', 'user': 'U2', 'text': 'done'}]
     thread, earlier = read_thread(World(FakeSlack(['x/1.0', 'x/2.0'], msgs), d), 'C1', 'A-1')
     t.check((thread['ts'], thread['permalink'], thread['recorded'], thread['last_mine'], earlier)
-            == ('2.0', 'link/2.0', False, '3.0', ['link/1.0']),
+            == ('2.0', 'link/2.0', False, '3.0', [{'ts': '1.0', 'permalink': 'link/1.0'}]),
             'with no record the newest thread found is read, your last message found, older ones earlier')
     t.check(thread['replies'][0] == {'ts': '2.5', 'utc': 'utc-2.5', 'user': 'U2',
                                      'name': 'name-U2', 'text': 'looks good'},
@@ -569,7 +575,7 @@ def thread_tests(t):
     rec = fake_dir(recorded='x/1.0')
     thread, earlier = read_thread(World(FakeSlack(['x/1.0', 'x/2.0'], msgs), rec), 'C1', 'A-1')
     t.check((thread['ts'], thread['permalink'], thread['recorded'], earlier)
-            == ('1.0', 'x/1.0', True, ['link/2.0']),
+            == ('1.0', 'x/1.0', True, [{'ts': '2.0', 'permalink': 'link/2.0'}]),
             'the recorded thread wins over a newer one found, which is listed as earlier')
     t.check(log(rec, 'jira.log') == [f'get A-1 {GLOBAL_ID}'], 'the record is read by its global id')
     only = read_thread(World(FakeSlack(['x/1.0'], [{'ts': '1.0', 'user': 'U2'}]), fake_dir()),

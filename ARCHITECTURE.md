@@ -217,7 +217,7 @@ list, and `selftest.sh` refuses one out of step with the hooks or the headers.
 
 Every change is proven before it is kept. Each script's `--self-test` proves
 its contract. `scripts/selftest.sh` runs every self-test, `shellcheck`, and
-the lints for frontmatter, settings, allowed tools and prose names, then
+the lints for frontmatter, settings, allowed tools, flag values and prose names, then
 `scripts/change_gate.py` holds the changed code to the complexity cap and the
 mutation check. `scripts/gate_lib.sh` holds the checks every tooling repo
 shares. `scripts/tooling_commit.sh` commits named paths only when that gate

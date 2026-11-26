@@ -24,6 +24,8 @@ set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=flag_value.sh
+. "$SCRIPTS_DIR/flag_value.sh" || exit 1
 # shellcheck source=journal_lib.sh
 . "$SCRIPTS_DIR/journal_lib.sh"
 
@@ -179,14 +181,14 @@ self_test() {
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --session) SESSION="$2"; shift 2 ;;
-    --rc)      RC="$2";      shift 2 ;;
-    --open)    OPEN+=("$2");   shift 2 ;;
-    --after)   AFTER="$2";   shift 2 ;;
-    --dir)     DIR="$2";     shift 2 ;;
-    --log)     LOG="$2";     shift 2 ;;
-    --commit)  COMMITS+=("$2"); shift 2 ;;
-    --left)    LEFT+=("$2");    shift 2 ;;
+    --session) flag_value --may-be-empty "$@"; SESSION="$2";    shift 2 ;;
+    --rc)      flag_value --may-be-empty "$@"; RC="$2";         shift 2 ;;
+    --open)    flag_value --may-be-empty "$@"; OPEN+=("$2");    shift 2 ;;
+    --after)   flag_value --may-be-empty "$@"; AFTER="$2";      shift 2 ;;
+    --dir)     flag_value --may-be-empty "$@"; DIR="$2";        shift 2 ;;
+    --log)     flag_value --may-be-empty "$@"; LOG="$2";        shift 2 ;;
+    --commit)  flag_value --may-be-empty "$@"; COMMITS+=("$2"); shift 2 ;;
+    --left)    flag_value --may-be-empty "$@"; LEFT+=("$2");    shift 2 ;;
     --dry-run) DRY=1;        shift ;;
     *) echo "session_end_report.sh: unknown argument: $1" >&2; exit 2 ;;
   esac

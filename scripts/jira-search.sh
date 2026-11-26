@@ -34,6 +34,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 FIELDS=summary,status,assignee,updated
 MAX=50
@@ -89,8 +91,8 @@ shift
 ALL=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --max)    MAX="${2:?--max needs a number}"; shift 2 ;;
-    --fields) FIELDS="${2:?--fields needs a comma-separated list}"; shift 2 ;;
+    --max)    flag_value "$@"; MAX="$2"; shift 2 ;;
+    --fields) flag_value "$@"; FIELDS="$2"; shift 2 ;;
     --all)    ALL=1; shift ;;
     *) echo "jira-search.sh: unknown argument: $1" >&2; exit 2 ;;
   esac

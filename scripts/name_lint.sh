@@ -59,6 +59,9 @@
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
+
 EXTS='sh|py|md|json|yaml|yml'
 NL_PROJECT=""   # the run's project; --project names it, else the first file's
 NL_TMP=""       # scratch for the HEAD copy --gate reads
@@ -436,7 +439,7 @@ gate=0
 while (( $# )); do
   case "$1" in
     --gate)    gate=1;  shift ;;
-    --project) [[ $# -ge 2 && -d "${2:-}" ]] || usage; NL_PROJECT=$(cd "$2" && pwd); shift 2 ;;
+    --project) flag_value "$@"; [[ -d "$2" ]] || usage; NL_PROJECT=$(cd "$2" && pwd); shift 2 ;;
     --*)       usage ;;
     *)         break ;;
   esac

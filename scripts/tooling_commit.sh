@@ -64,6 +64,9 @@
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
+
 GATES=(scripts/selftest.sh .claude/scripts/selftest.sh)
 TYPES=(build chore ci docs feat fix perf refactor revert style test)
 UNGATED=.claude/session_history.md
@@ -285,8 +288,8 @@ parse_args() {
   MSG="" PATCH=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -m) MSG="${2-}"; shift 2 || usage ;;
-      --patch) [[ -f "${2-}" ]] || usage; PATCH=$(realpath -- "$2"); shift 2 ;;
+      -m) flag_value "$@"; MSG="$2"; shift 2 ;;
+      --patch) flag_value "$@"; [[ -f "$2" ]] || usage; PATCH=$(realpath -- "$2"); shift 2 ;;
       --) shift; break ;;
       *)  usage ;;
     esac

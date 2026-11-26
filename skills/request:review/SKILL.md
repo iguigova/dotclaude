@@ -20,7 +20,7 @@ Every message after the first goes in the ticket's one review thread: a new PR, 
 - **`reply`**: a thread exists. Write a reply (§2) for the PRs in `new` and `rereview`.
 - **`none`**: nothing to ask for. Say why (every PR announced and nobody behind, approved, or waiting) and stop.
 
-Each permalink in `earlier` is a duplicate thread from before the ticket recorded one: name each and ask whether to delete it (`"$(~/.claude/scripts/project_file.sh --script slack_post.py)" delete <channel> <ts>`).
+Each thread in `earlier` is a duplicate from before the ticket recorded one: name each by its `permalink` and ask whether to delete it (`"$(~/.claude/scripts/project_file.sh --script slack_post.py)" delete <channel> <ts>`, its `ts`).
 
 Each PR in `waiting` is named, with its `why`. Read a failing check's log before saying what failed. Ask whether to wait, fix it, or leave it out. Wait on a pending check with `gh pr checks <url> --watch` in the background; never poll it. A run that exits 2 read nothing whole: say which read failed and stop.
 

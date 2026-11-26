@@ -116,6 +116,8 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=flag_value.sh
+. "$SCRIPTS_DIR/flag_value.sh" || exit 1
 # shellcheck source=journal_lib.sh
 . "$SCRIPTS_DIR/journal_lib.sh"
 
@@ -406,14 +408,14 @@ bullets=() ; notes=() ; closes=() ; bills=() ; shas=()
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    -t|--topic)    topic="$2"       ; shift 2 ;;
-    -b|--bullet)   bullets+=("$2")  ; shift 2 ;;
-    --via)         via="$2"         ; shift 2 ;;
-    -n|--note)    notes+=("$2")    ; shift 2 ;;
-    --placed)      closes+=("$2")   ; shift 2 ;;
-    --bill)        bills+=("$2")    ; shift 2 ;;
-    -c|--commit)   commit="$2"      ; shift 2 ;;
-    --sha)         shas+=("$2")     ; shift 2 ;;
+    -t|--topic)    flag_value "$@" ; topic="$2"       ; shift 2 ;;
+    -b|--bullet)   flag_value "$@" ; bullets+=("$2")  ; shift 2 ;;
+    --via)         flag_value "$@" ; via="$2"         ; shift 2 ;;
+    -n|--note)     flag_value "$@" ; notes+=("$2")    ; shift 2 ;;
+    --placed)      flag_value "$@" ; closes+=("$2")   ; shift 2 ;;
+    --bill)        flag_value "$@" ; bills+=("$2")    ; shift 2 ;;
+    -c|--commit)   flag_value "$@" ; commit="$2"      ; shift 2 ;;
+    --sha)         flag_value "$@" ; shas+=("$2")     ; shift 2 ;;
     *) echo "journal.sh: unknown argument: $1" >&2 ; exit 2 ;;
   esac
 done

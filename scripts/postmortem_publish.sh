@@ -40,6 +40,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$HERE/flag_value.sh" || exit 1
 TEMPLATE="${HERE}/../skills/postmortem/template.storage.html"
 [[ -r "$TEMPLATE" ]] || { echo "Template not found: $TEMPLATE" >&2; exit 1; }
 
@@ -255,8 +257,8 @@ while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --self-test) self_test; exit $? ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --ticket) TICKET="$2"; shift 2 ;;
-    --title) TITLE="$2"; shift 2 ;;
+    --ticket) flag_value "$@"; TICKET="$2"; shift 2 ;;
+    --title) flag_value "$@"; TITLE="$2"; shift 2 ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done

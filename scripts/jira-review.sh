@@ -49,6 +49,8 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 PF="$HOME/.claude/scripts/project_file.sh"
 KEY_RE='^[A-Z][A-Z0-9]+-[0-9]+$'
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 usage() { echo "jira-review: $1" >&2; exit 2; }
 
@@ -248,6 +250,8 @@ STUB
   tap_is "a key that is no key is a usage error" "$(run p abc-2 start | tail -1)" "exit 2"
   tap_is "a third word is a usage error" "$(run p ABC-2 start extra | tail -1)" "exit 2"
   tap_is "an unknown option is a usage error" "$(run p ABC-2 start --bogus | tail -1)" "exit 2"
+  tap_is "a last --review with no link is a usage error, not a hang" \
+    "$(run p ABC-2 approved --review)" "$(printf '%s\n' 'jira-review.sh: --review needs a value' 'exit 2')"
   rm -rf "$fx"
   tap_end
 fi
@@ -258,7 +262,7 @@ DRYRUN=0 KEY="" MOMENT="" REVIEW=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRYRUN=1; shift ;;
-    --review)  REVIEW="${2:-}"; shift 2 ;;
+    --review)  flag_value "$@"; REVIEW="$2"; shift 2 ;;
     -*)        usage "unknown option '$1'" ;;
     *)  if [[ -z "$KEY" ]]; then KEY="$1"; elif [[ -z "$MOMENT" ]]; then MOMENT="$1"
         else usage "unexpected argument '$1'"; fi; shift ;;

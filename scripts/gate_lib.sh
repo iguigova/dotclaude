@@ -16,6 +16,8 @@
 #                                    GATE_SELF_TEST is set
 #   gate_tracked_self_tests <repo>   every script the repo tracks offers --self-test,
 #                                    and gate_self_tests over every folder holding one
+#   gate_flag_values <file…>         every flag arm that shifts 2 calls flag_value.sh's
+#                                    check first (flag_lint.py)
 #   gate_run <command…>              a lint: shown, and a FAIL when it exits non-zero
 #   gate_names_changed <repo> [<pathspec>…]
 #                                    name_lint --gate over the prose changed since HEAD
@@ -213,6 +215,10 @@ gate_help_handlers() {  # <repo>
   [ "$bad" -eq 0 ] && echo "  ok  every one of the $n executable scripts answers --help"
   [ "$bad" -eq 0 ] || fail=1
 }
+
+# gate_flag_values — a flag arm that shifts 2 unchecked loops forever when its
+# flag is the last word, so the shape is refused before it ships.
+gate_flag_values() { gate_run "$GATE_SCRIPTS/flag_lint.py" "$@"; }  # <file…>
 
 # gate_run — a lint's output is captured and then shown: piping it into sed would
 # report sed's success as the gate's verdict.

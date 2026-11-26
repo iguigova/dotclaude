@@ -7,12 +7,14 @@
 ROOT (default ~/src/oceanhue) mirrors https://iguigova.github.io: the hub
 repo, iguigova.github.io, is the site root and holds brand.css, every other
 repo is /<repo>/, and ROOT/brand.css is a symlink to the hub's file, as
-ROOT/brand.js, the theme switch beside it, is to its own. Run it
+ROOT/brand.js, the theme switch beside it, and ROOT/analytics.js, the visit
+counter, are to their own. Run it
 after every change to brand.css, or to a project's theme colours.
 
 Checks, each printing `ok` or `FAIL <what>`:
 
-  link      ROOT/brand.css and ROOT/brand.js are symlinks to the hub's files
+  link      ROOT/brand.css, ROOT/brand.js and ROOT/analytics.js are symlinks
+            to the hub's files
   contrast  every colour token meets its WCAG AA ratio against --bg in both
             themes: text 4.5:1, large titles and rules 3:1; a colour token
             this script has no role for fails, so none goes unchecked
@@ -25,6 +27,9 @@ Checks, each printing `ok` or `FAIL <what>`:
   switch    every page but a printed document loads brand.js: a page by a
             path resolving to the hub's file, a page in a repo whose build
             copies it by its bare name
+  counter   every page but a printed document loads the hub's analytics.js,
+            and no page a build copies loads it, so an extension counts
+            nothing
   copies    every built copy (dist/brand.css, dist/brand.js) equals the
             hub's file
   live      the site serves origin/main's brand.css (skipped by --offline)
@@ -53,6 +58,7 @@ import argparse
 import contextlib
 import functools
 import http.server
+import io
 import itertools
 import os
 import pathlib
@@ -81,7 +87,8 @@ REF = re.compile(
 LINK = re.compile(r"""href=["']([^"']+\.css)["']""")
 STYLE = re.compile(r"<style[^>]*>(.*?)</style>", re.S)
 HREF = re.compile(r"""href=["'][^"']+\.css["']""")
-SCRIPT = re.compile(r"""<script[^>]*\ssrc=["']([^"']*brand\.js)["']""")
+SCRIPT = re.compile(r"""<script[^>]*\ssrc=["']([^"']+\.js)["']""")
+LINKED = ("brand.css", "brand.js", "analytics.js")
 HEX = r"#[0-9a-fA-F]{6}"
 TOKEN = re.compile(
     rf"(--[\w-]+):\s*(?:light-dark\(\s*({HEX}),\s*({HEX})\s*\)|({HEX}))")
@@ -237,19 +244,46 @@ def check_themes(root, found, rep):
         rep.ok("themes: no consumer switches theme on its own")
 
 
+def loads(root, page, js, copied):
+    """True when PAGE loads JS: by a path resolving to it, or, in a page a
+    build COPIED, by its bare name."""
+    srcs = SCRIPT.findall(page.read_text(errors="replace"))
+    return any(s == js.name if copied else resolve(root, page, s) == js
+               for s in srcs)
+
+
 def check_switch(root, found, rep):
     js = (root / HUB / "brand.js").resolve()
     want = [(f, False) for f, is_doc in pages(root, found) if not is_doc]
     want += [(f, True) for f in built(root, found)]
     bad = []
     for f, copied in sorted(set(want)):
-        srcs = SCRIPT.findall(f.read_text(errors="replace"))
-        if not any(s == "brand.js" if copied else resolve(root, f, s) == js
-                   for s in srcs):
+        if not loads(root, f, js, copied):
             bad.append(f)
             rep.fail(f"switch: {f.relative_to(root)} does not load brand.js")
     if not bad:
         rep.ok(f"switch: {len(set(want))} pages load brand.js")
+
+
+def counter_faults(root, found):
+    """The pages that must load analytics.js, and (page, fault) for each
+    that breaks the rule: a page that misses it, a built page that loads
+    it."""
+    js = (root / HUB / "analytics.js").resolve()
+    want = sorted({f for f, is_doc in pages(root, found) if not is_doc})
+    faults = [(f, "does not load analytics.js") for f in want
+              if not loads(root, f, js, False)]
+    faults += [(f, "is built into an extension and loads analytics.js")
+               for f in built(root, found) if loads(root, f, js, True)]
+    return want, faults
+
+
+def check_counter(root, found, rep):
+    want, faults = counter_faults(root, found)
+    for f, fault in faults:
+        rep.fail(f"counter: {f.relative_to(root)} {fault}")
+    if not faults:
+        rep.ok(f"counter: {len(want)} pages load analytics.js")
 
 
 def check_copies(root, brand, found, rep):
@@ -509,7 +543,7 @@ def run(root, offline, rev):
     hub = root / HUB
     brand = (hub / "brand.css").resolve()
     print(f"== brand_check: {root} ==")
-    for name in ("brand.css", "brand.js"):
+    for name in LINKED:
         link, want = root / name, (hub / name).resolve()
         if link.is_symlink() and link.resolve() == want:
             rep.ok(f"link: ROOT/{name} is a symlink to the hub's file")
@@ -520,6 +554,7 @@ def run(root, offline, rev):
     check_imports(root, brand, found, rep)
     check_themes(root, found, rep)
     check_switch(root, found, rep)
+    check_counter(root, found, rep)
     check_copies(root, brand, found, rep)
     answered = True if offline else check_live(hub, rep)
     if rev:
@@ -536,6 +571,7 @@ def self_test():
         root = pathlib.Path(tmp)
         self_test_links(t, root, good)
         self_test_build(t, root, good)
+        self_test_counter(t, root)
         self_test_site(t, root, good)
     self_test_render(t)
     return t.end()
@@ -696,6 +732,53 @@ def self_test_build(t, root, good):
     rep = Report(quiet=True)
     check_copies(root, brand, found, rep)
     expect(rep.failed, "a stale built copy of brand.js fails")
+
+
+def self_test_counter(t, root):
+    """Every page loads the hub's analytics.js; a page a build copies
+    never does."""
+    expect = self_test_expecter(t)
+    hub, proj, ext = root / HUB, root / "proj" / "demo", root / "ext"
+    index, page, built_page = (hub / "index.html", proj / "q.html",
+                               ext / "static" / "p.html")
+    (hub / "analytics.js").write_text("count")
+    (root / "analytics.js").symlink_to(hub / "analytics.js")
+    index_text, built_text = index.read_text(), built_page.read_text()
+    page.write_text('<link href="../../brand.css">')
+
+    def faults():
+        return [(f.name, fault) for f, fault
+                in counter_faults(root, consumers(root))[1]]
+
+    expect(faults() == [("index.html", "does not load analytics.js"),
+                        ("q.html", "does not load analytics.js")],
+           "each page that does not load analytics.js is a fault")
+    index.write_text(index_text + '<script src="analytics.js"></script>')
+    page.write_text('<link href="../../brand.css">'
+                    '<script src="analytics.js"></script>')
+    expect(faults() == [("q.html", "does not load analytics.js")],
+           "a project page loading analytics.js by its bare name misses"
+           " the hub's file")
+    page.write_text('<link href="../../brand.css">'
+                    '<script src="../../analytics.js"></script>')
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        check_counter(root, consumers(root), Report())
+    expect(out.getvalue() == "  ok   counter: 2 pages load analytics.js\n",
+           "pages loading the hub's analytics.js pass, and a built page"
+           " need not")
+    built_page.write_text(built_text + '<script src="analytics.js"></script>')
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        check_counter(root, consumers(root), Report())
+    expect(out.getvalue() == "  FAIL counter: ext/static/p.html is built"
+           " into an extension and loads analytics.js\n",
+           "a page a build copies that loads analytics.js fails, alone")
+    index.write_text(index_text)
+    built_page.write_text(built_text)
+    page.unlink()
+    (root / "analytics.js").unlink()
+    (hub / "analytics.js").unlink()
 
 
 def self_test_site(t, root, good):

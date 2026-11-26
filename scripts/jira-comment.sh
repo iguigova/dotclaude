@@ -36,6 +36,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 DRY_RUN=0
 EDIT_ID=""
@@ -45,8 +47,8 @@ POSITIONAL=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
-    --edit) EDIT_ID="${2:?--edit needs a comment id}"; shift 2 ;;
-    --reply) REPLY_ID="${2:?--reply needs a comment id}"; shift 2 ;;
+    --edit) flag_value "$@"; EDIT_ID="$2"; shift 2 ;;
+    --reply) flag_value "$@"; REPLY_ID="$2"; shift 2 ;;
     --self-test) SELF_TEST=1; shift ;;
     --*) echo "Unknown flag: $1" >&2; exit 2 ;;
     *) POSITIONAL+=("$1"); shift ;;

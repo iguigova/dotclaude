@@ -39,6 +39,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 DRY_RUN=0
 SELF_TEST=0
@@ -49,11 +51,12 @@ FIELDS='{}'
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
-    --summary) SUMMARY="${2:?--summary takes the new title}"; shift 2 ;;
+    --summary) flag_value "$@"; SUMMARY="$2"; shift 2 ;;
     --summary-only) SUMMARY_ONLY=1; shift ;;
-    --label) LABELS=$(jq -c --arg l "${2:?--label takes a label}" '. + [$l]' <<<"$LABELS"); shift 2 ;;
+    --label) flag_value "$@"; LABELS=$(jq -c --arg l "$2" '. + [$l]' <<<"$LABELS"); shift 2 ;;
     --field)
-      f="${2:?--field takes <id>=<json>}"
+      flag_value "$@"
+      f="$2"
       [[ "$f" == *=* ]] || { echo "--field takes <id>=<json>, got: $f" >&2; exit 2; }
       FIELDS=$(jq -c --arg k "${f%%=*}" --argjson v "${f#*=}" '. + {($k): $v}' <<<"$FIELDS") \
         || { echo "--field value is not JSON: ${f#*=}" >&2; exit 2; }

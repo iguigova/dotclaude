@@ -102,14 +102,26 @@ Under `-u`, an argument that may be absent is read with a default, and a require
 ```bash
 # Good
 case "${1:-}" in --self-test) self_test ;; esac
-root=${2:?--root needs a folder}
 dir=${GH_PR_WORKDIR_BASE:-/tmp/gh-pr-review-$(id -u)}
 
 # Bad — exits on "unbound variable" when no argument is given
 case "$1" in --self-test) self_test ;; esac
 ```
 
-`${parameter:?word}` writes `word` to stderr and exits a non-interactive shell when the parameter is null or unset (Bash manual).
+### A Flag's Value
+> *Source: `~/.claude/scripts/flag_value.sh`, `~/.claude/scripts/flag_lint.py`, [Bash manual — Bourne Shell Builtins](https://www.gnu.org/software/bash/manual/html_node/Bourne-Shell-Builtins.html)*
+
+A flag that takes a value is checked by `flag_value "$@"` in its case arm, before the arm reads `$2`:
+
+```bash
+# Good
+--review) flag_value "$@"; REVIEW="$2"; shift 2 ;;
+
+# Bad — a last --review loops forever
+--review) REVIEW="${2:-}"; shift 2 ;;
+```
+
+`shift n` fails when n "is greater than `$#`" and then shifts nothing (Bash manual), so a parsing loop over `$#` meets the same last flag forever. `flag_value.sh` states how a script sources it and the `--may-be-empty` form for a value that may be empty. `gate_flag_values` runs `flag_lint.py`, which fails a flag arm that shifts 2 without the call.
 
 ### `pipefail` and SIGPIPE
 > *Source: [BashPitfalls #60](https://mywiki.wooledge.org/BashPitfalls#pipefail), `~/.claude/scripts/git_fact.sh`, `~/.claude/scripts/gate_lib.sh` (`self_test_of`)*
@@ -495,6 +507,7 @@ fi
 | `bash -n` | `gate_syntax` | the file parses |
 | `shellcheck -S warning` | `gate_shellcheck` | no finding at warning or error severity |
 | `--self-test` sweep | `gate_tracked_self_tests` | every tracked script has a self-test, and each prints valid TAP and passes |
+| `flag_lint.py` | `gate_flag_values` | every flag arm that shifts 2 calls `flag_value` first |
 | `change_gate.py` | `gate_changed_code` | every mutant on a changed line killed |
 
 - **ShellCheck** is pinned at v0.10.0 and installed by `install_shellcheck.sh`. `-S` sets the minimum severity reported, from `error`, `warning`, `info`, `style`; the default is `style` (shellcheck(1)). The gate runs at `warning`, so info and style findings — SC2086 among them — are held in review.

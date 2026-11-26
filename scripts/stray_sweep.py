@@ -7,7 +7,9 @@ Four kinds, each read from /proc and /tmp:
           leader is gone, at the top of a cgroup scope where every process
           at the top is such an orphan: nothing that started that work is
           left. A browser's crash handler is re-parented too, but its scope
-          still holds the browser, so it is not an orphan.
+          still holds the browser, so it is not an orphan. Nor is a
+          clipboard tool (SELECTION_HOLDER): it leaves its starter by design
+          and serves the copied text until the next copy takes it over.
   zombie  a process that ended and whose parent never reaped it, named with
           that parent.
   long    a test or gate process (LONG_TEST) running over LONG_HOURS hours.
@@ -57,6 +59,7 @@ LONG_TEST = re.compile(
 )
 LONG_HOURS = 1
 SYSTEMD_USER = "/usr/lib/systemd/systemd --user"
+SELECTION_HOLDER = re.compile(r"^(\S*/)?(xclip|xsel|wl-copy)( |$)")
 COMMAND_WIDTH = 100
 LISTED = 5
 AFTER_LIMIT = 600
@@ -110,7 +113,8 @@ def read_procs() -> dict[int, Proc]:
 
 def orphaned(procs: dict[int, Proc], p: Proc) -> bool:
     adopters = {1} | {q.pid for q in procs.values() if q.cmd.startswith(SYSTEMD_USER)}
-    return p.ppid in adopters and p.sid not in procs and p.sid != 0
+    abandoned = p.ppid in adopters and p.sid not in procs and p.sid != 0
+    return abandoned and not SELECTION_HOLDER.match(p.cmd)
 
 
 def scopes(procs: dict[int, Proc], uid: int) -> list[list[Proc]]:
@@ -319,15 +323,19 @@ def self_test_table() -> dict[int, Proc]:
         p(80, 20, 20, "/app-browser", "pytest -n 8", age=3601),
         p(81, 20, 20, "/app-browser", "pytest -n 8", age=3600),
         p(82, 20, 20, "/app-browser", "vim", age=9000),
+        p(90, 10, 995, "/run-e", "xclip -selection clipboard"),
+        p(91, 1, 994, "/run-f", "/usr/bin/wl-copy"),
+        p(92, 10, 993, "/run-g", "xclipboard-sync"),
     )
     return {row.pid: row for row in rows}
 
 
 def self_test_procs(t, procs: dict[int, Proc]) -> None:
     t.check(
-        [q.pid for q in orphans(procs, 1000)] == [30, 40],
+        [q.pid for q in orphans(procs, 1000)] == [30, 40, 92],
         "an orphan whose scope holds nothing else at its top is reported, and adopted by init too;"
-        " a crash handler beside its live browser, a session leader and another user's are not",
+        " a crash handler beside its live browser, a session leader, another user's"
+        " and a clipboard tool serving a copy are not",
         repr([q.pid for q in orphans(procs, 1000)]),
     )
     t.check([q.pid for q in zombies(procs, 1000)] == [70], "a zombie is reported")

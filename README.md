@@ -20,7 +20,9 @@ The look of my pages and documents is one file, the way the credo is:
 [`brand.css`](https://github.com/iguigova/iguigova.github.io/blob/main/brand.css),
 shown with itself at [iguigova.github.io/style.html](https://iguigova.github.io/style.html).
 Beside it, [`brand.js`](https://github.com/iguigova/iguigova.github.io/blob/main/brand.js)
-gives every page the same Light and Dark switch.
+gives every page the same Light and Dark switch, and
+[`analytics.js`](https://github.com/iguigova/iguigova.github.io/blob/main/analytics.js)
+counts the page's visits with Google Analytics, which sets cookies.
 
 ## Layers
 

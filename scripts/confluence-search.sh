@@ -23,6 +23,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 # The paging is the contract, so the test runs this script against a stubbed
 # atlassian_curl: three results over two pages, a limit that stops inside the
@@ -40,8 +42,8 @@ atlassian_curl() {
   local out="" url="" a
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      -o) out="$2"; shift 2 ;;
-      -w|--data-urlencode) [[ "$2" == cql=bad* ]] && url=bad; shift 2 ;;
+      -o) out="$2"; shift 2 ;;  # flag_value: a stub of curl, whose caller passes each value
+      -w|--data-urlencode) [[ "$2" == cql=bad* ]] && url=bad; shift 2 ;;  # flag_value: the same stub
       -G) shift ;;
       *) [[ -z "$url" ]] && url="$1"; shift ;;
     esac
@@ -71,7 +73,7 @@ fi
 LIMIT=100
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
-    --limit) LIMIT="$2"; shift 2 ;;
+    --limit) flag_value "$@"; LIMIT="$2"; shift 2 ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done

@@ -49,6 +49,8 @@
 set -uo pipefail
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 usage() { echo "jira-create: $1" >&2; exit 2; }
 
@@ -288,6 +290,9 @@ self_test_refusals() {
     "$(printf '{{a]b}}' | jc --project XYZ --type Bug --summary S --dry-run >/dev/null 2>&1; echo $?)" 1
   tap_is "a missing --type is a usage error" "$(printf x | jc --project XYZ --summary S >/dev/null 2>&1; echo $?)" 2
   tap_is "an unknown argument is a usage error" "$(jc --project XYZ --type Bug --summary S --bogus x >/dev/null 2>&1; echo $?)" 2
+  tap_is "a last flag with no value is a usage error, not a hang" \
+    "$(jc --project XYZ --type Bug --summary S --project </dev/null 2>&1; echo "exit $?")" \
+    $'jira-create.sh: --project needs a value\nexit 2'
 }
 
 self_test_creates() {  # <folder>
@@ -326,15 +331,15 @@ PROJECT="" TYPE="" SUMMARY="" POINTS="" PARENT="" DESC_FILE="" DRYRUN=0
 LABELS=() LINKS=() EXTRA=()
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --project)   PROJECT="${2:-}"; shift 2 ;;
-    --type)      TYPE="${2:-}"; shift 2 ;;
-    --summary)   SUMMARY="${2:-}"; shift 2 ;;
-    --points)    POINTS="${2:-}"; shift 2 ;;
-    --parent)    PARENT="${2:-}"; shift 2 ;;
-    --label)     LABELS+=("${2:-}"); shift 2 ;;
-    --link)      LINKS+=("${2:-}"); shift 2 ;;
-    --field)     EXTRA+=("${2:-}"); shift 2 ;;
-    --desc-file) DESC_FILE="${2:-}"; shift 2 ;;
+    --project)   flag_value "$@"; PROJECT="$2"; shift 2 ;;
+    --type)      flag_value "$@"; TYPE="$2"; shift 2 ;;
+    --summary)   flag_value "$@"; SUMMARY="$2"; shift 2 ;;
+    --points)    flag_value "$@"; POINTS="$2"; shift 2 ;;
+    --parent)    flag_value "$@"; PARENT="$2"; shift 2 ;;
+    --label)     flag_value "$@"; LABELS+=("$2"); shift 2 ;;
+    --link)      flag_value "$@"; LINKS+=("$2"); shift 2 ;;
+    --field)     flag_value "$@"; EXTRA+=("$2"); shift 2 ;;
+    --desc-file) flag_value "$@"; DESC_FILE="$2"; shift 2 ;;
     --dry-run)   DRYRUN=1; shift ;;
     *) usage "unknown argument '$1'" ;;
   esac

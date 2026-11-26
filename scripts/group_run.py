@@ -158,8 +158,11 @@ def self_test_gone(pid_file) -> bool:
 
     stat, deadline = Path(f"/proc/{int(pid_file.read_text())}/stat"), time.monotonic() + 5
 
-    def dead():
-        return not stat.exists() or stat.read_text().split(") ")[1].startswith("Z")
+    def dead():  # the stat file can vanish between any check and the read, so the read is the check
+        try:
+            return stat.read_text().split(") ")[1].startswith("Z")
+        except FileNotFoundError:
+            return True
 
     while not dead() and time.monotonic() < deadline:
         time.sleep(0.02)

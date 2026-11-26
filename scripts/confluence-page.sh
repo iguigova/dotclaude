@@ -25,6 +25,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 # The id taken from a reference and the URL asked are the contract, so the test
 # runs this script in a fixture project whose atlassian_curl prints its URL.
@@ -91,8 +93,8 @@ EXPAND=""
 TO=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --expand) EXPAND="${2:?--expand needs fields}"; shift 2 ;;
-    --to)     TO="${2:?--to needs a directory}"; shift 2 ;;
+    --expand) flag_value "$@"; EXPAND="$2"; shift 2 ;;
+    --to)     flag_value "$@"; TO="$2"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; exit 1 ;;
   esac
 done

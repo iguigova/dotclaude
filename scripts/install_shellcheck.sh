@@ -23,6 +23,9 @@
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
+
 VERSION=v0.10.0
 SHA256_linux_x86_64=6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87
 BINDIR="${HOME}/.local/bin"
@@ -48,7 +51,7 @@ fi
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --dir) BINDIR="${2:?--dir needs a path}"; shift 2 ;;
+    --dir) flag_value "$@"; BINDIR="$2"; shift 2 ;;
     *) echo "Usage: $0 [--dir <bindir>] | --self-test" >&2; exit 1 ;;
   esac
 done

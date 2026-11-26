@@ -20,6 +20,8 @@
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=flag_value.sh
+. "$SCRIPTS_DIR/flag_value.sh" || exit 1
 # shellcheck source=./memory_lib.sh
 . "$SCRIPTS_DIR/memory_lib.sh"
 
@@ -86,10 +88,10 @@ fi
 TEXT="" ; KEY="" ; TOPN=12 ; MIN=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --text) TEXT="$2"; shift 2 ;;
-    --key)  KEY="$2";  shift 2 ;;
-    --top)  TOPN="$2"; shift 2 ;;
-    --min)  MIN="$2";  shift 2 ;;
+    --text) flag_value "$@"; TEXT="$2"; shift 2 ;;
+    --key)  flag_value "$@"; KEY="$2";  shift 2 ;;
+    --top)  flag_value "$@"; TOPN="$2"; shift 2 ;;
+    --min)  flag_value "$@"; MIN="$2";  shift 2 ;;
     *) TEXT="${TEXT:+$TEXT }$1"; shift ;;   # bare words → text
   esac
 done

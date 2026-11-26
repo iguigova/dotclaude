@@ -34,6 +34,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 # The page id and the version recorded beside a fetched body, as "ID VERSION",
 # or a message on stderr and 2.
@@ -123,7 +125,7 @@ STUB
   cat > "$run/bin/curl" <<'STUB'
 #!/usr/bin/env bash
 while [[ $# -gt 0 ]]; do
-  case "$1" in -o) out="$2"; shift 2 ;; -d) cp "${2#@}" "$STUB_SENT"; shift 2 ;; *) shift ;; esac
+  case "$1" in -o) out="$2"; shift 2 ;; -d) cp "${2#@}" "$STUB_SENT"; shift 2 ;; *) shift ;; esac  # flag_value: a stub of curl, whose caller passes each value
 done
 echo '{}' > "$out"; printf '%s' "$STUB_CODE"
 STUB
@@ -155,8 +157,8 @@ FROM=""
 TITLE_OVERRIDE=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --from)  FROM="${2:?--from needs a file}"; shift 2 ;;
-    --title) TITLE_OVERRIDE="${2:?--title needs a value}"; shift 2 ;;
+    --from)  flag_value "$@"; FROM="$2"; shift 2 ;;
+    --title) flag_value "$@"; TITLE_OVERRIDE="$2"; shift 2 ;;
     *) echo "Unknown arg: $1" >&2; usage ;;
   esac
 done

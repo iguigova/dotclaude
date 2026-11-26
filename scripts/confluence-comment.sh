@@ -29,6 +29,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 PAGE_URL_ID='/pages/([0-9]+)'
 NUMERIC_ID='^[0-9]+$'
@@ -128,8 +130,8 @@ EDIT=""
 while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --dry-run) DRY_RUN=1; shift ;;
-    --reply-to) PARENT="${2:-}"; shift 2 ;;
-    --edit) EDIT="${2:-}"; shift 2 ;;
+    --reply-to) flag_value "$@"; PARENT="$2"; shift 2 ;;
+    --edit) flag_value "$@"; EDIT="$2"; shift 2 ;;
     --self-test) self_test; tap_end ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac

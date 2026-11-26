@@ -68,6 +68,8 @@
 set -euo pipefail
 
 SCRIPTS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=flag_value.sh
+. "$SCRIPTS_DIR/flag_value.sh" || exit 1
 # shellcheck source=journal_lib.sh
 . "$SCRIPTS_DIR/journal_lib.sh"
 
@@ -303,14 +305,10 @@ while [[ $# -gt 0 ]]; do
     --ids)     IDS_ONLY=1 ; shift ;;
     --show)    SHOW=1 ; shift ;;
     --closed)  CLOSED=1 ; shift ;;
-    --session) SESSION="${2:-}" ; shift 2
-               [[ -n "$SESSION" ]] || { echo "journal_queue.sh: --session needs a session id" >&2 ; exit 2 ; } ;;
-    --opened-by) OPENED_BY="${2:-}" ; shift 2
-               [[ -n "$OPENED_BY" ]] || { echo "journal_queue.sh: --opened-by needs a session id" >&2 ; exit 2 ; } ;;
-    --ticket)  TICKET="${2:-}" ; shift 2
-               [[ -n "$TICKET" ]] || { echo "journal_queue.sh: --ticket needs a ticket key" >&2 ; exit 2 ; } ;;
-    --topic)   TOPIC="${2:-}" ; shift 2
-               [[ -n "$TOPIC" ]] || { echo "journal_queue.sh: --topic needs a prefix" >&2 ; exit 2 ; } ;;
+    --session)   flag_value "$@" ; SESSION="$2"   ; shift 2 ;;
+    --opened-by) flag_value "$@" ; OPENED_BY="$2" ; shift 2 ;;
+    --ticket)    flag_value "$@" ; TICKET="$2"    ; shift 2 ;;
+    --topic)     flag_value "$@" ; TOPIC="$2"     ; shift 2 ;;
     *) echo "journal_queue.sh: unknown argument: $1 (--help lists them)" >&2 ; exit 2 ;;
   esac
 done

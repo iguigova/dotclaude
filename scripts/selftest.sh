@@ -15,6 +15,8 @@
 set -uo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 here=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)   # → ~/.claude/scripts
+# shellcheck source=flag_value.sh
+. "$here/flag_value.sh" || exit 1
 # shellcheck source=gate_lib.sh
 . "$here/gate_lib.sh"
 
@@ -56,7 +58,7 @@ copy=0 root=$here
 while [ $# -gt 0 ]; do
   case "$1" in
     --copy) copy=1; shift ;;
-    --root) root=${2:?--root needs a folder}; shift 2 ;;
+    --root) flag_value "$@"; root=$2; shift 2 ;;
     *) echo "selftest.sh: unknown argument: $1 (takes --copy, --root DIR, --self-test)" >&2; exit 2 ;;
   esac
 done
@@ -73,6 +75,9 @@ gate_tracked_self_tests ..
 
 echo "== 3b. every executable script the tree tracks answers --help =="
 gate_help_handlers ..
+
+echo "== 3c. every flag that takes a value is checked for one =="
+gate_flag_values ./*.sh
 
 echo "== 4. skill and command frontmatter, and their allowed-tools =="
 # The census reads frontmatter leniently so it can describe a malformed file.

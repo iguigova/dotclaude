@@ -38,6 +38,8 @@ set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
 
 PF="$HOME/.claude/scripts/project_file.sh"
+# shellcheck source=flag_value.sh
+. "$(dirname "${BASH_SOURCE[0]}")/flag_value.sh" || exit 1
 
 well_formed() {
   "$("$PF" --script storage-well-formed.sh)" "$1"
@@ -129,9 +131,9 @@ while [[ "${1:-}" == --* ]]; do
   case "$1" in
     --self-test) self_test; tap_end ;;
     --dry-run) DRY_RUN=1; shift ;;
-    --parent) PARENT="$2"; shift 2 ;;
-    --title) TITLE="$2"; shift 2 ;;
-    --label) LABELS+=("$2"); shift 2 ;;
+    --parent) flag_value "$@"; PARENT="$2"; shift 2 ;;
+    --title) flag_value "$@"; TITLE="$2"; shift 2 ;;
+    --label) flag_value "$@"; LABELS+=("$2"); shift 2 ;;
     *) echo "Unknown flag: $1" >&2; exit 2 ;;
   esac
 done

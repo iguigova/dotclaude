@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""slack_post.py — post, edit or delete one Slack message written in Markdown.
+"""slack_post.py — post, edit, delete or react to one Slack message.
 
   slack_post.py post CHANNEL FILE [--thread TS] [--broadcast]
                 [--image PATH] [--dry-run]
   slack_post.py edit CHANNEL TS FILE [--dry-run]
   slack_post.py delete CHANNEL TS [--dry-run]
+  slack_post.py react CHANNEL TS EMOJI [--dry-run]
   slack_post.py --self-test        # offline, no network
 
 FILE is standard Markdown: **bold**, _italic_, `code`, [text](url),
@@ -36,6 +37,13 @@ at TS, one the write token's user posted, and reads back to confirm it
 is gone: absent, or the ``tombstone`` Slack leaves in place of a deleted
 message that has replies.
 
+``react`` adds the reaction EMOJI, a name with or without its colons
+(``white_check_mark``, ``:white_check_mark:``), to the message at TS, a
+thread's parent or a reply, and reads the message back to confirm the
+reaction is on it. A reaction already there counts as added, so a second
+run changes nothing. It needs the ``reactions:write`` scope on the write
+token; without it Slack answers ``missing_scope`` and nothing is added.
+
 Raw ``<``, ``>`` and ``&`` arrive as written, so FILE needs no escaping.
 Slack caps all ``markdown`` blocks in one payload at 12,000 characters
 (https://docs.slack.dev/reference/block-kit/blocks/markdown-block);
@@ -48,8 +56,8 @@ character. So is a bare ``@name`` outside code: Slack posts it as text and
 tags nobody. A tag is ``<@U…>``, the form ``slack_thread.py`` lists for each
 person in its People block; a literal ``@`` goes in backticks.
 A ``post`` or ``edit`` from a Claude session that has not loaded the
-draft skill is refused by ``draft_gate.py`` and exits 1; ``--dry-run``
-and ``delete`` are never refused.
+draft skill is refused by ``draft_gate.py`` and exits 1; ``--dry-run``,
+``delete`` and ``react`` are never refused.
 
 It writes with the project's ``.secrets/slack-token-write`` (chat:write
 only) and reads back with ``.secrets/slack-token``;
@@ -73,6 +81,9 @@ MARKDOWN_LIMIT = 12000
 TIMEOUT = 30
 # conversations.replies answers this for a message that no longer exists.
 GONE = 'thread_not_found'
+# reactions.add answers this when the token's user has that reaction on it.
+ALREADY_REACTED = 'already_reacted'
+EMOJI_NAME = re.compile(r'^:?([a-z0-9_+\-]+(?:::skin-tone-[2-6])?):?$')
 
 LIST_ITEM = re.compile(r'^\s*(?:[-*+]|\d+[.)])\s+\S')
 FENCE = re.compile(r'^\s*(```|~~~)')
@@ -270,6 +281,25 @@ def delete_payload(channel, ts):
     return {'channel': channel, 'ts': ts}
 
 
+def emoji_name(raw):
+    """The reaction's name without colons, or SlackError for one Slack
+    could not name."""
+    named = EMOJI_NAME.match(raw.strip())
+    if not named:
+        raise SlackError(f'{raw!r} is no emoji name; give one such as '
+                         f'white_check_mark')
+    return named.group(1)
+
+
+def react_payload(channel, ts, name):
+    return {'channel': channel, 'timestamp': ts, 'name': name}
+
+
+def reacted(msg, name):
+    """True when the message as Slack stored it carries the reaction."""
+    return any(r.get('name') == name for r in (msg or {}).get('reactions', []))
+
+
 # ── Slack ────────────────────────────────────────────────────────────
 
 def token_file(env, name):
@@ -435,6 +465,42 @@ def delete(channel, ts, dry_run):
     return 0
 
 
+def tolerated(error):
+    """True for the one refusal that means the reaction is already on."""
+    return error.code == ALREADY_REACTED
+
+
+def reactions_add(payload):
+    return call('reactions.add', write_token(), payload=payload)
+
+
+def add_reaction(payload, send=reactions_add):
+    """Send the reaction, with a reaction already there taken as added."""
+    try:
+        send(payload)
+    except SlackError as error:
+        if not tolerated(error):
+            raise
+
+
+def confirm_reaction(msg, name, ts):
+    """SlackError unless the read-back message carries the reaction."""
+    if not reacted(msg, name):
+        raise SlackError(f':{name}: not on message {ts} after react')
+
+
+def react(channel, ts, emoji, dry_run):
+    """Add the reaction to the message at ts, then confirm it is on it."""
+    payload = react_payload(channel, ts, emoji_name(emoji))
+    if dry_run:
+        print(json.dumps(payload, indent=2))
+        return 0
+    add_reaction(payload)
+    confirm_reaction(read_back(channel, ts), payload['name'], ts)
+    print(f'reacted :{payload["name"]}: on {channel} {ts}')
+    return 0
+
+
 # ── Self-test ────────────────────────────────────────────────────────
 
 SAMPLE = """**Outcome** with `pi_1` and [a link](https://x.invalid).
@@ -597,8 +663,61 @@ def self_test(tmp):
     check('a message not found is no reply', None, reply_parent(None, '1.2'))
     check("an error keeps Slack's code", 'thread_not_found',
           error_code({'ok': False, 'error': 'thread_not_found'}))
+    self_test_react()
     self_test_gate(tmp)
     return SELF_TEST.end()
+
+
+def self_test_react():
+    def name_refused(raw):
+        try:
+            emoji_name(raw)
+            return False
+        except SlackError:
+            return True
+    check('an emoji name loses its colons', 'white_check_mark',
+          emoji_name(':white_check_mark:'))
+    check('a bare emoji name is kept', 'white_check_mark',
+          emoji_name('white_check_mark'))
+    check('a skin tone stays part of the name', '+1::skin-tone-2',
+          emoji_name(':+1::skin-tone-2:'))
+    check('a name with a space is refused', True, name_refused('check mark'))
+    check('a typed emoji is refused', True, name_refused('✅'))
+    check('a reaction names channel, timestamp and emoji',
+          {'channel': 'C1', 'timestamp': '1.2', 'name': 'x'},
+          react_payload('C1', '1.2', 'x'))
+    check('a message carrying the reaction reads back as reacted', True,
+          reacted({'reactions': [{'name': 'eyes'}, {'name': 'x'}]}, 'x'))
+    check('a message with other reactions is not reacted', False,
+          reacted({'reactions': [{'name': 'eyes'}]}, 'x'))
+    check('a message with no reactions is not reacted', False,
+          reacted({'ts': '1.2'}, 'x'))
+    check('a reaction already there counts as added', None,
+          refusal_of(lambda: add_reaction({}, refusing(ALREADY_REACTED))))
+    check('any other refusal is raised', 'missing_scope',
+          refusal_of(lambda: add_reaction({}, refusing('missing_scope'))))
+    check('a read-back carrying the reaction confirms it', None,
+          refusal_of(lambda: confirm_reaction(
+              {'reactions': [{'name': 'x'}]}, 'x', '1.2')))
+    check('a read-back without the reaction is refused', 'not on',
+          refusal_of(lambda: confirm_reaction({'ts': '1.2'}, 'x', '1.2')))
+
+
+def refusing(code):
+    """A sender that Slack refuses with code."""
+    def send(_payload):
+        raise SlackError(f'reactions.add: {code}', code)
+    return send
+
+
+def refusal_of(step):
+    """None when step runs clean, else the SlackError's code, or 'not on'
+    for a refusal without one."""
+    try:
+        step()
+        return None
+    except SlackError as error:
+        return error.code or 'not on'
 
 
 def self_test_gate(tmp):
@@ -626,6 +745,13 @@ def self_test_gate(tmp):
           (bool(allowed), 'draft_gate:' in allowed))
     check('a dry run is never refused', 0,
           run('st', 'post', 'C1', str(note), '--dry-run')[0])
+    check('a react is never refused by the draft gate', False,
+          'draft_gate:' in run('st', 'react', 'C1', '1.2', 'x')[1])
+    dry = subprocess.run([sys.executable, __file__, 'react', 'C1', '1.2',
+                          ':x:', '--dry-run'], capture_output=True, text=True)
+    check('a react dry run prints the payload and sends nothing',
+          (0, {'channel': 'C1', 'timestamp': '1.2', 'name': 'x'}),
+          (dry.returncode, json.loads(dry.stdout or 'null')))
 
 
 def main():
@@ -651,6 +777,11 @@ def main():
     d.add_argument('channel')
     d.add_argument('ts')
     d.add_argument('--dry-run', action='store_true')
+    r = sub.add_parser('react')
+    r.add_argument('channel')
+    r.add_argument('ts')
+    r.add_argument('emoji')
+    r.add_argument('--dry-run', action='store_true')
     args = parser.parse_args()
     if args.self_test:
         import tempfile
@@ -667,11 +798,13 @@ def main():
             return edit(args.channel, args.ts, args.file, args.dry_run)
         if args.command == 'delete':
             return delete(args.channel, args.ts, args.dry_run)
+        if args.command == 'react':
+            return react(args.channel, args.ts, args.emoji, args.dry_run)
     except SlackError as error:
         print(f'slack_post: {error}', file=sys.stderr)
         return 1
-    parser.error('give post CHANNEL FILE, edit CHANNEL TS FILE '
-                 'or delete CHANNEL TS')
+    parser.error('give post CHANNEL FILE, edit CHANNEL TS FILE, '
+                 'delete CHANNEL TS or react CHANNEL TS EMOJI')
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 ---
 name: review:pr
-description: Review a GitHub PR — read the merge gate and your own review history, fetch the diff, check against coding standards, the team's security incident classes, codebase consistency, and import boundaries, produce educational insights, and (on confirmation) post the review with selected Critical/Medium inline findings back to GitHub.
+description: Review a GitHub PR — read the merge gate and your own review history, fetch the diff, check against coding standards, the team's security incident classes, codebase consistency, and import boundaries, produce educational insights, and (on confirmation) post the review with selected Critical/Medium inline findings back to GitHub. Marks the review on the PR's ticket — first reviewer and code-review status, then testing or back to in progress by the verdict — and tells the team's review thread the outcome.
 argument-hint: <PR-URL or REPO#NUMBER>
 ---
 
@@ -14,7 +14,7 @@ This is a change-oriented review. Focus on the diff, not the entire file. Do not
 
 ## 1. Start
 
-**Where the writes are.** §1–§5 read GitHub and write scratch into the PR's private working directory, with one exception: §1 names the session, which appends a title record to this session's transcript. §6 (post) and §7 (worklog, journal, title) are the only other steps that change anything outside the directory. Under plan mode, a read-only invocation, or any instruction to make no changes, pass `--no-name` and stop at §6 with the review delivered in chat. That is a complete deliverable, and §7 bills it once the session can write again.
+**Where the writes are.** §1–§5 read GitHub and write scratch into the PR's private working directory, with two exceptions in §1: naming the session appends a title record to this session's transcript, and **The ticket** writes the ticket. §6 (review, thread reply) and §7 (ticket status, worklog, journal, title) are the only other steps that change anything outside the directory. Under plan mode, a read-only invocation, or any instruction to make no changes, pass `--no-name`, skip **The ticket**, and stop at §6 with the review delivered in chat. That is a complete deliverable, and §7 bills it once the session can write again.
 
 ```bash
 "$(~/.claude/scripts/project_file.sh --script gh-pr-start.sh)" [<pr-ref>]
@@ -23,6 +23,23 @@ This is a change-oriented review. Focus on the diff, not the entire file. Do not
 Show what it prints; its `pr:` URL is `<pr-ref>` below.
 
 Each later block recomputes `D` with `gh-pr-workdir.sh`. `"$D/pr.json"` is the fetch every later step reuses; `gh-pr-fetch.sh --help` states its JSON. The reviewer's login is `author`; there is no `user` field.
+
+### The ticket
+
+Mark the review started on the PR's ticket. It is skipped, saying why, when `.ticket` is empty or the PR is your own:
+
+```bash
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+ME=$(gh api user --jq .login) && jq -r --arg me "$ME" '"ticket=\(.ticket) own=\(.meta.author.login == $me)"' "$D/pr.json"
+```
+
+With a ticket and `own=false`, and only then:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> start
+```
+
+Show what it prints; `jira-review.sh --help` states each line. A ticket it keeps in any status but in-progress or code review is asked about in the question dialog, before the review goes on, and is never moved by hand. An exit 1 naming a value means the project keeps no review workflow: say so and carry on with the review.
 
 ## 2. Read the Merge Gate and Your Own History
 
@@ -318,6 +335,7 @@ Posting is **never automatic** — a PR review is public and addressed to a coll
    - **A finding that confirms another reviewer's thread is offered as a reply there**, never as a new inline comment (§4, **Acknowledge, don't duplicate**).
    - **The summary body ends with one `**Nits:**` line** — each Low/Nit finding in a few words with its `file:line`. Omit it when there are none.
    - On a second pass, note that an `APPROVE` replaces your own standing `CHANGES_REQUESTED` but leaves anyone else's in place (§2).
+   - **The reply in the review thread** (§6, **The review thread**) is offered in the same question.
    - On a PR the `gh` user authored, GitHub accepts only `COMMENT`. The helper posts an `APPROVE` there as `COMMENT`, and its dry run shows `requested_event`, `event` and `event_note`. Tell the user before posting that the verdict will appear in the body only and will not count toward the merge gate.
 3. On confirmation, write the **summary body** to `"$D/review-body.md"` and the **selected inline findings** to `"$D/review-findings.json"` as a JSON array `[{path, line, side, body}]`, `line` and `side` as §4 states, `side` defaulting to `RIGHT`. A reply to another reviewer's thread is `{in_reply_to, body}`, where `in_reply_to` is the thread's `id` from `others_threads`. Both follow **Posted text** below. Then post **one atomic review**:
 
@@ -332,6 +350,24 @@ D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 ```
 
 `--index-file` is not optional. Invalid anchors abort with a list (fix the `line`), or pass `--drop-invalid` to fold them into the summary body instead. A reply that fails exits non-zero with the review already up; re-post only that reply. `--allow-shared-anchor` is only for a genuinely different defect on another reviewer's anchor. Run once with `--dry-run` to confirm the payload, then again without it. If it refuses on a moved head, re-run §1, §2 and §4 against the new head and re-check every finding.
+
+### The review thread
+
+Where the review was asked for in the team's review channel, the outcome is told there too. Read the threads that link the PR before step 2's question, so the reply is approved in the same dialog as the review:
+
+```bash
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script review_request_state.py)" pr-thread <pr-url> > "$D/thread.json"
+```
+
+`--help` states the fields. A null `thread` means nothing is posted: say so. Otherwise show the thread's `permalink`, its `parent` text and each permalink in `earlier`, and offer the reply for the thread the user picks; a thread asking for something other than review (testing, a question) is named as such. The reply is two lines at most, under **Posted text**: the verdict and the review's link, and on a `COMMENT` the one headline must-fix. Once the GitHub review is up, write it to `"$D/thread-reply.md"` with that review's URL and post it in the chosen thread only, never to the channel:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script slack_post.py)" post "$(jq -r .channel "$D/thread.json")" \
+  "$D/thread-reply.md" --thread <ts>
+```
+
+The `ts` is the chosen thread's, from `thread` or `earlier`. Give the user the permalink it prints.
 
 ### Posted text
 
@@ -364,6 +400,30 @@ Omit a section that has no findings. A finding posted inline gets one line in th
 **Open questions and Checked-and-cleared both belong in the posted body**, not just in chat.
 
 ## 7. After the Review
+
+### The ticket's status
+
+The ticket follows the posted review, skipped when **The ticket** (§1) was, and when §6 posted nothing. A `COMMENT` sends it back to the author:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> commented --review <review url>
+```
+
+An `APPROVE` moves it to testing only once every open PR on the ticket is approved, read after the post:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script gh-ticket-prs.sh)" <TICKET> | jq -c '{url, review}'
+```
+
+Each needs `review` `APPROVED`. That is GitHub's review decision, so another reviewer's standing block, or a branch rule wanting a second approval, holds it. Otherwise run nothing and name each PR that holds it, with its `review`. When all are approved:
+
+```bash
+"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> approved --review <review url>
+```
+
+Show what it prints. A `kept in` line moved nothing; say so.
+
+### Worklog and journal
 
 Journal and log the 15 minutes to the ticket. Both always run — a review delivered in chat but not posted is still billable work. The worklog is skipped only when the PR carries no ticket key (`.ticket` is empty); say so when you skip it.
 

@@ -3,6 +3,7 @@
 
   review_request_state.py KEY
   review_request_state.py send KEY FILE --expect post|reply
+  review_request_state.py pr-thread PR-URL
   review_request_state.py --self-test        # offline, no network
 
 A ticket has one review thread, in the channel ``.claude/review_channel``
@@ -50,6 +51,16 @@ also sent to the channel so the request shows there too. It then
 records the thread on the ticket when the ticket has no record yet, and
 prints {"permalink", "thread"}.
 
+``pr-thread`` is the reviewer's side: the threads in the channel where anyone
+linked PR-URL, so a review's outcome can be told where the review was asked
+for. A request often names no ticket, so the PR is what is searched. It
+prints {"pr", "channel", "thread", "earlier"}: ``thread`` is the one whose
+latest message linking the PR is newest, with ``parent`` (the first
+message's text) beside ``ts``, ``permalink``, ``last_mine`` and ``replies``;
+null when no message links it. ``earlier`` holds the other threads, newest
+first, each as {"ts", "permalink"}. A thread is read, never written: the reply goes
+through slack_post.py to the thread the user approves.
+
 Exit 0: done. Exit 1: a usage error, or the project names no review channel.
 Exit 2: Slack, GitHub or Jira could not be read or written. Exit 4: ``send``
 found ``next`` changed, and posted nothing. It reads Slack with the
@@ -95,6 +106,27 @@ def threads_of(matches, channel, parse_link):
              if m.get('channel', {}).get('id') == channel
              and parse_link(m['permalink'])[1] == m['ts']}
     return sorted(roots, key=float, reverse=True)
+
+
+def threads_linking(matches, channel, url, parse_link):
+    """Ts of each thread in the channel holding a message that links url.
+
+    Ordered by each thread's latest such message, newest first; a reply
+    counts for the thread it sits in.
+    """
+    latest = {}
+    for m in matches:
+        if m.get('channel', {}).get('id') != channel or url not in linked_prs([m.get('text', '')]):
+            continue
+        root = parse_link(m['permalink'])[1]
+        latest[root] = max(latest.get(root, 0.0), float(m['ts']))
+    return sorted(latest, key=latest.get, reverse=True)
+
+
+def pr_url(text):
+    """text as https://github.com/o/r/pull/n when it is one PR link, else None."""
+    found = linked_prs([text])
+    return found.pop() if len(found) == 1 and PR_LINK.fullmatch(text.rstrip('/')) else None
 
 
 def iso_ts(iso):
@@ -242,11 +274,13 @@ class World:
         return out.stdout.strip().splitlines()[-1]
 
 
+def search(world, query):
+    return world.st.call('search.messages',
+                         {'query': query, 'count': 100, 'sort': 'timestamp'})['messages']['matches']
+
+
 def search_threads(world, ch, key, me):
-    query = f'{key} from:<@{me}> in:<#{ch}>'
-    matches = world.st.call('search.messages',
-                            {'query': query, 'count': 100, 'sort': 'timestamp'})['messages']['matches']
-    return threads_of(matches, ch, world.st.parse_link)
+    return threads_of(search(world, f'{key} from:<@{me}> in:<#{ch}>'), ch, world.st.parse_link)
 
 
 def read_thread(world, ch, key):
@@ -324,6 +358,20 @@ def send(key, path, expect, world=None):
     return {'permalink': permalink, 'thread': parent}
 
 
+def pr_thread(url, world=None):
+    """The threads in the review channel where anyone linked the PR, newest first."""
+    world = world or World()
+    st, ch = world.st, world.channel()
+    roots = threads_linking(search(world, f'"{url.split("://", 1)[1]}" in:<#{ch}>'), ch, url, st.parse_link)
+    permalink = lambda t: bare(st.call('chat.getPermalink', {'channel': ch, 'message_ts': t})['permalink'])
+    thread = None
+    if roots:
+        me = st.call('auth.test', {})['user_id']
+        thread = dict(thread_messages(st, ch, roots[0], me), ts=roots[0], permalink=permalink(roots[0]))
+    return {'pr': url, 'channel': ch, 'thread': thread,
+            'earlier': [{'ts': t, 'permalink': permalink(t)} for t in roots[1:]]}
+
+
 # ── Self-test ────────────────────────────────────────────────────────
 
 def pr(n, **kw):
@@ -338,8 +386,9 @@ def pr(n, **kw):
 class FakeSlack:
     """slack_thread as read_thread uses it: canned answers, no network."""
 
-    def __init__(self, permalinks, thread, members=()):
+    def __init__(self, permalinks, thread, members=(), texts=None):
         self.permalinks, self.thread, self.queries = permalinks, thread, []
+        self.texts = texts or {}
         self.pages = [list(members[:1]), list(members[1:])] if members else [[]]
 
     def call(self, method, params):
@@ -348,7 +397,7 @@ class FakeSlack:
         if method == 'search.messages':
             self.queries.append(params['query'])
             return {'messages': {'matches': [{'channel': {'id': 'C1'}, 'permalink': p,
-                                              'ts': self.parse_link(p)[1]}
+                                              'ts': self.parse_link(p)[1], 'text': self.texts.get(p, '')}
                                              for p in self.permalinks]}}
         if method == 'users.list':
             page = int(params.get('cursor', 0))
@@ -580,9 +629,48 @@ def state_tests(t):
     t.check(log(d, 'post.log') == [], 'a changed next posts nothing')
 
 
+def reviewer_tests(t):
+    url = 'https://github.com/o/r/pull/1'
+
+    def parse(link):
+        m = re.search(r'/([\d.]+)(?:\?thread_ts=([\d.]+))?$', link)
+        return 'C1', m.group(2) or m.group(1)
+    match = lambda ts, text, root=None, ch='C1': {
+        'channel': {'id': ch}, 'ts': ts, 'text': text,
+        'permalink': f'x/{ts}' + (f'?thread_ts={root}' if root else '')}
+    matches = [match('9.0', f'<{url}|x>', root='1.0'), match('8.0', url), match('7.0', f'{url}0'),
+               match('6.0', url, ch='C9'), match('5.0', f'{url} again', root='1.0'), match('4.0', url)]
+    t.check(threads_linking(matches, 'C1', url, parse) == ['1.0', '8.0', '4.0'],
+            "threads are ordered by their newest message linking the PR, a reply counting for its thread;"
+            " another PR's link and another channel are left out")
+    t.check([pr_url(u) for u in (url, f'{url}/', 'http://github.com/o/r/pull/1',
+                                 f'{url}/files', 'ABC-1', f'{url} {url}0')]
+            == [url, url, url, None, None, None],
+            'a PR link alone is read as its https url; a longer path, a key or two links are not')
+
+    msgs = [{'ts': '1.0', 'user': 'U2', 'text': f'ready for review {url}'},
+            {'ts': '1.5', 'user': 'UME', 'text': 'left comments'}]
+    slack = FakeSlack(['x/2.0', 'x/1.0'], msgs, texts={'x/2.0': f'{url}0', 'x/1.0': f'<{url}>'})
+    out = pr_thread(url, World(slack, fake_dir()))
+    t.check(slack.queries == ['"github.com/o/r/pull/1" in:<#C1>'],
+            "the search asks for anyone's messages in the channel quoting the PR's link", f'{slack.queries}')
+    t.check((out['pr'], out['channel'], out['thread']['ts'], out['thread']['permalink'], out['earlier'])
+            == (url, 'C1', '1.0', 'link/1.0', []),
+            'the thread linking the PR is read, one linking another PR left out')
+    t.check((out['thread']['parent'], out['thread']['last_mine'], out['thread']['replies'][0]['text'])
+            == (f'ready for review {url}', '1.5', 'left comments'),
+            "the reviewer sees the request's text, their own last message and each reply")
+    two = FakeSlack(['x/3.0', 'x/1.0'], msgs, texts={'x/3.0': url, 'x/1.0': url})
+    out = pr_thread(url, World(two, fake_dir()))
+    t.check((out['thread']['ts'], out['earlier']) == ('3.0', [{'ts': '1.0', 'permalink': 'link/1.0'}]),
+            'with two threads the newest is read and the other listed as earlier')
+    out = pr_thread(url, World(FakeSlack([], []), fake_dir()))
+    t.check((out['thread'], out['earlier']) == (None, []), 'a PR nobody linked has no thread')
+
+
 def main_tests(t):
-    global state, send
-    real = state, send
+    global state, send, pr_thread
+    real = state, send, pr_thread
     out, err = io.StringIO(), io.StringIO()
     try:
         with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
@@ -595,11 +683,16 @@ def main_tests(t):
             codes.append(main(['send', 'A-1', 'f', '--expect', 'post']))
             send = lambda key, path, expect: {'permalink': f'{key} {path} {expect}'}
             codes.append(main(['send', 'A-1', 'f', '--expect', 'reply']))
+            pr_thread = lambda url: {'thread-of': url}
+            codes += [main(['pr-thread', 'http://github.com/o/r/pull/3/']), main(['pr-thread', 'A-1']),
+                      main(['pr-thread'])]
     finally:
-        state, send = real
-    t.check(codes == [0, 1, 1, 1, 2, 1, 1, 0, 4, 0],
-            'help is 0, a bad key or send without --expect is 1, a failed read 2, a changed next 4',
-            f'{codes}')
+        state, send, pr_thread = real
+    t.check(codes == [0, 1, 1, 1, 2, 1, 1, 0, 4, 0, 0, 1, 1],
+            'help is 0, a bad key, send without --expect or pr-thread without a PR link is 1,'
+            ' a failed read 2, a changed next 4', f'{codes}')
+    t.check('"thread-of": "https://github.com/o/r/pull/3"' in out.getvalue(),
+            "pr-thread prints the threads of the PR's https url", out.getvalue()[-200:])
     t.check('{\n "key": "A-1"\n}' in out.getvalue(), 'the state is printed as JSON', out.getvalue()[-200:])
     t.check('"permalink": "A-1 f reply"' in out.getvalue(), 'send prints what it posted', out.getvalue()[-200:])
     t.check('review_request_state: down' in err.getvalue(), 'a failed read names its error', err.getvalue())
@@ -611,6 +704,7 @@ def self_test():
     pure_tests(t)
     thread_tests(t)
     state_tests(t)
+    reviewer_tests(t)
     main_tests(t)
     return t.end()
 
@@ -623,6 +717,11 @@ def parse(argv):
         p.add_argument('--expect', required=True, choices=['post', 'reply'])
         args = p.parse_args(argv[1:])
         args.cmd = 'send'
+    elif argv and argv[0] == 'pr-thread':
+        url = pr_url(argv[1]) if len(argv) == 2 else None
+        if not url:
+            raise SystemExit(1)
+        return argparse.Namespace(cmd='pr-thread', url=url)
     else:
         if len(argv) != 1:
             raise SystemExit(1)
@@ -630,6 +729,15 @@ def parse(argv):
     if not KEY.match(args.key):
         raise SystemExit(1)
     return args
+
+
+def run(args):
+    """The command's result; each is looked up at call time, so a test can stand in."""
+    if args.cmd == 'send':
+        return send(args.key, args.file, args.expect)
+    if args.cmd == 'pr-thread':
+        return pr_thread(args.url)
+    return state(args.key)
 
 
 def main(argv):
@@ -642,11 +750,11 @@ def main(argv):
     try:
         args = parse(argv)
     except SystemExit:
-        print('usage: review_request_state.py KEY | send KEY FILE --expect post|reply | --self-test',
-              file=sys.stderr)
+        print('usage: review_request_state.py KEY | send KEY FILE --expect post|reply'
+              ' | pr-thread PR-URL | --self-test', file=sys.stderr)
         return 1
     try:
-        result = send(args.key, args.file, args.expect) if args.cmd == 'send' else state(args.key)
+        result = run(args)
     except Changed as error:
         print(f'review_request_state: {error}', file=sys.stderr)
         return 4

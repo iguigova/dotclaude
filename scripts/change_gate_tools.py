@@ -25,6 +25,12 @@ from change_gate_mutator import copy_tree, report_mutation  # noqa: E402
 
 # ---------------------------------------------------------------- tools that mutate for us
 
+# Stryker switches mutants through __STRYKER_ACTIVE_MUTANT__ in one instrumented
+# sandbox, so no file changes between mutants. Turbo's strict env mode hides that
+# variable from the test, and its cache replays the first run's pass, so under a
+# turbo test command every mutant survives unless the mode is loose and the run forced.
+TURBO_MUTATION_ENV = {"TURBO_ENV_MODE": "loose", "TURBO_FORCE": "true"}
+
 def accepted(repo: Path, path: str, line: int) -> bool:
     lines = line_text(repo / path)
     return 0 < line <= len(lines) and bool(EQUIVALENT.search(lines[line - 1]))
@@ -102,7 +108,8 @@ def mutate_js(repo: Path, files: list[Change], command: list[str], verdict: Verd
             "mutate": [r for c in files for r in ranges(c)],
         }))
         inside = f"cd {shlex.quote(str(repo))} && stryker run {shlex.quote(str(config))}"
-        run = subprocess.run([*STRYKER, inside], cwd=tmp, capture_output=True, text=True)
+        env = {**os.environ, **TURBO_MUTATION_ENV}
+        run = subprocess.run([*STRYKER, inside], cwd=tmp, env=env, capture_output=True, text=True)
         if not out.exists():
             return verdict.fail(f"StrykerJS exited {run.returncode} with no report", *run.stdout.splitlines()[-8:])
         report = json.loads(out.read_text())
@@ -163,7 +170,8 @@ if os.environ.get("FAKE_BROKEN"):
     print("stryker broke")
     sys.exit(3)
 here = pathlib.Path(__file__)
-here.with_name("npx.json").write_text(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd()}))
+turbo = {k: os.environ.get(k) for k in ("TURBO_ENV_MODE", "TURBO_FORCE")}
+here.with_name("npx.json").write_text(json.dumps({"argv": sys.argv[1:], "cwd": os.getcwd(), "turbo": turbo}))
 path = shlex.split(sys.argv[-1])[-1]
 config = json.loads(pathlib.Path(path).read_text())
 shutil.copy(path, here.with_name("stryker.json"))
@@ -243,6 +251,8 @@ def self_test_js(t: Tap, repo: Path, fakes: Path) -> None:
             "npx installs typescript beside Stryker, run from outside the repo", str(npx))
     t.check(npx["argv"][-1].startswith(f"cd {shlex.quote(str(repo))} && stryker run "),
             "Stryker itself runs in the repo", str(npx))
+    t.check(npx["turbo"] == TURBO_MUTATION_ENV,
+            "Stryker runs with turbo in loose env mode and forced, so a turbo test sees each mutant", str(npx))
     (repo / "logs").symlink_to(fakes, target_is_directory=True)
     (repo / "node_modules").mkdir(exist_ok=True)
     (repo / "node_modules" / "linked").symlink_to(fakes, target_is_directory=True)

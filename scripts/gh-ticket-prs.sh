@@ -12,6 +12,12 @@
 # context per line; the file is optional. They are left out of "checks" and
 # "ready", and reported in "later" instead.
 #
+# A PR the project never means to merge, such as a stack opened only for QA
+# to test on, is not the ticket's work and is left out. The project names the
+# title marks of such PRs in .claude/never_merge_titles, one regular
+# expression per line, matched by jq's test() without case; the file is
+# optional.
+#
 # Usage:
 #   gh-ticket-prs.sh <KEY>
 #   gh-ticket-prs.sh --self-test
@@ -30,8 +36,8 @@
 # review was made on another commit than the head, so the reviewer has not
 # seen it. Reviews are read over GraphQL, the one API that marks a bot.
 #
-# Exit 0: listed, possibly nothing. Exit 1: no key, or the project names no
-# github_orgs. Exit 2: a GitHub read failed, so the list is not whole.
+# Exit 0: listed, possibly nothing. Exit 1: no key, the project names no
+# github_orgs, or a never_merge_titles pattern does not parse. Exit 2: a GitHub read failed, so the list is not whole.
 
 set -euo pipefail
 case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, ""); print }' "$0"; exit 0 ;; esac
@@ -58,6 +64,10 @@ SUMMARY='
      later: ([.statusCheckRollup[]? | select(later) | {key: (.name // .context), value: verdict}] | from_entries)}
   | .ready = ((.draft | not) and .mergeable == "MERGEABLE"
               and .checks.fail == 0 and .checks.pending == 0)'
+
+# True when the PR's title carries a mark of one never meant to merge.
+# shellcheck disable=SC2016
+NEVER_MERGE='.title as $t | any($never[]; . as $re | $t | test($re; "i"))'
 
 # Each reviewer but the author and bots, and whether they reviewed another commit than the head.
 # shellcheck disable=SC2016
@@ -110,6 +120,11 @@ if [[ "${1:-}" == "--self-test" ]]; then
     "$(jq -c --argjson later '["UAT Passed","qa/sign-off"]' "$SUMMARY | .later" <<<'{"statusCheckRollup":[
       {"name":"UAT Passed","status":"COMPLETED","conclusion":"FAILURE"},{"context":"qa/sign-off","state":"PENDING"},
       {"name":"lint","status":"COMPLETED","conclusion":"FAILURE"}]}')" '{"UAT Passed":"fail","qa/sign-off":"pending"}'
+  never() { jq -c --argjson never "$2" "$NEVER_MERGE" <<<"{\"title\":\"$1\"}"; }
+  tap_is "a title carrying a never-merge mark matches, whatever its case" \
+    "$(never 'ABC-1: [QA review app, DO NOT MERGE] stack' '["do not merge"]')" true
+  tap_is "a title with no mark does not match" "$(never 'ABC-1: fix the merge' '["do not merge"]')" false
+  tap_is "no marks match nothing" "$(never 'ABC-1: do not merge' '[]')" false
   revs() { jq -c "$REVIEWERS" <<<"$1"; }
   tap_is "a review of another commit is behind, one of the head is not, the author's and a bot's are left out" \
     "$(revs '{"author":{"login":"me"},"head":"h2","commits":[{"committedDate":"2026-01-01T00:00:00Z","checkSuites":[]}],"latestReviews":[
@@ -161,6 +176,13 @@ FAKE
   out=$(run env; echo "exit $?")
   tap_is "a check later_checks names is reported apart, and the PR is ready" "${out//$'\n'/ }" \
     '{"url":"https://github.com/acme/api/pull/7","repo":"acme/api","number":7,"title":"ABC-1: fix","draft":false,"review":"APPROVED","mergeable":"MERGEABLE","checks":{"pass":1,"fail":0,"pending":0},"later":{"UAT Passed":"fail"},"ready":true,"pushed":"2026-01-02T00:00:00Z","reviewers":[]} exit 0'
+  printf '# QA stacks\n\nnever this\n^abc-1: FIX$\n' > "$T/p/.claude/never_merge_titles"
+  out=$(run env; echo "exit $?")
+  tap_is "a PR whose title never_merge_titles marks is left out" "$out" "exit 0"
+  printf 'a(\n' > "$T/p/.claude/never_merge_titles"
+  rc=0; run env >/dev/null || rc=$?
+  tap_is "a pattern jq cannot read exits 1, never lists the PR" "$rc" 1
+  rm "$T/p/.claude/never_merge_titles"
   rc=0; run env FAKE_FAIL_SEARCH=1 >/dev/null || rc=$?
   tap_is "a failed search exits 2" "$rc" 2
   rc=0; run env FAKE_FAIL_URL=https://github.com/acme/api/pull/7 >/dev/null || rc=$?
@@ -183,11 +205,17 @@ if [[ $# -ne 1 || ! "$1" =~ ^[A-Z][A-Z0-9]*-[0-9]+$ ]]; then
 fi
 KEY="$1"
 
-# The project's later checks as a JSON array; comments and blank lines are not names.
-later='[]'
-if LATER_FILE=$("$PF" later_checks 2>/dev/null); then
-  later=$(jq -Rnc '[inputs | select(length > 0 and (startswith("#") | not))]' "$LATER_FILE")
-fi
+# A project value file's lines as a JSON array; comments and blank lines are not entries.
+value_lines() {  # <value>
+  local file
+  if file=$("$PF" "$1" 2>/dev/null); then
+    jq -Rnc '[inputs | select(length > 0 and (startswith("#") | not))]' "$file"
+  else
+    echo '[]'
+  fi
+}
+later=$(value_lines later_checks)
+never=$(value_lines never_merge_titles)
 
 TICKET_PRS=$("$PF" --script ticket_prs.py) || exit 1
 st=0; found=$("$TICKET_PRS" "$KEY" --open) || st=$?
@@ -202,6 +230,9 @@ urls=()
 for url in "${urls[@]}"; do
   pr=$(gh pr view "$url" --json url,number,title,isDraft,reviewDecision,mergeable,statusCheckRollup) \
     || { echo "gh-ticket-prs: could not read $url" >&2; exit 2; }
+  marked=$(jq --argjson never "$never" "$NEVER_MERGE" <<<"$pr") \
+    || { echo "gh-ticket-prs: never_merge_titles holds a pattern jq cannot read" >&2; exit 1; }
+  [[ "$marked" == true ]] && continue
   IFS=/ read -r _ _ _ owner repo _ number <<<"$url"
   reviews=$(gh api graphql -f query="$REVIEWS_QUERY" -f o="$owner" -f r="$repo" -F n="$number" --jq "$REVIEWS_SHAPE") \
     || { echo "gh-ticket-prs: could not read the reviews of $url" >&2; exit 2; }

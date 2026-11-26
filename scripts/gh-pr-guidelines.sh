@@ -19,9 +19,10 @@
 # .ts/.tsx/.js/.jsx reach the JavaScript and TypeScript guidelines and the
 # accessibility guidelines. .yml maps to nothing beyond the pair.
 # .haml/.erb/.slim are Rails markup and reach the accessibility guidelines the
-# same way .html does. .clj/.cljs/.cljc/.edn reach the Clojure guidelines.
-# .hs, .go and the Clojure extensions are mapped and currently unexercised — no
-# repo cloned here tracks them.
+# same way .html does. .clj/.cljs/.cljc/.edn reach the Clojure guidelines,
+# .hs the Haskell, .go the Go, .cs the C#, .dart the Dart, and .sh/.bash the
+# shell guidelines. A script with no extension is known only by its shebang,
+# which the path does not carry, so it reaches the pair alone.
 #
 # GUIDELINES_DIR overrides the directory the paths are resolved in (the
 # self-test uses it; leave it unset in normal use).
@@ -31,18 +32,40 @@ case "${1:-}" in -h|--help) awk 'NR > 1 && !/^#/ { exit } NR > 1 { sub(/^# ?/, "
 
 GLOBAL="${GUIDELINES_DIR:-$HOME/.claude}"
 
+# Each guideline and the path globs that reach it, as "<guideline> <glob>…".
+GUIDELINE_GLOBS=(
+  'python_coding_guidelines.md *.py'
+  'ruby_coding_guidelines.md *.rb *.rake Gemfile */Gemfile Rakefile */Rakefile config.ru */config.ru'
+  'javascript_coding_guidelines.md *.ts *.tsx *.js *.jsx'
+  'accessibility_guidelines.md *.ts *.tsx *.js *.jsx *.html *.css *.haml *.erb *.slim'
+  'clojure_coding_guidelines.md *.clj *.cljs *.cljc *.edn'
+  'haskell_coding_guidelines.md *.hs'
+  'go_coding_guidelines.md *.go'
+  'csharp_coding_guidelines.md *.cs'
+  'dart_coding_guidelines.md *.dart'
+  'shell_coding_guidelines.md *.sh *.bash'
+)
+
+# reaches — the path matches one of the globs.
+reaches() {  # <path> <glob>…
+  local path=$1 glob; shift
+  for glob in "$@"; do
+    # shellcheck disable=SC2053  # the glob is a pattern on purpose
+    [[ "$path" == $glob ]] && return 0
+  done
+  return 1
+}
+
 # guidelines_of — the language and markup guideline basenames one changed path
 # reaches, one per line; none for a path no guideline covers.
 guidelines_of() {  # <path>
-  case "$1" in
-    *.py) echo python_coding_guidelines.md ;;
-    *.rb|*.rake|Gemfile|*/Gemfile|Rakefile|*/Rakefile|config.ru|*/config.ru) echo ruby_coding_guidelines.md ;;
-    *.ts|*.tsx|*.js|*.jsx) echo javascript_coding_guidelines.md; echo accessibility_guidelines.md ;;
-    *.html|*.css|*.haml|*.erb|*.slim) echo accessibility_guidelines.md ;;
-    *.clj|*.cljs|*.cljc|*.edn) echo clojure_coding_guidelines.md ;;
-    *.hs) echo haskell_coding_guidelines.md ;;
-    *.go) echo go_coding_guidelines.md ;;
-  esac
+  local entry
+  local -a words
+  for entry in "${GUIDELINE_GLOBS[@]}"; do
+    read -r -a words <<<"$entry"
+    reaches "$1" "${words[@]:1}" || continue
+    printf '%s\n' "${words[0]}"
+  done
 }
 
 select_guidelines() {  # paths on stdin, one per line -> guideline paths on stdout
@@ -69,7 +92,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
   for g in coding_guidelines style_guidelines python_coding_guidelines \
            accessibility_guidelines haskell_coding_guidelines go_coding_guidelines \
-           clojure_coding_guidelines ruby_coding_guidelines javascript_coding_guidelines; do
+           clojure_coding_guidelines ruby_coding_guidelines javascript_coding_guidelines \
+           csharp_coding_guidelines dart_coding_guidelines shell_coding_guidelines; do
     : > "$tmp/$g.md"
   done
   GLOBAL="$tmp"
@@ -102,6 +126,10 @@ if [[ "${1:-}" == "--self-test" ]]; then
   check "a Clojure file reaches the Clojure guidelines" "src/core.clj" "clojure_coding_guidelines.md $base"
   check "cljs and edn reach the Clojure guidelines too" "$(printf 'src/app.cljs\nresources/config.edn')" \
         "clojure_coding_guidelines.md $base"
+  check "a .cs file reaches the csharp guidelines" "src/Api.cs" "coding_guidelines.md csharp_coding_guidelines.md style_guidelines.md"
+  check "a Dart file reaches the Dart guidelines" "lib/main.dart" "coding_guidelines.md dart_coding_guidelines.md style_guidelines.md"
+  check "sh and bash files reach the shell guidelines" "$(printf 'scripts/a.sh\nbin/b.bash')" \
+        "coding_guidelines.md shell_coding_guidelines.md style_guidelines.md"
   check "a mixed Rails PR reaches every guideline its files need" "$(printf 'app/models/user.rb\napp/views/x.html.haml\nlib/y.py')" \
         "accessibility_guidelines.md coding_guidelines.md python_coding_guidelines.md ruby_coding_guidelines.md style_guidelines.md"
 

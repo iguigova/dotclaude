@@ -47,7 +47,9 @@ Mutation runs per kind of file:
   Haskell             the language for each mutant; with none, it fails.
   JavaScript, TS      StrykerJS over the changed line ranges, testing with the
                       --test js command, else `npm test` when package.json
-                      has a test script; with neither, it fails
+                      has a test script; with neither, it fails. A turbo
+                      command runs in loose env mode and forced, or turbo
+                      hides each mutant from the test and replays its cache
   Go                  gremlins --diff, testing with `go test`
   Dart                mutation_test over the changed lines, testing with the
                       --test dart command, else `flutter test` in a Flutter

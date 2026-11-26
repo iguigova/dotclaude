@@ -261,7 +261,7 @@ When flagging, reference the existing pattern you compared against (file + line 
 
 ### Import boundaries — does the dependency direction stay legal?
 
-There's no import-linter/ruff/ESLint boundary config in these repos, so check this by hand. The diff index already extracted the imports the diff **adds** (Python `import`/`from`, TS/JS `import … from`/`require()`), each with its file and `new_line`:
+Where the repository configures no boundary linter (import-linter, an ESLint import rule), check this by hand. The diff index already extracted the imports the diff **adds** (Python `import`/`from`, TS/JS `import … from`/`require()`), each with its file and `new_line`:
 
 ```bash
 D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
@@ -272,9 +272,9 @@ jq '.files[] | {path, imports: [.imports[] | select(.in_docstring | not)]}
 `in_docstring` marks an import that parses but sits inside a triple-quoted string — a restore snippet or a usage example, which is text, not a dependency. The filter above drops them; read them only when the docstring itself is what you are reviewing. Detection starts from "outside a string" per file, so a hunk opening mid-docstring leaves the flag unset rather than hiding a real import.
 
 The extraction is mechanical; the boundary judgment is yours. Flag an added import that crosses a boundary the codebase keeps:
-- **Layering direction.** Entry layers (`controllers`, `workers`, `schedulers`) import inward to `domains`/`services` and clients; inner layers must not import back out. A `domain`/`service` importing a controller/worker/scheduler — or a shared client/SDK importing an `app.*` layer — is a violation.
+- **Layering direction.** Entry layers (the request handlers, jobs and schedulers) import inward to the domain and its clients; inner layers must not import back out. A domain module importing an entry layer, or a shared client importing the application, is a violation.
 - **Module visibility.** A single-leading-underscore name or module (`_utils`, `_internal_helper`) imported from *outside* its own package is a violation — import the public surface instead.
-- **No new cycles.** Sibling modules must not import each other into a loop (e.g. `rest_client` ↔ `ws_soap_client`). A `TYPE_CHECKING`-guarded import hides the import-time cycle but not the design-time coupling — flag the coupling, don't accept the guard as the fix.
+- **No new cycles.** Sibling modules must not import each other into a loop. A `TYPE_CHECKING`-guarded import hides the import-time cycle but not the design-time coupling — flag the coupling, don't accept the guard as the fix.
 - **Style boundaries** (Python guidelines): wildcard imports (`from x import *`) and relative imports where absolute is the norm, regardless of direction.
 
 A layering or cycle violation is **Medium** — **Critical** if it forces a build-breaking cycle or crosses a packaging boundary. Cite the offending import line and the boundary it crosses.
@@ -363,6 +363,7 @@ D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 `--help` states the fields. A null `thread` means there is nothing to react to: say so. Otherwise show the thread's `permalink`, its `parent` text and each permalink in `earlier`, and offer the reaction for the thread the user picks; a thread asking for something other than review (testing, a question) is named as such. Once the GitHub review is up, react on the chosen thread's root, never on a reply in it, and take off your other emoji, so a second pass that approves leaves ✅ alone and never beside an earlier 💬:
 
 ```bash
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 CHANNEL=$(jq -r .channel "$D/thread.json")
 "$(~/.claude/scripts/project_file.sh --script slack_post.py)" react "$CHANNEL" <ts> <emoji>
 "$(~/.claude/scripts/project_file.sh --script slack_post.py)" unreact "$CHANNEL" <ts> <the other emoji>
@@ -402,6 +403,13 @@ Omit a section that has no findings. A finding posted inline gets one line in th
 
 ## 7. After the Review
 
+With a ticket, read its open PRs once, after §6's post, into the list the status and the ticket comment below both read:
+
+```bash
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script gh-ticket-prs.sh)" <TICKET> > "$D/ticket-prs.jsonl"
+```
+
 ### The ticket's status
 
 The ticket follows the posted review, skipped when **The ticket** (§1) was, and when §6 posted nothing. A `COMMENT` sends it back to the author:
@@ -410,33 +418,30 @@ The ticket follows the posted review, skipped when **The ticket** (§1) was, and
 "$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> commented
 ```
 
-An `APPROVE` moves it to testing only once every open PR on the ticket is approved, read after the post:
+An `APPROVE` moves it to testing only when no open PR on the ticket holds it:
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script gh-ticket-prs.sh)" <TICKET> | jq -c '{url, review}'
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script review_ticket_comment.py)" <pr-ref> --holders < "$D/ticket-prs.jsonl" \
+  && "$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> approved
 ```
 
-Each needs `review` `APPROVED`. That is GitHub's review decision, so another reviewer's standing block, or a branch rule wanting a second approval, holds it. Otherwise run nothing and name each PR that holds it, with its `review`. When all are approved:
-
-```bash
-"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> approved
-```
-
-Show what it prints. A `kept in` line moved nothing; say so.
+`review_ticket_comment.py --help` states what holds a ticket. Exit 3 moved nothing: name each PR it printed. Otherwise show what `jira-review.sh` prints; a `kept in` line moved nothing, so say so.
 
 ### The ticket comment
 
-Every review ends with a comment on the PR's ticket, whatever the verdict, and also when §6 posted nothing or the status step above was skipped. It is skipped only when `.ticket` is empty; say so. It is built after the status step, from the verdict and the ticket's open PRs as they stand once the review is up; the findings' detail lives in the review, which it links. `review_ticket_comment.py --help` states what it says:
+Every review ends with a comment on the PR's ticket, whatever the verdict, and also when §6 posted nothing or the status step above was skipped. It is skipped only when `.ticket` is empty; say so. It is built after the status step, from the verdict and the list §7 opened by reading; the findings' detail lives in the review, which it links. `review_ticket_comment.py --help` states what it says:
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script gh-ticket-prs.sh)" <TICKET> \
-  | "$(~/.claude/scripts/project_file.sh --script review_ticket_comment.py)" <pr-ref> <approve|nits|follow-up|comment> \
-      [--review <review url>] [--must-fix "<one line>"]… > "$D/ticket-comment.wiki"
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
+"$(~/.claude/scripts/project_file.sh --script review_ticket_comment.py)" <pr-ref> <approve|nits|follow-up|comment> \
+  [--review <review url>] [--must-fix "<one line>"]… < "$D/ticket-prs.jsonl" > "$D/ticket-comment.wiki"
 ```
 
 `--review` is left out when §6 posted nothing. Each `--must-fix` is a **Must fix before merge** line of the posted body, written for the ticket's readers under the `draft` skill. Show the comment and ask in the question dialog whether to post it. Once approved, read the ticket again, then post it and show the comment id:
 
 ```bash
+D=$("$(~/.claude/scripts/project_file.sh --script gh-pr-workdir.sh)" <pr-ref>)
 "$(~/.claude/scripts/project_file.sh --script jira-issue.sh)" <TICKET> | jq '{status, comments: .comments[-3:]}'
 "$(~/.claude/scripts/project_file.sh --script jira-comment.sh)" <TICKET> "$D/ticket-comment.wiki"
 ```

@@ -407,7 +407,7 @@ Omit a section that has no findings. A finding posted inline gets one line in th
 The ticket follows the posted review, skipped when **The ticket** (§1) was, and when §6 posted nothing. A `COMMENT` sends it back to the author:
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> commented --review <review url>
+"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> commented
 ```
 
 An `APPROVE` moves it to testing only once every open PR on the ticket is approved, read after the post:
@@ -419,7 +419,7 @@ An `APPROVE` moves it to testing only once every open PR on the ticket is approv
 Each needs `review` `APPROVED`. That is GitHub's review decision, so another reviewer's standing block, or a branch rule wanting a second approval, holds it. Otherwise run nothing and name each PR that holds it, with its `review`. When all are approved:
 
 ```bash
-"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> approved --review <review url>
+"$(~/.claude/scripts/project_file.sh --script jira-review.sh)" <TICKET> approved
 ```
 
 Show what it prints. A `kept in` line moved nothing; say so.

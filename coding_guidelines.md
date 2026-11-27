@@ -13,8 +13,8 @@ otherwise.
 
 Everything here holds in every language. A rule that only makes sense
 in one language lives in that language's guide — C#, Clojure, Dart, Go,
-Haskell, JavaScript and TypeScript, Python, Ruby, shell — and is never
-restated here.
+Haskell, JavaScript and TypeScript, Python, Ruby, Rust, shell — and is
+never restated here.
 
 ## Code Structure and Design
 

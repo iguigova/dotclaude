@@ -47,5 +47,5 @@ The showcase page, `~/.claude/index.html`, served at https://iguigova.github.io/
 The following guidelines are available at `~/.claude/` and apply to all projects. Before editing code, read `coding_guidelines.md`, `style_guidelines.md` and that language's file; `~/.claude/scripts/guideline_gate.py` refuses an Edit, Write or NotebookEdit call until the session has read them, so code is edited with those tools, never through Bash. Apply them all.
 
 - `coding_guidelines.md`, `style_guidelines.md` — principles and style.
-- `<language>_coding_guidelines.md` — csharp, clojure, dart (Flutter too), go, haskell, javascript (TypeScript and React too), python, ruby, shell. The Ruby file is the Rails standard too: Active Record, jobs, security, RSpec.
+- `<language>_coding_guidelines.md` — csharp, clojure, dart (Flutter too), go, haskell, javascript (TypeScript and React too), python, ruby, rust, shell. The Ruby file is the Rails standard too: Active Record, jobs, security, RSpec.
 - `accessibility_guidelines.md` — WCAG, mandatory for frontend; the gate refuses a frontend edit until it is read too.

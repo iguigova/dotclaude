@@ -4,7 +4,7 @@ on the code a change touched.
 
   complexity  no function in a changed file has a cyclomatic complexity above
               10, as lizard counts it: Python, JavaScript, TypeScript, Go, Ruby,
-              C# and Dart. Shell is counted here, since lizard reads none: 1,
+              C#, Dart and Rust. Shell is counted here, since lizard reads none: 1,
               plus one for each if, elif, while, until, for, case arm ended
               by ;; and each && or ||, in a function's own lines, its nested
               functions, its quoted text, heredoc bodies and comments left
@@ -54,7 +54,14 @@ Mutation runs per kind of file:
   Dart                mutation_test over the changed lines, testing with the
                       --test dart command, else `flutter test` in a Flutter
                       package and `dart test` otherwise
-  C#                  no runner yet: a changed C# file fails the gate
+  Rust                cargo-mutants --in-diff once per workspace the changed
+                      files build in, as `cargo locate-project --workspace`
+                      names it, each over the diff of the files under it.
+                      It tests with `cargo test`; a --test rust command, which
+                      must be `cargo test …`, passes its options before `--`
+                      to every cargo call and the rest to the test binaries.
+                      A diff that reaches no function has no mutant and passes
+  C#                no runner yet: a changed C# file fails the gate
 
 This script's mutator swaps comparison, boolean and test operators (< and <=,
 == and != or /=, and/or, &&/||, -gt/-le, True/False, if/unless, Clojure's
@@ -79,7 +86,7 @@ The work is split by part, each module beside this one with its own
 --self-test: change_gate_base.py (what changed, verdicts, reading a line's
 code), change_gate_complexity.py, change_gate_mutator.py, change_gate_scripts.py
 (self-tested scripts, test commands, Python) and change_gate_tools.py (Stryker,
-go-gremlins, Dart). This file parses the options and dispatches.
+go-gremlins, Dart, cargo-mutants). This file parses the options and dispatches.
 
 Usage:
   change_gate.py [--base REF] [--check complexity|mutation] [--test <language>=<command>]…
@@ -111,7 +118,7 @@ from change_gate_base import Change, FIXTURE_SH, TEST_FILE, Verdict, changes, de
 from change_gate_complexity import check_complexity, over_limit, self_test_shell_ccn  # noqa: E402
 from change_gate_mutator import self_test_copies, self_test_edges, self_test_stamps, self_test_masks, self_test_mutants  # noqa: E402
 from change_gate_scripts import mutate_python, mutate_self_tested, mutate_with_command, self_test_python, self_test_reuse, self_test_scripts, self_test_side_by_side  # noqa: E402
-from change_gate_tools import dart_lived, gremlins_lived, mutate_dart, mutate_go, mutate_js, self_test_tools, stryker_lived  # noqa: E402
+from change_gate_tools import dart_lived, gremlins_lived, mutate_dart, mutate_go, mutate_js, mutate_rust, self_test_tools, stryker_lived  # noqa: E402
 
 
 # ---------------------------------------------------------------- dispatch
@@ -161,7 +168,8 @@ def run_language(repo: Path, base: str, language: str, files: list[Change], opti
         return mutate_with_command(repo, files, language, command, verdict)
     runners = {"python": lambda: mutate_python(repo, files, command, options.coverage, verdict),
                "js": lambda: mutate_js(repo, files, command, verdict),
-               "go": lambda: mutate_go(repo, base, verdict), "dart": lambda: mutate_dart(repo, files, command, verdict)}
+               "go": lambda: mutate_go(repo, base, verdict), "dart": lambda: mutate_dart(repo, files, command, verdict),
+               "rust": lambda: mutate_rust(repo, base, files, command, verdict)}
     if language in runners:
         return runners[language]()
     return verdict.fail(f"{language}: no mutation runner, so {names} cannot pass", "fix: add one to change_gate.py")
@@ -177,7 +185,7 @@ class Options:
     jobs: int = dataclasses.field(default_factory=lambda: os.cpu_count() or 1)
 
 
-TESTED = ("python", "ruby", "clojure", "haskell", "js", "dart")
+TESTED = ("python", "ruby", "clojure", "haskell", "js", "dart", "rust")
 
 
 def test_command(value: str) -> tuple[str, list[str]]:

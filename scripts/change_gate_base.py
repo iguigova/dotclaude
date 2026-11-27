@@ -33,7 +33,7 @@ LIZARD = ["uvx", "lizard==1.26.0"]
 STRYKER = ["npx", "-y", "-p", "@stryker-mutator/core@10.1.1", "-p", "typescript@5.5.4", "-c"]
 
 
-GO_BIN = Path.home() / "go/bin"
+TOOL_BINS = ("go/bin", ".cargo/bin")
 
 
 MAX_CCN = 10
@@ -47,6 +47,8 @@ INSTALL = {
     "npx": "nvm install --lts",
     "gremlins": "go install github.com/go-gremlins/gremlins/cmd/gremlins@latest",
     "dart": "a Dart or Flutter SDK on PATH, then: dart pub global activate mutation_test",
+    "cargo": "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh",
+    "cargo-mutants": "cargo install --locked cargo-mutants",
 }
 
 
@@ -54,10 +56,11 @@ LANGUAGES = {
     ".py": "python", ".sh": "shell", ".rb": "ruby", ".go": "go", ".dart": "dart",
     ".cs": "csharp", ".js": "js", ".jsx": "js", ".mjs": "js", ".cjs": "js",
     ".ts": "js", ".tsx": "js", ".clj": "clojure", ".cljs": "clojure", ".cljc": "clojure", ".hs": "haskell",
+    ".rs": "rust",
 }
 
 
-MEASURED = {"python", "ruby", "go", "dart", "csharp", "js"}
+MEASURED = {"python", "ruby", "go", "dart", "csharp", "js", "rust"}
 
 
 TEST_FILE = re.compile(
@@ -106,17 +109,24 @@ def added_lines(diff: str) -> dict[str, set[int]]:
     return {p: s for p, s in out.items() if s}
 
 
-def changes(repo: Path, base: str) -> list[Change]:
-    """The lines each file adds or changes since base, untracked files
-    included. The worktree is staged into a scratch index, never the repo's
-    own, so a move is seen as one whether or not git tracks its new path, and
-    counts only the lines it edited: moving code is not writing it."""
+def change_diff(repo: Path, base: str, folder: str = ".") -> str:
+    """The diff from base to the worktree, untracked files included, with no
+    context lines, of the files under folder with their paths from it. The
+    worktree is staged into a scratch index, never the repo's own, so a move
+    is seen as one whether or not git tracks its new path, and shows only the
+    lines it edited: moving code is not writing it."""
+    relative = [f"--relative={folder}"] if folder != "." else []
     with tempfile.TemporaryDirectory() as tmp:
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(tmp) / "index")}
         run = functools.partial(subprocess.run, cwd=repo, env=env, capture_output=True, text=True, check=True)
         run(["git", "read-tree", base])
         run(["git", "add", "-A", "."])
-        found = added_lines(run(["git", "diff", "--cached", "-U0", "--no-color", "--find-renames", base]).stdout)
+        return run(["git", "diff", "--cached", "-U0", "--no-color", "--find-renames", *relative, base]).stdout
+
+
+def changes(repo: Path, base: str) -> list[Change]:
+    """The lines each file adds or changes since base, as change_diff shows them."""
+    found = added_lines(change_diff(repo, base))
     return [Change(p, frozenset(s)) for p, s in sorted(found.items()) if (repo / p).is_file()]
 
 
@@ -154,8 +164,9 @@ class Verdict:
 
 
 def find_tool(name: str) -> str | None:
-    """The tool on PATH, or in Go's bin folder, where `go install` puts it."""
-    return shutil.which(name) or shutil.which(name, path=str(GO_BIN))
+    """The tool on PATH, or in the folder under HOME where `go install` or `cargo install` puts it."""
+    folders = os.pathsep.join(str(Path.home() / b) for b in TOOL_BINS)
+    return shutil.which(name) or shutil.which(name, path=folders)
 
 
 def missing(tool: str, verdict: Verdict, what: str) -> bool:

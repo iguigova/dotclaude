@@ -50,6 +50,7 @@ LANGUAGES = {
     'clojure': ('.clj', '.cljs', '.cljc', '.bb'),
     'haskell': ('.hs', '.lhs'),
     'dart': ('.dart',),
+    'rust': ('.rs',),
 }
 LANGUAGE_OF = {ext: lang for lang, exts in LANGUAGES.items() for ext in exts}
 ACCESSIBILITY = 'accessibility_guidelines.md'
@@ -149,7 +150,7 @@ def self_test():
         guides, state = Path(tmp) / 'g', Path(tmp) / 's' / 'deep'
         guides.mkdir()
         for name in (*ALWAYS, ACCESSIBILITY, 'python_coding_guidelines.md',
-                     'shell_coding_guidelines.md', 'javascript_coding_guidelines.md'):
+                     'shell_coding_guidelines.md', 'javascript_coding_guidelines.md', 'rust_coding_guidelines.md'):
             (guides / name).write_text('x\n')
         os.environ['GUIDELINES_DIR'], os.environ['GUIDELINE_GATE_DIR'] = str(guides), str(state)
         self_test_edits(t, guides, state)
@@ -174,6 +175,10 @@ def self_test_edits(t, guides, state):
     t.check(call('edit', file_path='/w/a.py') == '', 'once all three are read, the edit runs')
     t.check(call('edit', file_path='/w/B.PY') == '', 'an extension is matched in any case')
     t.check(denied(call('edit', file_path='/w/run.sh')), 'another language needs its own file read')
+    out = call('edit', file_path='/w/src/lib.rs')
+    t.check(denied(out) and 'rust_coding_guidelines.md' in out, 'a Rust edit needs the Rust file read', out)
+    unguided = [lang for lang in LANGUAGES if not (HOME / f'{lang}_coding_guidelines.md').is_file()]
+    t.check(not unguided, 'every gated language has its guidelines file in the tree', str(unguided))
     t.check(call('edit', file_path='/w/notes.md') == '' and call('edit', file_path='/w/Makefile') == '',
             'prose and a file with no extension are not gated')
     t.check(call('edit', file_path='/w/main.go') == '' and call('edit', file_path='/w/Main.java') == '',

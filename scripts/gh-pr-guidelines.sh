@@ -20,8 +20,8 @@
 # accessibility guidelines. .yml maps to nothing beyond the pair.
 # .haml/.erb/.slim are Rails markup and reach the accessibility guidelines the
 # same way .html does. .clj/.cljs/.cljc/.edn reach the Clojure guidelines,
-# .hs the Haskell, .go the Go, .cs the C#, .dart the Dart, and .sh/.bash the
-# shell guidelines. A script with no extension is known only by its shebang,
+# .hs the Haskell, .go the Go, .cs the C#, .dart the Dart, .rs the Rust, and
+# .sh/.bash the shell guidelines. A script with no extension is known only by its shebang,
 # which the path does not carry, so it reaches the pair alone.
 #
 # GUIDELINES_DIR overrides the directory the paths are resolved in (the
@@ -43,6 +43,7 @@ GUIDELINE_GLOBS=(
   'go_coding_guidelines.md *.go'
   'csharp_coding_guidelines.md *.cs'
   'dart_coding_guidelines.md *.dart'
+  'rust_coding_guidelines.md *.rs'
   'shell_coding_guidelines.md *.sh *.bash'
 )
 
@@ -93,7 +94,8 @@ if [[ "${1:-}" == "--self-test" ]]; then
   for g in coding_guidelines style_guidelines python_coding_guidelines \
            accessibility_guidelines haskell_coding_guidelines go_coding_guidelines \
            clojure_coding_guidelines ruby_coding_guidelines javascript_coding_guidelines \
-           csharp_coding_guidelines dart_coding_guidelines shell_coding_guidelines; do
+           csharp_coding_guidelines dart_coding_guidelines rust_coding_guidelines \
+           shell_coding_guidelines; do
     : > "$tmp/$g.md"
   done
   GLOBAL="$tmp"
@@ -128,6 +130,7 @@ if [[ "${1:-}" == "--self-test" ]]; then
         "clojure_coding_guidelines.md $base"
   check "a .cs file reaches the csharp guidelines" "src/Api.cs" "coding_guidelines.md csharp_coding_guidelines.md style_guidelines.md"
   check "a Dart file reaches the Dart guidelines" "lib/main.dart" "coding_guidelines.md dart_coding_guidelines.md style_guidelines.md"
+  check "a Rust file reaches the Rust guidelines" "src/main.rs" "coding_guidelines.md rust_coding_guidelines.md style_guidelines.md"
   check "sh and bash files reach the shell guidelines" "$(printf 'scripts/a.sh\nbin/b.bash')" \
         "coding_guidelines.md shell_coding_guidelines.md style_guidelines.md"
   check "a mixed Rails PR reaches every guideline its files need" "$(printf 'app/models/user.rb\napp/views/x.html.haml\nlib/y.py')" \
@@ -149,7 +152,9 @@ if [[ "${1:-}" == "--self-test" ]]; then
   for f in python_coding_guidelines.md clojure_coding_guidelines.md \
            go_coding_guidelines.md haskell_coding_guidelines.md \
            accessibility_guidelines.md ruby_coding_guidelines.md \
-           javascript_coding_guidelines.md; do
+           javascript_coding_guidelines.md csharp_coding_guidelines.md \
+           dart_coding_guidelines.md rust_coding_guidelines.md \
+           shell_coding_guidelines.md; do
     tap_run "the mapped $f exists where it is resolved" test -f "$HOME/.claude/$f"
   done
 

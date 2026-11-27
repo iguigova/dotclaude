@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""change_gate_tools.py — change_gate.py's mutation through the tools that mutate for us: Stryker, go-gremlins and Dart's mutation_test.
+"""change_gate_tools.py — change_gate.py's mutation through the tools that mutate for us: Stryker, go-gremlins, Dart's mutation_test and cargo-mutants.
 
 Imported, never run; ``python3 change_gate_tools.py --self-test`` runs change_gate's whole
 suite: the parts are one tool, and the cases that pin one part sit beside another.
@@ -10,16 +10,17 @@ import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
 import xml.etree.ElementTree as ET
 from xml.sax.saxutils import escape
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from tap import Tap  # noqa: E402
-from change_gate_base import COPY_SKIP, Change, EQUIVALENT, STRYKER, Verdict, find_tool, git, missing, self_test_env, self_test_files, self_test_repo, self_test_run  # noqa: E402
+from change_gate_base import COPY_SKIP, Change, EQUIVALENT, STRYKER, Verdict, change_diff, find_tool, git, missing, self_test_env, self_test_files, self_test_repo, self_test_run  # noqa: E402
 from change_gate_mutator import copy_tree, report_mutation  # noqa: E402
 
 
@@ -67,6 +68,22 @@ def dart_lived(report: ET.Element) -> list[tuple[str, int, str]]:
 
 
 DART_FOUND = re.compile(r"Found (\d+) mutations")
+
+
+CARGO_MUTANT = re.compile(r"^(?P<path>[^:\n]+):(?P<line>\d+):\d+: (?P<what>.+)$")
+
+
+# cargo-mutants exits 2 when a mutant was missed and 3 when one timed out; both still write the report.
+CARGO_JUDGED = (0, 2, 3)
+
+
+def cargo_lived(out: Path) -> list[tuple[str, int, str]]:
+    """cargo-mutants lists each missed and each timed-out mutant as path:line:column: what it replaced."""
+    return [
+        (m["path"], int(m["line"]), f'{m["what"]} ({kind})')
+        for name, kind in (("missed.txt", "missed"), ("timeout.txt", "timeout"))
+        for m in map(CARGO_MUTANT.match, line_text(out / name)) if m
+    ]
 
 
 def judge(repo: Path, what: str, total: int, lived: list[tuple[str, int, str]], verdict: Verdict) -> None:
@@ -164,6 +181,76 @@ def mutate_dart(repo: Path, files: list[Change], command: list[str], verdict: Ve
         return judge(repo, "dart", total, dart_lived(root), verdict)
 
 
+class NoWorkspace(Exception):
+    """A changed Rust file whose workspace cargo cannot name inside the repo; its args are the verdict's lines."""
+
+
+def cargo_test_args(command: list[str]) -> list[str] | None:
+    """cargo-mutants' arguments for a `cargo test …` command: each option before `--` goes to
+    every cargo call, so the build and the tests agree, and what follows `--` to the test
+    binaries. None for a command that is not `cargo test`."""
+    if not command:
+        return []
+    if command[:2] != ["cargo", "test"]:
+        return None
+    rest = command[2:]
+    split = rest.index("--") if "--" in rest else len(rest)
+    return [f"--cargo-arg={a}" for a in rest[:split]] + rest[split:]
+
+
+def cargo_root(repo: Path, change: Change, cargo: str, env: dict[str, str]) -> str:
+    """The folder of the workspace a changed file builds in, from the repo, as cargo itself finds it."""
+    run = subprocess.run([cargo, "locate-project", "--workspace", "--message-format", "plain"],
+                         cwd=(repo / change.path).parent, env=env, capture_output=True, text=True)
+    if run.returncode:
+        raise NoWorkspace(f"rust: cargo locate-project failed for {change.path}", *run.stderr.splitlines()[-3:])
+    root, here = Path(run.stdout.strip()).parent, repo.resolve()
+    if not root.is_relative_to(here):
+        raise NoWorkspace(f"rust: the workspace of {change.path} is {root}, outside the repo")
+    return root.relative_to(here).as_posix()
+
+
+def mutate_rust(repo: Path, base: str, files: list[Change], command: list[str], verdict: Verdict) -> None:
+    """cargo-mutants once per workspace the changed files build in, each over its own part of the diff."""
+    if missing("cargo-mutants", verdict, "cargo-mutants") or missing("cargo", verdict, "cargo locate-project"):
+        return None
+    args = cargo_test_args(command)
+    if args is None:
+        return verdict.fail(f"rust: --test rust takes a `cargo test …` command, not `{shlex.join(command)}`")
+    tool, cargo = Path(find_tool("cargo-mutants")), find_tool("cargo")
+    env = {**os.environ, "PATH": f"{tool.parent}{os.pathsep}{os.environ['PATH']}"}
+    try:
+        roots = {c.path: cargo_root(repo, c, cargo, env) for c in files}
+    except NoWorkspace as no:
+        return verdict.fail(*no.args)
+    if clash := [p for p, r in roots.items() if PurePosixPath(p).relative_to(r).parts[0] == "b"]:
+        return verdict.fail(f"rust: cargo-mutants reads git's b/ prefix and a folder named b off {', '.join(clash)} alike,"
+                            " so it would mutate none of it", "fix: rename that folder under the workspace")
+    for root in sorted(set(roots.values())):
+        mutate_workspace(repo, base, root, (tool, args, env), verdict)
+    return None
+
+
+def mutate_workspace(repo: Path, base: str, root: str, runner: tuple[Path, list[str], dict[str, str]], verdict: Verdict) -> None:
+    """cargo-mutants in one workspace, every package of it, on its own copy of the tree; with no
+    --workspace, a workspace whose root is itself a package has only that package mutated. A
+    diff that reaches no function makes no mutant, and cargo-mutants then writes no report."""
+    (tool, args, env), what = runner, "rust" if root == "." else f"rust ({root})"
+    with tempfile.TemporaryDirectory() as tmp:
+        diff, out = Path(tmp) / "change.diff", Path(tmp) / "mutants.out"
+        diff.write_text(change_diff(repo, base, root))
+        run = subprocess.run([str(tool), "mutants", "--workspace", "--in-diff", str(diff), "-o", tmp, *args],
+                             cwd=repo / root, env=env, capture_output=True, text=True)
+        said = (run.stdout + run.stderr).splitlines()[-8:]
+        if run.returncode not in CARGO_JUDGED or (run.returncode and not out.exists()):
+            return verdict.fail(f"{what}: cargo-mutants exited {run.returncode}", *said)
+        if not out.exists():
+            return report_mutation(what, 0, [], verdict)
+        total = json.loads((out / "outcomes.json").read_text())["total_mutants"]
+        lived = [((Path(root) / p).as_posix(), n, d) for p, n, d in cargo_lived(out)]
+        return judge(repo, what, total, lived, verdict)
+
+
 FAKE_NPX = """#!/usr/bin/env python3
 import json, os, pathlib, shlex, shutil, sys
 if os.environ.get("FAKE_BROKEN"):
@@ -204,6 +291,45 @@ print("Found 2 mutations in 1 source files!")
 """
 
 
+FAKE_CARGO_MUTANTS = """#!/usr/bin/env python3
+import json, os, pathlib, shutil, sys
+mode, here = os.environ.get("FAKE_CARGO", ""), pathlib.Path(__file__)
+here.with_name("cargo.args").write_text(" ".join(sys.argv[1:]))
+here.with_name("cargo.cwd").write_text(os.getcwd())
+shutil.copy(sys.argv[sys.argv.index("--in-diff") + 1], here.with_name("cargo.diff"))
+if mode == "none":
+    sys.exit(0)
+if mode == "noreport":
+    sys.exit(2)
+out = pathlib.Path(sys.argv[sys.argv.index("-o") + 1]) / "mutants.out"
+out.mkdir()
+(out / "missed.txt").write_text("src/lib.rs:1:30: replace > with >= in f\\n")
+(out / "timeout.txt").write_text("src/lib.rs:1:30: replace > with < in f\\n")
+(out / "outcomes.json").write_text(json.dumps({"total_mutants": 3, "missed": 1, "caught": 1, "timeout": 1}))
+if mode == "broken":
+    print("cargo-mutants broke")
+    sys.exit(4)
+sys.exit(2)
+"""
+
+
+# cargo locate-project --workspace: the nearest Cargo.toml above the folder, or a
+# [workspace] one above that, which is enough of cargo's own walk for the cases.
+FAKE_CARGO = """#!/usr/bin/env python3
+import os, pathlib, sys
+if os.environ.get("FAKE_CARGO") == "nolocate":
+    print("error: could not find `Cargo.toml`", file=sys.stderr)
+    sys.exit(101)
+found = None
+for folder in [pathlib.Path.cwd(), *pathlib.Path.cwd().parents]:
+    manifest = folder / "Cargo.toml"
+    if manifest.is_file() and (found is None or "[workspace]" in manifest.read_text()):
+        found = manifest
+print(found or "")
+sys.exit(0 if found else 101)
+"""
+
+
 FAKE_UVX = """#!/bin/sh
 [ -n "$FAKE_UVX_FAIL" ] && { echo "lizard broke" >&2; exit 1; }
 printf '%s\\n' "$FAKE_UVX_CSV"
@@ -212,7 +338,9 @@ printf '%s\\n' "$FAKE_UVX_CSV"
 
 def self_test_fakes(folder: Path) -> Path:
     folder.mkdir()
-    for name, body in (("npx", FAKE_NPX), ("gremlins", FAKE_GREMLINS), ("dart", FAKE_DART), ("uvx", FAKE_UVX)):
+    fakes = (("npx", FAKE_NPX), ("gremlins", FAKE_GREMLINS), ("dart", FAKE_DART), ("cargo-mutants", FAKE_CARGO_MUTANTS),
+             ("cargo", FAKE_CARGO), ("uvx", FAKE_UVX))
+    for name, body in fakes:
         (folder / name).write_text(body)
         (folder / name).chmod(0o755)
     return folder
@@ -225,6 +353,7 @@ def self_test_tools(t: Tap) -> None:
         with self_test_env(PATH=f"{fakes}:{os.environ['PATH']}"):
             self_test_js(t, repo, fakes)
             self_test_go_dart(t, repo, fakes)
+            self_test_rust(t, repo, fakes)
             self_test_complexity(t, repo)
 
 
@@ -291,6 +420,96 @@ def self_test_go_dart(t: Tap, repo: Path, fakes: Path) -> None:
     config = (fakes / "dart.xml").read_text()
     t.check(">sh -c 'a &amp;&amp; b'<" in config,
             "mutation_test gets the --test dart command, escaped for its XML", config)
+
+
+RUST_LINE = "pub fn f(a: i32) -> bool { a > 1 }\n"
+
+
+def self_test_rust_run(repo: Path, files: dict[str, str], mode: str = "", *flags: str) -> tuple[int, str]:
+    self_test_files(repo, files)
+    with self_test_env(FAKE_CARGO=mode):
+        return self_test_run(repo, "--check", "mutation", *flags)
+
+
+def self_test_rust(t: Tap, repo: Path, fakes: Path) -> None:
+    crate = {"src/lib.rs": RUST_LINE, "Cargo.toml": "[package]\n"}
+    status, out = self_test_rust_run(repo, crate)
+    t.check(status == 1 and "rust: 2 of 3 mutants lived" in out and "src/lib.rs:1: replace > with >= in f (missed)" in out
+            and "src/lib.rs:1: replace > with < in f (timeout)" in out, "a missed and a timed-out cargo-mutants mutant fail the gate", out)
+    args = (fakes / "cargo.args").read_text()
+    t.check(args.startswith("mutants --workspace --in-diff ") and " -o " in args and "cargo-arg" not in args,
+            "cargo-mutants mutates the diff in every package, writing outside the repo, with no cargo arguments of its own", args)
+    diff = (fakes / "cargo.diff").read_text()
+    t.check("+++ b/src/lib.rs" in diff and "@@ -0,0 +1 @@" in diff,
+            "cargo-mutants gets the change's diff, an untracked file and only its changed lines included", diff)
+    marked = RUST_LINE.replace("}\n", "} // mutation: equivalent — a is never 1\n")
+    status, out = self_test_rust_run(repo, crate | {"src/lib.rs": marked})
+    t.check(status == 0 and "rust: 3 mutants, 1 killed, 2 marked equivalent" in out, "a cargo-mutants survivor on a line marked equivalent is accepted", out)
+    self_test_rust_workspaces(t, repo, fakes)
+    self_test_rust_command(t, repo, fakes, crate)
+    self_test_rust_exits(t, repo, crate)
+    self_test_rust_alone(t, repo, fakes, crate)
+
+
+def self_test_rust_workspaces(t: Tap, repo: Path, fakes: Path) -> None:
+    files = {"sub/src/lib.rs": RUST_LINE, "sub/Cargo.toml": "[package]\n", "README": "y\n"}
+    status, out = self_test_rust_run(repo, files)
+    t.check(status == 1 and "rust (sub): 2 of 3 mutants lived" in out and "sub/src/lib.rs:1: replace > with >= in f" in out,
+            "a crate below the repo root is mutated where it is, its survivors named from the root", out)
+    diff = (fakes / "cargo.diff").read_text()
+    t.check(Path((fakes / "cargo.cwd").read_text()) == (repo / "sub").resolve() and "+++ b/src/lib.rs" in diff and "README" not in diff,
+            "cargo-mutants runs in the crate's folder, on the diff of its files alone, named from there", diff)
+    ws = {"ws/Cargo.toml": "[workspace]\n", "ws/a/Cargo.toml": "[package]\n", "ws/a/src/lib.rs": RUST_LINE}
+    status, out = self_test_rust_run(repo, ws | {"ws/c/Cargo.toml": "[package]\n", "ws/c/src/lib.rs": RUST_LINE})
+    t.check(out.count("rust (ws): 2 of 3 mutants lived") == 1 and "+++ b/a/src/lib.rs" in (fakes / "cargo.diff").read_text(),
+            "two members of one workspace are mutated once, at the workspace", out)
+    status, out = self_test_rust_run(repo, ws | {"ws/b/Cargo.toml": "[package]\n", "ws/b/src/lib.rs": RUST_LINE})
+    t.check(status == 1 and "a folder named b off ws/b/src/lib.rs alike" in out,
+            "a changed file in a folder named b under its workspace fails the gate, cargo-mutants would skip it", out)
+    (repo.parent / "Cargo.toml").write_text("[workspace]\n")
+    status, out = self_test_rust_run(repo, {"src/lib.rs": RUST_LINE})
+    (repo.parent / "Cargo.toml").unlink()
+    t.check(status == 1 and "rust: the workspace of src/lib.rs is" in out and "outside the repo" in out,
+            "a Rust file whose workspace is outside the repo fails the gate", out)
+
+
+def self_test_rust_command(t: Tap, repo: Path, fakes: Path, crate: dict[str, str]) -> None:
+    self_test_rust_run(repo, crate, "", "--test", "rust=cargo test --locked --all-features -- --test-threads=1")
+    args = (fakes / "cargo.args").read_text()
+    t.check(args.endswith(" --cargo-arg=--locked --cargo-arg=--all-features -- --test-threads=1"),
+            "a --test rust command's options reach every cargo call, and what follows -- the test binaries", args)
+    self_test_rust_run(repo, crate, "", "--test", "rust=cargo test --locked")
+    args = (fakes / "cargo.args").read_text()
+    t.check(args.endswith(" --cargo-arg=--locked"), "a --test rust command with no -- passes only cargo options", args)
+    status, out = self_test_rust_run(repo, crate, "", "--test", "rust=make test")
+    t.check(status == 1 and "rust: --test rust takes a `cargo test …` command, not `make test`" in out,
+            "a --test rust command that is not cargo test fails the gate", out)
+
+
+def self_test_rust_alone(t: Tap, repo: Path, fakes: Path, crate: dict[str, str]) -> None:
+    """cargo-mutants on a PATH that holds nothing else the gate could call, under a HOME with no bin folders."""
+    alone = fakes.parent / "alone"
+    alone.mkdir()
+    (alone / "cargo-mutants").symlink_to(fakes / "cargo-mutants")
+    for tool in ("git", "python3"):
+        (alone / tool).symlink_to(shutil.which(tool))
+    with self_test_env(PATH=str(alone), HOME=str(alone)):
+        status, out = self_test_rust_run(repo, crate)
+    t.check(status == 1 and "cargo is not installed, so cargo locate-project did not run" in out,
+            "cargo-mutants with no cargo beside it fails the gate, naming the fix", out)
+
+
+def self_test_rust_exits(t: Tap, repo: Path, crate: dict[str, str]) -> None:
+    status, out = self_test_rust_run(repo, crate, "none")
+    t.check(status == 0 and "rust: 0 mutants, 0 killed" in out, "a diff cargo-mutants makes no mutant of passes with none", out)
+    status, out = self_test_rust_run(repo, crate, "noreport")
+    t.check(status == 1 and "rust: cargo-mutants exited 2" in out, "a cargo-mutants that says a mutant lived but writes no report fails the gate", out)
+    status, out = self_test_rust_run(repo, crate, "broken")
+    t.check(status == 1 and "rust: cargo-mutants exited 4\n        cargo-mutants broke\n" in out,
+            "a cargo-mutants whose unmutated tests fail fails the gate, showing what it printed", out)
+    status, out = self_test_rust_run(repo, crate, "nolocate")
+    t.check(status == 1 and "rust: cargo locate-project failed for src/lib.rs\n        error: could not find `Cargo.toml`" in out,
+            "a Rust file cargo finds no workspace for fails the gate, showing what cargo said", out)
 
 def self_test() -> int:
     from change_gate import self_test as whole

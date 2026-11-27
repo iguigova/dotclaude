@@ -19,7 +19,9 @@ jobs:
       # The tools the self-tests run on, at the versions they run on at home:
       # the pinned shellcheck, ReportLab for gist.py, pytest and pytest-cov for
       # change_gate.py's Python runner, uv for the parser gh_pr_structure.py
-      # fetches.
+      # fetches, and cargo-mutants for change_gate.py's live Rust case on the
+      # image's own rustup and cargo. The cargo-mutants digest is the one
+      # GitHub records for that release asset.
       - name: Install what the self-tests need
         run: |
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
@@ -27,12 +29,16 @@ jobs:
           sudo apt-get update -qq
           sudo apt-get install -y -qq python3-reportlab python3-pytest python3-pytest-cov
           pipx install uv==0.10.3
+          mutants="$RUNNER_TEMP/cargo-mutants.tar.gz"
+          curl -fsSL -o "$mutants" https://github.com/sourcefrog/cargo-mutants/releases/download/v27.1.0/cargo-mutants-x86_64-unknown-linux-gnu.tar.gz
+          echo "dfe6dc37d0342c891d2829b5a695aa57c2d0edecef7e7d0399a30cc6e206411e  $mutants" | sha256sum -c -
+          tar -xzf "$mutants" -C "$HOME/.local/bin" cargo-mutants
       - name: Run every self-test
         id: tests
         run: |
           set +e
-          ~/.claude/scripts/selftest.sh --copy
-          echo "status=$?" >> "$GITHUB_OUTPUT"
+          ~/.claude/scripts/selftest.sh --copy | tee "$RUNNER_TEMP/selftest.log"
+          echo "status=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
       # The site is built whatever the tests said, so the page never waits on
       # a red run; the job still fails on it below.
       - name: Build the site
@@ -46,8 +52,15 @@ jobs:
         if: always()
         with:
           path: ${{ runner.temp }}/site
-      - name: Every self-test passed
-        run: exit "${{ steps.tests.outputs.status }}"
+      # Every tool a self-test calls is installed above, so a skipped case here
+      # means one went missing.
+      - name: Every self-test passed, none skipped
+        run: |
+          if grep 'skipped:' "$RUNNER_TEMP/selftest.log"; then
+            echo "a self-test skipped a case: a tool it calls is not installed here"
+            exit 1
+          fi
+          exit "${{ steps.tests.outputs.status }}"
   publish:
     needs: selftest
     if: always() && github.ref == 'refs/heads/main' && needs.selftest.outputs.site == 'success'

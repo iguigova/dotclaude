@@ -6,6 +6,7 @@ suite: the parts are one tool, and the cases that pin one part sit beside anothe
 """
 
 import contextlib
+import io
 import json
 import os
 import re
@@ -364,6 +365,7 @@ def self_test_tools(t: Tap) -> None:
             self_test_rust(t, repo, fakes)
             self_test_complexity(t, repo)
     self_test_rust_live(t)
+    self_test_rust_skip(t)
 
 
 def self_test_js_command(t: Tap, repo: Path) -> None:
@@ -571,6 +573,24 @@ def self_test_rust_live(t: Tap) -> None:
         status, out = self_test_run(repo, "--check", "mutation")
     t.check(status == 0 and "rust (ws): " in out and " killed" in out,
             "the real cargo-mutants builds every mutant on the toolchain file above its workspace", out)
+
+
+def self_test_rust_skip(t: Tap) -> None:
+    """The live case on a PATH and HOME holding no tool, so its skip runs on every machine,
+    Rust's too; tap.sh's tap_verify reads what it printed, as selftest.sh does."""
+    printed = io.StringIO()
+    with tempfile.TemporaryDirectory() as bare, self_test_env(PATH=bare, HOME=bare), contextlib.redirect_stdout(printed):
+        inner = Tap()
+        self_test_rust_live(inner)
+        inner.end()
+    with tempfile.NamedTemporaryFile("w", suffix=".tap") as stream:
+        stream.write(printed.getvalue())
+        stream.flush()
+        tap_sh = str(Path(__file__).with_name("tap.sh"))
+        verify = subprocess.run(["bash", "-c", 'source "$1" && tap_verify "$2"', "verify", tap_sh, stream.name],
+                                capture_output=True, text=True)
+    t.check(verify.returncode == 0 and printed.getvalue().endswith(" # SKIP rustup, cargo or cargo-mutants is not installed\n1..1\n"),
+            "with no Rust tool installed the live case is skipped, in TAP the sweep accepts", printed.getvalue(), verify.stdout)
 
 def self_test() -> int:
     from change_gate import self_test as whole

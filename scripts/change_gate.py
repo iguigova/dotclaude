@@ -56,7 +56,10 @@ Mutation runs per kind of file:
                       package and `dart test` otherwise
   Rust                cargo-mutants --in-diff once per workspace the changed
                       files build in, as `cargo locate-project --workspace`
-                      names it, each over the diff of the files under it.
+                      names it, each over the diff of the files under it,
+                      run as `cargo mutants` from there so every mutant
+                      builds with the cargo of the toolchain rustup picks
+                      for that folder.
                       It tests with `cargo test`; a --test rust command, which
                       must be `cargo test …`, passes its options before `--`
                       to every cargo call and the rest to the test binaries.

@@ -321,14 +321,16 @@ def self_test_moves(t: Tap) -> None:
 
 
 @contextlib.contextmanager
-def self_test_env(**values: str):
+def self_test_env(**values: str | None):
+    """The environment with these values for the block; None unsets one."""
     saved = {k: os.environ.get(k) for k in values}
-    os.environ.update(values)
+    for k, v in values.items():
+        os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
     try:
         yield
     finally:
         for k, v in saved.items():
-            os.environ.pop(k) if v is None else os.environ.__setitem__(k, v)
+            os.environ.pop(k, None) if v is None else os.environ.__setitem__(k, v)
 
 
 def self_test_files(repo: Path, files: dict[str, str]) -> None:

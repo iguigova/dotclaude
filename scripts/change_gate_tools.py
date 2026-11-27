@@ -227,19 +227,22 @@ def mutate_rust(repo: Path, base: str, files: list[Change], command: list[str], 
         return verdict.fail(f"rust: cargo-mutants reads git's b/ prefix and a folder named b off {', '.join(clash)} alike,"
                             " so it would mutate none of it", "fix: rename that folder under the workspace")
     for root in sorted(set(roots.values())):
-        mutate_workspace(repo, base, root, (tool, args, env), verdict)
+        mutate_workspace(repo, base, root, (cargo, args, env), verdict)
     return None
 
 
-def mutate_workspace(repo: Path, base: str, root: str, runner: tuple[Path, list[str], dict[str, str]], verdict: Verdict) -> None:
+def mutate_workspace(repo: Path, base: str, root: str, runner: tuple[str, list[str], dict[str, str]], verdict: Verdict) -> None:
     """cargo-mutants in one workspace, every package of it, on its own copy of the tree; with no
-    --workspace, a workspace whose root is itself a package has only that package mutated. A
-    diff that reaches no function makes no mutant, and cargo-mutants then writes no report."""
-    (tool, args, env), what = runner, "rust" if root == "." else f"rust ({root})"
+    --workspace, a workspace whose root is itself a package has only that package mutated. It runs
+    as `cargo mutants` from the workspace, so CARGO names the cargo of the toolchain rustup picks
+    there, and cargo-mutants builds the copy with that cargo, even from a toolchain file above the
+    workspace, which the copy leaves out. A diff that reaches no function makes no mutant, and
+    cargo-mutants then writes no report."""
+    (cargo, args, env), what = runner, "rust" if root == "." else f"rust ({root})"
     with tempfile.TemporaryDirectory() as tmp:
         diff, out = Path(tmp) / "change.diff", Path(tmp) / "mutants.out"
         diff.write_text(change_diff(repo, base, root))
-        run = subprocess.run([str(tool), "mutants", "--workspace", "--in-diff", str(diff), "-o", tmp, *args],
+        run = subprocess.run([cargo, "mutants", "--workspace", "--in-diff", str(diff), "-o", tmp, *args],
                              cwd=repo / root, env=env, capture_output=True, text=True)
         said = (run.stdout + run.stderr).splitlines()[-8:]
         if run.returncode not in CARGO_JUDGED or (run.returncode and not out.exists()):
@@ -296,6 +299,7 @@ import json, os, pathlib, shutil, sys
 mode, here = os.environ.get("FAKE_CARGO", ""), pathlib.Path(__file__)
 here.with_name("cargo.args").write_text(" ".join(sys.argv[1:]))
 here.with_name("cargo.cwd").write_text(os.getcwd())
+here.with_name("cargo.via").write_text(os.environ.get("CARGO", ""))
 shutil.copy(sys.argv[sys.argv.index("--in-diff") + 1], here.with_name("cargo.diff"))
 if mode == "none":
     sys.exit(0)
@@ -313,10 +317,14 @@ sys.exit(2)
 """
 
 
-# cargo locate-project --workspace: the nearest Cargo.toml above the folder, or a
-# [workspace] one above that, which is enough of cargo's own walk for the cases.
+# cargo mutants: cargo-mutants from PATH, with CARGO naming this cargo, as cargo runs
+# a subcommand. cargo locate-project --workspace: the nearest Cargo.toml above the
+# folder, or a [workspace] one above that, which is enough of cargo's own walk for the cases.
 FAKE_CARGO = """#!/usr/bin/env python3
-import os, pathlib, sys
+import os, pathlib, shutil, sys
+if sys.argv[1:2] == ["mutants"]:
+    os.environ["CARGO"] = __file__
+    os.execv(shutil.which("cargo-mutants"), ["cargo-mutants", *sys.argv[1:]])
 if os.environ.get("FAKE_CARGO") == "nolocate":
     print("error: could not find `Cargo.toml`", file=sys.stderr)
     sys.exit(101)
@@ -355,6 +363,7 @@ def self_test_tools(t: Tap) -> None:
             self_test_go_dart(t, repo, fakes)
             self_test_rust(t, repo, fakes)
             self_test_complexity(t, repo)
+    self_test_rust_live(t)
 
 
 def self_test_js_command(t: Tap, repo: Path) -> None:
@@ -439,6 +448,8 @@ def self_test_rust(t: Tap, repo: Path, fakes: Path) -> None:
     args = (fakes / "cargo.args").read_text()
     t.check(args.startswith("mutants --workspace --in-diff ") and " -o " in args and "cargo-arg" not in args,
             "cargo-mutants mutates the diff in every package, writing outside the repo, with no cargo arguments of its own", args)
+    via = (fakes / "cargo.via").read_text()
+    t.check(Path(via) == fakes / "cargo", "cargo-mutants runs as `cargo mutants`, so it builds with the cargo CARGO names", via)
     diff = (fakes / "cargo.diff").read_text()
     t.check("+++ b/src/lib.rs" in diff and "@@ -0,0 +1 @@" in diff,
             "cargo-mutants gets the change's diff, an untracked file and only its changed lines included", diff)
@@ -510,6 +521,56 @@ def self_test_rust_exits(t: Tap, repo: Path, crate: dict[str, str]) -> None:
     status, out = self_test_rust_run(repo, crate, "nolocate")
     t.check(status == 1 and "rust: cargo locate-project failed for src/lib.rs\n        error: could not find `Cargo.toml`" in out,
             "a Rust file cargo finds no workspace for fails the gate, showing what cargo said", out)
+
+
+LIVE_LIB = """pub fn add(a: u32, b: u32) -> u32 {
+    a + b
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn adds() {
+        assert_eq!(super::add(2, 3), 5);
+    }
+
+    #[test]
+    fn builds_on_the_pinned_toolchain() {
+        let cargo = option_env!("CARGO").unwrap_or_default();
+        assert!(cargo.contains("/toolchains/TOOLCHAIN/"), "built by {cargo}");
+    }
+}
+"""
+
+
+def self_test_toolchain() -> str | None:
+    """A toolchain rustup has installed, or None where rustup, cargo or cargo-mutants is missing."""
+    rustup = find_tool("rustup")
+    if not (rustup and find_tool("cargo") and find_tool("cargo-mutants")):
+        return None
+    listed = subprocess.run([rustup, "toolchain", "list", "--quiet"], capture_output=True, text=True).stdout.splitlines()
+    return next((name for name in listed if name and " " not in name), None)
+
+
+def self_test_rust_live(t: Tap) -> None:
+    """The real cargo-mutants on a workspace below the repo's toolchain file, which its copy
+    leaves out; the crate's own test fails unless the cargo of the toolchain that file names built it."""
+    toolchain = self_test_toolchain()
+    if toolchain is None:
+        t.check(True, "the real cargo-mutants builds on the toolchain file above its workspace"
+                      " # SKIP rustup, cargo or cargo-mutants is not installed")
+        return
+    files = {
+        "rust-toolchain.toml": f'[toolchain]\nchannel = "{toolchain}"\n',
+        "ws/Cargo.toml": '[package]\nname = "w"\nversion = "0.1.0"\nedition = "2021"\n',
+        "ws/src/lib.rs": LIVE_LIB.replace("TOOLCHAIN", toolchain),
+    }
+    with tempfile.TemporaryDirectory() as tmp, self_test_env(RUSTUP_TOOLCHAIN=None):
+        repo = self_test_repo(Path(tmp))
+        self_test_files(repo, files)
+        status, out = self_test_run(repo, "--check", "mutation")
+    t.check(status == 0 and "rust (ws): " in out and " killed" in out,
+            "the real cargo-mutants builds every mutant on the toolchain file above its workspace", out)
 
 def self_test() -> int:
     from change_gate import self_test as whole

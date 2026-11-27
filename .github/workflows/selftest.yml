@@ -53,10 +53,11 @@ jobs:
         with:
           path: ${{ runner.temp }}/site
       # Every tool a self-test calls is installed above, so a skipped case here
-      # means one went missing.
+      # means one went missing. gate_lib.sh counts a script's skipped cases as
+      # "(cases: N, skipped: M)"; selftest.sh's own --copy skips are no case.
       - name: Every self-test passed, none skipped
         run: |
-          if grep 'skipped:' "$RUNNER_TEMP/selftest.log"; then
+          if grep -E '\(cases: [0-9]+, skipped: [0-9]+\)' "$RUNNER_TEMP/selftest.log"; then
             echo "a self-test skipped a case: a tool it calls is not installed here"
             exit 1
           fi

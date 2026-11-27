@@ -428,11 +428,11 @@ BashFAQ/062 notes that in Bash "you can simply use `trap cleanup EXIT`". A trap 
 
 > *Source: `~/.claude/scripts/tap.sh`, `~/.claude/scripts/gate_lib.sh` (`sweep`, `self_test_of`), `~/.claude/scripts/change_gate.py`*
 
-Every script offers `--self-test`, which runs its cases and prints TAP through `tap.sh`: `ok N - <name>` or `not ok N - <name>` per case, detail lines as `# …`, and the plan `1..N` last. The sweep in `selftest.sh` runs every folder holding a script the tree tracks. It fails a tracked script whose text does not contain `--self-test`, and a self-test whose stdout is anything but that format, whose exit disagrees with its cases, that has no cases, or that leaves anything in the `TMPDIR` the sweep gives it.
+Every script offers `--self-test`, which runs its cases and prints TAP through `tap.sh`: `ok N - <name>` or `not ok N - <name>` per case, `ok N - <name> # SKIP <reason>` for a case whose tool is not installed where it runs, detail lines as `# …`, and the plan `1..N` last. The sweep counts skipped cases beside the rest. The sweep in `selftest.sh` runs every folder holding a script the tree tracks. It fails a tracked script whose text does not contain `--self-test`, and a self-test whose stdout is anything but that format, whose exit disagrees with its cases, that has no cases, or that leaves anything in the `TMPDIR` the sweep gives it.
 
 - **Where it lives.** In a `self_test() {` function, or in an `if [[ "${1:-}" == --self-test ]]; then … fi` block, before argument parsing. Mutation leaves exactly those two forms alone (see below), so test code goes nowhere else.
 - **A library guards its block** with `[[ "${BASH_SOURCE[0]}" == "$0" ]]`, so sourcing it never runs the tests.
-- **Names.** A case's name says what holds — "a path absent at the ref learns nothing" — is unique in its script, and holds no `#` (`tap.sh`).
+- **Names.** A case's name says what holds — "a path absent at the ref learns nothing" — is unique in its script, and holds no `#`; `tap_skip` adds the one directive, `# SKIP <reason>` (`tap.sh`).
 - **Stdout is TAP alone.** What the code under test prints goes to stderr; `tap_run` and `tap_fails` send it there.
 - **Fixtures** are built in a `mktemp -d` folder that the self-test removes, and a case that needs a repository makes a real one with `git init -q`.
 - **The script runs as a child** when the test is of its exit code or output: `run() { "$self" "$@" >/dev/null 2>&1; echo $?; }`.

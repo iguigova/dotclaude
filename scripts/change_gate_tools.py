@@ -557,8 +557,8 @@ def self_test_rust_live(t: Tap) -> None:
     leaves out; the crate's own test fails unless the cargo of the toolchain that file names built it."""
     toolchain = self_test_toolchain()
     if toolchain is None:
-        t.check(True, "the real cargo-mutants builds on the toolchain file above its workspace"
-                      " # SKIP rustup, cargo or cargo-mutants is not installed")
+        t.skip("the real cargo-mutants builds on the toolchain file above its workspace",
+               "rustup, cargo or cargo-mutants is not installed")
         return
     files = {
         "rust-toolchain.toml": f'[toolchain]\nchannel = "{toolchain}"\n',

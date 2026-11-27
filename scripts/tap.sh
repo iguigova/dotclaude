@@ -4,7 +4,9 @@
 #
 #   ok 1 - <name>         a case that holds
 #   not ok 2 - <name>     a case that does not, then its details as `# ` lines
-#   1..2                  the plan, printed last by tap_end
+#   ok 3 - <name> # SKIP <reason>
+#                         a case that could not run here, and why
+#   1..3                  the plan, printed last by tap_end
 #
 # tap_stub writes a fixture script that logs its calls, for a test of what a
 # script calls by name; tap_project makes a fixture folder a project.
@@ -12,7 +14,8 @@
 # selftest.sh refuses a self-test whose stdout is anything else, so whatever
 # the code under test prints goes to stderr. A case's name is unique in its
 # script, says what holds rather than what broke, and holds no `#`, which TAP
-# reads as a directive.
+# reads as a directive. The one directive is tap_skip's `# SKIP <reason>`, for
+# a case whose tool is not installed where it runs: it neither holds nor fails.
 #
 # Usage:
 #   tap.sh --self-test
@@ -30,6 +33,11 @@ tap_not_ok() {  # <name> [detail…]
   printf 'not ok %d - %s\n' "$TAP_N" "$1"
   shift
   [ $# -eq 0 ] || printf '%s\n' "$@" | sed 's/^/# /'
+}
+
+tap_skip() {  # <name> <reason>
+  TAP_N=$((TAP_N + 1))
+  printf 'ok %d - %s # SKIP %s\n' "$TAP_N" "$1" "$2"
 }
 
 # tap_run — the case holds when the command exits 0. What the command prints
@@ -80,16 +88,17 @@ tap_end() {
 }
 
 # tap_verify — whether a file is a self-test's stdout as stated above: only
-# case, detail and plan lines; cases numbered from 1; one plan, last, counting
-# them; at least one case; no name twice. Prints what is wrong, else nothing.
+# case, detail and plan lines; a skip only on a case that is ok, with a reason;
+# cases numbered from 1; one plan, last, counting them; at least one case; no
+# name twice. Prints what is wrong, else nothing.
 tap_verify() {  # <file>
   awk '
     function bad(why) { print why; wrong = 1; exit }
-    /^(not )?ok [0-9]+ - [^#]+$/ {
+    /^(not )?ok [0-9]+ - [^#]+$/ || /^ok [0-9]+ - [^#]+ # SKIP [^#]+$/ {
       if (plan) bad("a case after the plan: " $0)
       n++; num = $0; sub(/^(not )?ok /, "", num); sub(/ .*/, "", num)
       if (num != n) bad("case " num " where " n " was due")
-      name = $0; sub(/^(not )?ok [0-9]+ - /, "", name)
+      name = $0; sub(/^(not )?ok [0-9]+ - /, "", name); sub(/ # SKIP .*/, "", name)
       if (name in seen) bad("a name used twice: " name)
       seen[name] = 1; next }
     /^#( |$)/ { next }
@@ -114,6 +123,9 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a failed case makes the run exit 1" "$st" 1
   out=$(run 'tap_ok one; tap_end'); st=$?
   tap_is "a run whose cases all held exits 0" "$st" 0
+  out=$(run 'tap_skip one "no tool"; tap_end'); st=$?
+  tap_is "a skipped case names its reason and fails nothing" \
+    "$out $st" $'ok 1 - one # SKIP no tool\n1..1 0'
   out=$(run 'tap_run quiet echo noise; tap_run red false; tap_end')
   tap_is "a command's output goes to stderr, and its exit holds the case" \
     "$out" $'ok 1 - quiet\nnot ok 2 - red\n# exit 1: false\n1..2'
@@ -157,6 +169,14 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a name used twice is refused" \
     "$(verdict $'ok 1 - a\nok 2 - a\n1..2')" "a name used twice: a"
   tap_is "a name holding a hash sign is refused" \
+    "$(verdict $'ok 1 - a # TODO b\n1..1')" "not a TAP line: ok 1 - a # TODO b"
+  tap_is "a skipped case with its reason is valid TAP" \
+    "$(verdict $'ok 1 - a # SKIP no tool\n1..1')" ""
+  tap_is "a skip with no reason is refused" \
     "$(verdict $'ok 1 - a # SKIP\n1..1')" "not a TAP line: ok 1 - a # SKIP"
+  tap_is "a failed case cannot be skipped" \
+    "$(verdict $'not ok 1 - a # SKIP no tool\n1..1')" "not a TAP line: not ok 1 - a # SKIP no tool"
+  tap_is "a skipped name used again is refused" \
+    "$(verdict $'ok 1 - a # SKIP no tool\nok 2 - a\n1..2')" "a name used twice: a"
   tap_end
 fi

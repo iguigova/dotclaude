@@ -150,11 +150,13 @@ swept() {  # <file>
 # A self-test that leaves anything in its TMPDIR fails: run once per mutant, a
 # leaked folder becomes thousands.
 verdict_of() {  # <file> <work>
-  local f=$1 work=$2 name=${1##*/} st wrong missed cases left
+  local f=$1 work=$2 name=${1##*/} st wrong missed cases skipped left
   st=$(cat "$work/${f//\//_}.st")
   wrong=$(tap_verify "$work/$name.tap")
   missed=$(grep -c '^not ok' "$work/$name.tap")
   cases=$(grep -cE '^(not )?ok' "$work/$name.tap")
+  skipped=$(grep -cE '^ok [0-9]+ - .* # SKIP ' "$work/$name.tap")
+  [ "$skipped" -eq 0 ] || cases="$cases, skipped: $skipped"
   left=$(ls -A "$work/$name.tmp" 2>&1 | head -3 | paste -sd' ')
   if [ -n "$wrong" ]; then
     echo "  FAIL $f --self-test does not print TAP: $wrong"
@@ -324,6 +326,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   fixture liar.sh    'printf "not ok 1 - x\n1..1\n"; exit 0'
   fixture gloom.sh   'printf "ok 1 - x\n1..1\n"; exit 1'
   fixture red.sh     'printf "ok 1 - x\nnot ok 2 - y\n# why\n1..2\n"; exit 1'
+  fixture skip.sh    'printf "ok 1 - x\nok 2 - y # SKIP no tool\n1..2\n"'
   fixture untap.sh   'echo PASS; echo boom >&2'
   fixture pipe.sh    '[ -n "$(trap -p PIPE)" ] && printf "ok 1 - deaf\n1..1\n"'
   fixture selftest.sh 'printf "ok 1 - gate\n1..1\n"'
@@ -338,6 +341,8 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   line() { grep -F " s/$1 " <<<"$out"; }
   tap_is "a self-test that prints TAP and exits 0 passes the sweep" \
     "$(line good.sh)" "  ok  s/good.sh (cases: 1)"
+  tap_is "a skipped case passes the sweep and is counted" \
+    "$(line skip.sh)" "  ok  s/skip.sh (cases: 2, skipped: 1)"
   tap_like "a self-test that does not print TAP fails the sweep" \
     "$(line untap.sh)" "  FAIL s/untap.sh --self-test does not print TAP: *"
   tap_is "a self-test exiting 0 over a failed case fails the sweep" \
@@ -368,7 +373,7 @@ if [ "${BASH_SOURCE[0]}" = "$0" ] && [ "${1:-}" = "--self-test" ]; then
   tap_is "a .py script runs under python3" "$(line plain.py)" "  ok  s/plain.py (cases: 1)"
   tap_is "verdicts print in file order, whatever finishes first" \
     "$(sed -n 's/^  [A-Z ok]* s\/\([^ ]*\) .*/\1/p' <<<"$out" | paste -sd' ')" \
-    "a_slow.sh bg.sh gloom.sh good.sh leak.sh liar.sh pipe.sh red.sh selftest.sh snake.sh tidy.sh untap.sh plain.py"
+    "a_slow.sh bg.sh gloom.sh good.sh leak.sh liar.sh pipe.sh red.sh selftest.sh skip.sh snake.sh tidy.sh untap.sh plain.py"
   tap_is "a passing self-test's stderr is not shown" "$(grep -c noise <<<"$out")" 0
   tap_is "a sweep with any failure fails" "$st" 1
   cp s/good.sh s/snake.sh green/

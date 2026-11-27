@@ -6,10 +6,13 @@ Usage:
 
     t = Tap()
     t.check(cond, "<name>", "<detail>", ...)
+    t.skip("<name>", "<reason>")
     return t.end()
 
 Each check prints `ok N - <name>` or `not ok N - <name>` and, on a miss,
-its details as `# ` lines; end prints the plan `1..N` and returns the exit
+its details as `# ` lines; skip prints `ok N - <name> # SKIP <reason>` for a
+case whose tool is not installed where it runs, which neither holds nor
+fails; end prints the plan `1..N` and returns the exit
 status, 0 when every case held, else 1. tap.sh states what a name must be
 and where the code under test prints. project(folder) makes a fixture
 folder a project, as tap.sh's tap_project does. `with scratch():` around a
@@ -37,6 +40,10 @@ class Tap:
             for line in "\n".join(detail).splitlines():
                 print(f"# {line}")
         return cond
+
+    def skip(self, name: str, reason: str) -> None:
+        self.n += 1
+        print(f"ok {self.n} - {name} # SKIP {reason}")
 
     def end(self) -> int:
         print(f"1..{self.n}")
@@ -85,6 +92,16 @@ def self_test() -> int:
         held.check(True, "one")
         status = held.end()
     t.check(status == 0, "a run whose cases all held exits 0")
+    out = io.StringIO()
+    with contextlib.redirect_stdout(out):
+        skipped = Tap()
+        skipped.skip("one", "no tool")
+        status = skipped.end()
+    t.check(
+        (out.getvalue(), status) == ("ok 1 - one # SKIP no tool\n1..1\n", 0),
+        "a skipped case names its reason and fails nothing",
+        out.getvalue(),
+    )
     with tempfile.TemporaryDirectory() as d:
         project(os.path.join(d, "p"))
         with open(os.path.join(d, "p", ".claude", "project")) as f:
